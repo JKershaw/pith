@@ -539,3 +539,100 @@ export class OldClass {}
     }
   });
 });
+
+describe('extractDocs', () => {
+  it('returns complete DocsInfo structure', async () => {
+    const ctx = createProject(fixtureDir);
+    const { extractDocs } = await import('./docs.ts');
+    const docsInfo = await extractDocs(ctx, 'src/auth.ts', fixtureDir);
+
+    assert.ok(docsInfo);
+    assert.ok(typeof docsInfo === 'object');
+    assert.ok('jsdoc' in docsInfo);
+    assert.ok('inlineComments' in docsInfo);
+    assert.ok('readme' in docsInfo);
+    assert.ok('todos' in docsInfo);
+    assert.ok('deprecations' in docsInfo);
+  });
+
+  it('includes JSDoc for all functions', async () => {
+    const ctx = createProject(fixtureDir);
+    const { extractDocs } = await import('./docs.ts');
+    const docsInfo = await extractDocs(ctx, 'src/auth.ts', fixtureDir);
+
+    assert.ok(docsInfo.jsdoc);
+    assert.ok(docsInfo.jsdoc['createSession']);
+    assert.strictEqual(docsInfo.jsdoc['createSession']?.description, 'Creates a new session for a user.');
+
+    assert.ok(docsInfo.jsdoc['validateToken']);
+    assert.strictEqual(docsInfo.jsdoc['validateToken']?.description, 'Validates a session token.');
+  });
+
+  it('includes inline comments', async () => {
+    const ctx = createProject(fixtureDir);
+    const { extractDocs } = await import('./docs.ts');
+    const docsInfo = await extractDocs(ctx, 'src/auth.ts', fixtureDir);
+
+    assert.ok(Array.isArray(docsInfo.inlineComments));
+    assert.ok(docsInfo.inlineComments.length > 0);
+
+    const todoComment = docsInfo.inlineComments.find((c) => c.text.includes('TODO'));
+    assert.ok(todoComment);
+  });
+
+  it('includes README content', async () => {
+    const ctx = createProject(fixtureDir);
+    const { extractDocs } = await import('./docs.ts');
+    const docsInfo = await extractDocs(ctx, 'src/auth.ts', fixtureDir);
+
+    assert.ok(docsInfo.readme);
+    assert.ok(docsInfo.readme.includes('# Simple Project'));
+  });
+
+  it('includes TODOs', async () => {
+    const ctx = createProject(fixtureDir);
+    const { extractDocs } = await import('./docs.ts');
+    const docsInfo = await extractDocs(ctx, 'src/auth.ts', fixtureDir);
+
+    assert.ok(Array.isArray(docsInfo.todos));
+    assert.ok(docsInfo.todos.length > 0);
+
+    const todoItem = docsInfo.todos.find((t) => t.type === 'TODO');
+    assert.ok(todoItem);
+  });
+
+  it('includes deprecations', async () => {
+    const ctx = createProject(fixtureDir);
+    const { extractDocs } = await import('./docs.ts');
+    const docsInfo = await extractDocs(ctx, 'src/user-service.ts', fixtureDir);
+
+    assert.ok(Array.isArray(docsInfo.deprecations));
+    assert.ok(docsInfo.deprecations.length > 0);
+
+    const classDeprecation = docsInfo.deprecations.find((d) => d.entityName === 'UserService');
+    assert.ok(classDeprecation);
+  });
+
+  it('includes JSDoc for classes and methods', async () => {
+    const ctx = createProject(fixtureDir);
+    const { extractDocs } = await import('./docs.ts');
+    const docsInfo = await extractDocs(ctx, 'src/user-service.ts', fixtureDir);
+
+    assert.ok(docsInfo.jsdoc);
+    assert.ok(docsInfo.jsdoc['UserService']);
+    assert.strictEqual(docsInfo.jsdoc['UserService']?.description, 'Service for managing users.');
+
+    assert.ok(docsInfo.jsdoc['createUser']);
+    assert.strictEqual(docsInfo.jsdoc['createUser']?.description, 'Creates a new user.');
+  });
+
+  it('handles files with no README gracefully', async () => {
+    const ctx = createProject(fixtureDir);
+    const { extractDocs } = await import('./docs.ts');
+    const srcDir = join(fixtureDir, 'src');
+    const docsInfo = await extractDocs(ctx, 'src/auth.ts', srcDir);
+
+    // src directory has no README
+    assert.strictEqual(docsInfo.readme, undefined);
+  });
+});

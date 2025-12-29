@@ -181,4 +181,35 @@ describe('storeExtracted', () => {
     assert.strictEqual(stored.path, 'src/types.ts');
     assert.ok(stored.interfaces.length >= 2);
   });
+
+  it('stores ExtractedFile with docs field', async () => {
+    // Close the DB from the previous test first
+    await closeDb();
+
+    testDir = await mkdtemp(join(tmpdir(), 'pith-test-'));
+    const db = await getDb(testDir);
+
+    const ctx = createProject(fixtureDir);
+    const extracted = extractFile(ctx, 'src/auth.ts');
+
+    // Add docs data
+    const { extractDocs } = await import('./docs.ts');
+    const docs = await extractDocs(ctx, 'src/auth.ts', fixtureDir);
+    extracted.docs = docs;
+
+    await storeExtracted(db, extracted);
+
+    // Verify data was stored with docs
+    const collection = db.collection<ExtractedFile>('extracted');
+    const stored = await collection.findOne({ path: 'src/auth.ts' });
+
+    assert.ok(stored);
+    assert.strictEqual(stored.path, 'src/auth.ts');
+    assert.ok(stored.docs);
+    assert.ok(stored.docs.jsdoc);
+    assert.ok(stored.docs.jsdoc['createSession']);
+    assert.ok(Array.isArray(stored.docs.inlineComments));
+    assert.ok(Array.isArray(stored.docs.todos));
+    assert.ok(stored.docs.readme);
+  });
 });

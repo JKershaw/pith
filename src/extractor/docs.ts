@@ -53,6 +53,17 @@ export interface Deprecation {
 }
 
 /**
+ * Complete documentation information for a file.
+ */
+export interface DocsInfo {
+  jsdoc: Record<string, JSDoc>; // function/class name -> JSDoc
+  inlineComments: InlineComment[];
+  readme?: string;
+  todos: Todo[];
+  deprecations: Deprecation[];
+}
+
+/**
  * Extract JSDoc from a function, method, or class declaration.
  * @param node - The node to extract JSDoc from
  * @returns JSDoc data or null if no JSDoc is present
@@ -372,4 +383,71 @@ export function extractDeprecations(ctx: ProjectContext, relativePath: string): 
   }
 
   return deprecations;
+}
+
+/**
+ * Extract all documentation data from a file.
+ * @param ctx - ProjectContext
+ * @param relativePath - Relative path to file
+ * @param dirPath - Absolute path to directory (for README)
+ * @returns Complete documentation info
+ */
+export async function extractDocs(
+  ctx: ProjectContext,
+  relativePath: string,
+  dirPath: string,
+): Promise<DocsInfo> {
+  const fullPath = join(ctx.rootDir, relativePath);
+  const sourceFile = ctx.project.addSourceFileAtPath(fullPath);
+
+  // Build JSDoc map for functions, classes, and methods
+  const jsdoc: Record<string, JSDoc> = {};
+
+  // Extract JSDoc from functions
+  const functions = sourceFile.getFunctions();
+  for (const func of functions) {
+    const doc = extractJSDoc(func);
+    if (doc) {
+      const name = func.getName();
+      if (name) {
+        jsdoc[name] = doc;
+      }
+    }
+  }
+
+  // Extract JSDoc from classes and their methods
+  const classes = sourceFile.getClasses();
+  for (const cls of classes) {
+    const classDoc = extractJSDoc(cls);
+    if (classDoc) {
+      const className = cls.getName();
+      if (className) {
+        jsdoc[className] = classDoc;
+      }
+    }
+
+    // Extract JSDoc from methods
+    const methods = cls.getMethods();
+    for (const method of methods) {
+      const methodDoc = extractJSDoc(method);
+      if (methodDoc) {
+        const methodName = method.getName();
+        jsdoc[methodName] = methodDoc;
+      }
+    }
+  }
+
+  // Extract other doc types
+  const inlineComments = extractInlineComments(ctx, relativePath);
+  const readme = await extractReadme(dirPath);
+  const todos = extractTodos(ctx, relativePath);
+  const deprecations = extractDeprecations(ctx, relativePath);
+
+  return {
+    jsdoc,
+    inlineComments,
+    readme: readme ?? undefined,
+    todos,
+    deprecations,
+  };
 }
