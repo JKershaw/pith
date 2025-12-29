@@ -240,18 +240,134 @@ This covers the main questions developers ask:
 
 ---
 
-## Testing Strategy
+## Coding Style: Functional, Minimal Abstraction
 
-**Decision**: Integration tests over unit tests for extraction.
+**Decision**: Write functional-style code. Avoid unnecessary abstractions.
+
+**Principles**:
+- **Functions over classes**: Pure functions that take data and return data
+- **Data over behavior**: Plain objects and arrays, not class instances with methods
+- **Explicit over clever**: Obvious code beats elegant code
+- **Flat over nested**: Avoid deep inheritance or abstraction layers
+- **Copy over abstract**: It's okay to repeat 3 lines rather than create a helper
+
+**What this looks like**:
+```typescript
+// Good: plain function, explicit types, no hidden state
+function buildFileNode(file: ExtractedFile, gitData: GitInfo): WikiNode {
+  return {
+    id: file.path,
+    type: 'file',
+    path: file.path,
+    name: basename(file.path),
+    metadata: {
+      lines: file.lines,
+      commits: gitData.commits,
+      lastModified: gitData.lastModified,
+      authors: gitData.authors,
+    },
+    edges: file.imports.map(imp => ({ type: 'imports', target: imp })),
+    raw: { signature: file.signature, jsdoc: file.jsdoc },
+  };
+}
+
+// Bad: class with internal state, methods that mutate
+class FileNodeBuilder {
+  private node: Partial<WikiNode> = {};
+
+  setFile(file: ExtractedFile) { this.node.path = file.path; return this; }
+  setGit(git: GitInfo) { this.node.metadata = { ... }; return this; }
+  build() { return this.node as WikiNode; }
+}
+```
 
 **Rationale**:
-- Extraction is I/O heavy (files, git)
-- Mocking file systems is brittle
-- Real codebases reveal edge cases
-- Test against fixture repositories
+- Easier to test (no mocking, just call function with args)
+- Easier to modify (change one function, not a class hierarchy)
+- Easier to understand (all inputs visible, no hidden state)
+- Matches the data-processing nature of extraction/building
 
-**Unit tests for**:
-- Node building logic
-- Edge computation
-- Prose parsing
-- API routes
+---
+
+## Testing: TDD with Node's Test Runner
+
+**Decision**: Test-driven development using Node's built-in test runner (`node:test`).
+
+**Process**:
+1. Write a failing test that describes the behavior
+2. Write minimal code to make it pass
+3. Refactor if needed
+4. Repeat
+
+**Test runner**: Node's built-in `node:test` module.
+
+```typescript
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+
+describe('buildFileNode', () => {
+  it('creates node with correct path', () => {
+    const file = { path: 'src/auth.ts', lines: 50, imports: [] };
+    const git = { commits: 10, lastModified: new Date(), authors: ['alice'] };
+
+    const node = buildFileNode(file, git);
+
+    assert.strictEqual(node.path, 'src/auth.ts');
+    assert.strictEqual(node.type, 'file');
+  });
+
+  it('maps imports to edges', () => {
+    const file = { path: 'src/auth.ts', imports: ['src/session.ts', 'src/crypto.ts'] };
+    const git = { commits: 5, lastModified: new Date(), authors: [] };
+
+    const node = buildFileNode(file, git);
+
+    assert.strictEqual(node.edges.length, 2);
+    assert.deepStrictEqual(node.edges[0], { type: 'imports', target: 'src/session.ts' });
+  });
+});
+```
+
+**Why Node's test runner**:
+- Zero dependencies (built into Node 18+)
+- Simple API, no magic
+- Native TypeScript support via `--experimental-strip-types` (Node 22+) or tsx
+- Fast startup, no compilation step
+
+**Alternatives rejected**:
+- Jest: Heavy, slow, complex mocking we don't need
+- Vitest: Good, but unnecessary dependency
+- Mocha/Chai: Extra dependencies for no benefit
+
+**Test organization**:
+```
+src/
+├── extractor/
+│   ├── ast.ts
+│   └── ast.test.ts      # Tests next to source
+├── builder/
+│   ├── index.ts
+│   └── index.test.ts
+└── ...
+test/
+└── fixtures/            # Fixture repos for integration tests
+    └── simple-project/
+```
+
+**Running tests**:
+```bash
+# Run all tests
+node --test
+
+# Run specific test file
+node --test src/builder/index.test.ts
+
+# With coverage
+node --test --experimental-test-coverage
+```
+
+**What to test**:
+- Every public function gets tests
+- Tests describe behavior, not implementation
+- Integration tests use fixture directories with real files
+- Extraction tests run against actual (small) git repos
