@@ -6,37 +6,85 @@ Phased build plan from zero to useful. Each phase follows TDD: write failing tes
 
 **Goal**: Extract facts from a TypeScript codebase and store structured data.
 
-### Deliverables
+See [EXTRACTION.md](EXTRACTION.md) for complete data definitions and types.
 
-1. **Project setup**
-   - TypeScript project with ESM
-   - CLI scaffold with commander
-   - Node test runner configured (`node --test`)
-   - Test fixture: small TypeScript project in `test/fixtures/simple-project/`
+### 1.0 Project Setup
 
-2. **AST extractor** (`pith extract`)
-   - Tests first: `extractFile()` returns expected structure for fixture files
-   - Parse `.ts` files with ts-morph
-   - Extract: files, functions, classes, imports, exports
-   - Store to MangoDB `extracted` collection
+Complete these before any extraction work:
 
-3. **Git extractor**
-   - Tests first: `extractGitInfo()` returns commits, authors for fixture repo
-   - Read commit history with simple-git
-   - Extract: commits per file, authors, last modified dates
-   - Store to MangoDB `extracted` collection
+| Step | Test | Implementation |
+|------|------|----------------|
+| 1.0.1 | - | Initialize TypeScript project with ESM, strict mode |
+| 1.0.2 | - | Add dependencies: ts-morph, simple-git, commander, @jkershaw/mangodb |
+| 1.0.3 | `node --test` runs | Configure Node test runner |
+| 1.0.4 | - | Create `test/fixtures/simple-project/` with sample .ts files |
+| 1.0.5 | - | Initialize fixture as git repo with sample commits |
+| 1.0.6 | CLI shows help | Scaffold CLI with `pith extract <path>` command |
+| 1.0.7 | Can connect/query | Set up MangoDB connection helper |
 
-4. **Docs extractor**
-   - Tests first: `extractDocs()` returns JSDoc and README content
-   - Extract JSDoc from functions/classes
-   - Extract README.md content per directory
-   - Store to MangoDB `extracted` collection
+### 1.1 AST Extraction
 
-### Exit Criteria
+One data point at a time. Each row = one test + one implementation.
 
-- All extractor tests pass
-- Running `pith extract ./project` populates MangoDB with extraction data
-- Can query extracted data: `db.collection('extracted').find({ type: 'file' })`
+| Step | Data | Test | Implementation |
+|------|------|------|----------------|
+| 1.1.1 | File discovery | `findFiles()` returns all .ts paths in fixture | Glob for .ts files |
+| 1.1.2 | File path (A1) | `extractFile()` returns correct path | Store relative path |
+| 1.1.3 | Line count (A2) | Returns correct line count | Count newlines |
+| 1.1.4 | Imports (A3) | Returns import list with `from` and `names` | Parse ImportDeclaration |
+| 1.1.5 | Exports (A4) | Returns export list with `name` and `kind` | Parse ExportDeclaration |
+| 1.1.6 | Functions basic (A5) | Returns function name and signature | Parse FunctionDeclaration |
+| 1.1.7 | Classes basic (A6) | Returns class name and method names | Parse ClassDeclaration |
+| 1.1.8 | Interfaces (A7) | Returns interface names and properties | Parse InterfaceDeclaration |
+| 1.1.9 | Function params (A8) | Returns parameter names and types | Extract from signature |
+| 1.1.10 | Return types (A9) | Returns function return types | Extract from signature |
+| 1.1.11 | Async markers (A10) | Correctly identifies async functions | Check async modifier |
+| 1.1.12 | Store AST | Data persists in MangoDB | Insert to `extracted` collection |
+
+**Checkpoint**: `pith extract ./fixture` stores all AST data. Can query functions, imports.
+
+### 1.2 Git Extraction
+
+| Step | Data | Test | Implementation |
+|------|------|------|----------------|
+| 1.2.1 | Commit count (G1) | Returns correct count for fixture file | `git log --follow` |
+| 1.2.2 | Last modified (G2) | Returns correct date | Parse most recent commit |
+| 1.2.3 | Created date (G3) | Returns date of first commit | `git log --diff-filter=A` |
+| 1.2.4 | Authors (G4) | Returns unique author list | Collect from commits |
+| 1.2.5 | Recent commits (G5) | Returns last 5 commit messages | `git log -n 5` |
+| 1.2.6 | Primary author (G6) | Returns author with most commits | Count and sort |
+| 1.2.7 | Store Git | Git data persists in MangoDB | Update `extracted` docs |
+
+**Checkpoint**: Each extracted file has complete git metadata.
+
+### 1.3 Documentation Extraction
+
+| Step | Data | Test | Implementation |
+|------|------|------|----------------|
+| 1.3.1 | JSDoc (D1) | Extracts description, @param, @returns | Parse JSDoc comments |
+| 1.3.2 | Inline comments (D2) | Extracts comments near functions | Find comment nodes |
+| 1.3.3 | README (D3) | Extracts README.md per directory | Read file if exists |
+| 1.3.4 | TODO comments (D4) | Finds TODO/FIXME with line numbers | Regex scan |
+| 1.3.5 | Deprecations (D5) | Extracts @deprecated messages | Parse JSDoc tag |
+| 1.3.6 | Store Docs | Doc data persists in MangoDB | Update `extracted` docs |
+
+**Checkpoint**: Full extraction complete. All data queryable.
+
+### 1.4 CLI Integration
+
+| Step | Test | Implementation |
+|------|------|----------------|
+| 1.4.1 | `pith extract ./path` runs all extractors | Wire up CLI to extractors |
+| 1.4.2 | Handles missing path gracefully | Error handling |
+| 1.4.3 | Handles parse errors gracefully | Try/catch per file |
+| 1.4.4 | Shows progress | Console output |
+
+### Phase 1 Exit Criteria
+
+- [ ] All 30+ extraction tests pass
+- [ ] `pith extract ./project` populates MangoDB
+- [ ] Can query: `db.collection('extracted').find({ 'functions.name': 'login' })`
+- [ ] Fixture project fully extracted with all data points
 
 ---
 
@@ -44,32 +92,81 @@ Phased build plan from zero to useful. Each phase follows TDD: write failing tes
 
 **Goal**: Transform raw extraction into navigable nodes with edges.
 
-### Deliverables
+### 2.1 File Nodes
 
-1. **Node builder** (`pith build`)
-   - Tests first: `buildFileNode()` creates correct node structure
-   - Tests first: `buildModuleNode()` aggregates child files
-   - Create `file` nodes from AST data
-   - Create `function` nodes for exported functions
-   - Create `module` nodes for directories with index.ts
-   - Store to MangoDB `nodes` collection
+| Step | Test | Implementation |
+|------|------|----------------|
+| 2.1.1 | `buildFileNode()` returns correct structure | Create basic file node from extracted data |
+| 2.1.2 | Node has correct `id` (path-based) | Generate deterministic ID |
+| 2.1.3 | Node has correct `name` (basename) | Extract filename |
+| 2.1.4 | Node has `metadata.lines` | Copy from extracted |
+| 2.1.5 | Node has `metadata.commits` | Copy from git data |
+| 2.1.6 | Node has `metadata.lastModified` | Copy from git data |
+| 2.1.7 | Node has `metadata.authors` | Copy from git data |
+| 2.1.8 | Node has `raw.signature` | Copy function signatures |
+| 2.1.9 | Node has `raw.jsdoc` | Copy JSDoc |
+| 2.1.10 | Node has `raw.imports` | Copy import list |
+| 2.1.11 | Node has `raw.exports` | Copy export list |
+| 2.1.12 | Node has `raw.recentCommits` | Copy recent commits |
+| 2.1.13 | Store file nodes | Insert to `nodes` collection |
 
-2. **Edge creation**
-   - Tests first: `computeEdges()` creates correct relationships
-   - `contains` edges: module → files, file → functions
-   - `imports` edges: file → file based on import statements
+**Checkpoint**: All files have nodes with complete metadata and raw data.
 
-3. **Metadata computation**
-   - Tests first: `computeMetadata()` calculates correct values
-   - Lines of code per file
-   - Commit count, last modified, authors from git data
-   - Fan-in/fan-out from import graph
+### 2.2 Function Nodes
 
-### Exit Criteria
+| Step | Test | Implementation |
+|------|------|----------------|
+| 2.2.1 | `shouldCreateFunctionNode()` returns true for exported functions | Heuristic check |
+| 2.2.2 | `buildFunctionNode()` returns correct structure | Create function node |
+| 2.2.3 | Node has correct `id` (file:function) | Generate ID |
+| 2.2.4 | Node has `raw.signature` | Copy signature |
+| 2.2.5 | Node has `raw.jsdoc` | Copy function's JSDoc |
+| 2.2.6 | Store function nodes | Insert to `nodes` collection |
 
-- All builder tests pass
-- Running `pith build` populates MangoDB `nodes` collection
-- Can traverse: `nodes.findOne({ type: 'module' })` → get children → get their imports
+### 2.3 Module Nodes
+
+| Step | Test | Implementation |
+|------|------|----------------|
+| 2.3.1 | `shouldCreateModuleNode()` true for dirs with index.ts | Heuristic check |
+| 2.3.2 | `shouldCreateModuleNode()` true for dirs with 3+ files | Heuristic check |
+| 2.3.3 | `buildModuleNode()` returns correct structure | Create module node |
+| 2.3.4 | Node has `raw.readme` | Copy README if exists |
+| 2.3.5 | Store module nodes | Insert to `nodes` collection |
+
+### 2.4 Edges
+
+| Step | Test | Implementation |
+|------|------|----------------|
+| 2.4.1 | `contains` edge: module → file | Create edge for each file in module |
+| 2.4.2 | `contains` edge: file → function | Create edge for each function node |
+| 2.4.3 | `imports` edge: file → file | Create edge for each import |
+| 2.4.4 | `parent` edge: file → module | Reverse of contains |
+| 2.4.5 | Edges stored on nodes | Add to `edges` array |
+
+### 2.5 Computed Metadata
+
+| Step | Data | Test | Implementation |
+|------|------|------|----------------|
+| 2.5.1 | Fan-in (C1) | Correct count of incoming imports | Count `imports` edges targeting node |
+| 2.5.2 | Fan-out (C2) | Correct count of outgoing imports | Count node's import edges |
+| 2.5.3 | Age (C3) | Correct days since creation | Calculate from createdAt |
+| 2.5.4 | Recency (C4) | Correct days since last change | Calculate from lastModified |
+| 2.5.5 | Update nodes | Computed data persists | Update nodes in collection |
+
+### 2.6 CLI Integration
+
+| Step | Test | Implementation |
+|------|------|----------------|
+| 2.6.1 | `pith build` creates all nodes | Wire up CLI |
+| 2.6.2 | Build requires extract first | Check extracted data exists |
+| 2.6.3 | Shows progress | Console output |
+
+### Phase 2 Exit Criteria
+
+- [ ] All 25+ builder tests pass
+- [ ] `pith build` populates MangoDB `nodes` collection
+- [ ] Can traverse: module → files → functions
+- [ ] Can query by fan-in: `nodes.find({ 'metadata.fanIn': { $gt: 5 } })`
 
 ---
 

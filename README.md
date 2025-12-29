@@ -77,5 +77,6 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the build plan.
 
 - [Architecture](docs/ARCHITECTURE.md) — How the system works
 - [Concepts](docs/CONCEPTS.md) — Nodes, edges, fractal structure
+- [Extraction](docs/EXTRACTION.md) — What data is extracted from code and git
 - [Roadmap](docs/ROADMAP.md) — Build phases and milestones
 - [Technical Decisions](docs/TECHNICAL_DECISIONS.md) — Key choices and rationale
