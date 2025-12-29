@@ -460,7 +460,8 @@ program
     const model = options.model || process.env.OPENROUTER_MODEL || config.llm?.model || 'anthropic/claude-sonnet-4';
 
     // For estimation and dry-run, we don't need the API key
-    if (!apiKey && !options.estimate && !outputOptions.dryRun) {
+    const needsApiKey = !options.estimate && !outputOptions.dryRun;
+    if (!apiKey && needsApiKey) {
       logError('Error: OPENROUTER_API_KEY is required');
       logError('Set it in .env file or with: export OPENROUTER_API_KEY=your-key');
       process.exit(1);
@@ -469,7 +470,7 @@ program
     const generatorConfig: GeneratorConfig = {
       provider: 'openrouter',
       model,
-      apiKey,
+      apiKey: apiKey ?? '', // Empty string for estimate/dry-run modes
     };
 
     try {

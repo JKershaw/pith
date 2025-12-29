@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
@@ -66,6 +66,8 @@ export async function saveExtractionCache(
   dataDir: string,
   cache: ExtractionCache
 ): Promise<void> {
+  // Ensure directory exists before writing
+  await mkdir(dataDir, { recursive: true });
   const cachePath = join(dataDir, 'extraction-cache.json');
   await writeFile(cachePath, JSON.stringify(cache, null, 2), 'utf-8');
 }

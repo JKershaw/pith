@@ -86,15 +86,15 @@ export async function loadConfig(rootDir?: string): Promise<PithConfig> {
       }
     }
 
-    // Merge with defaults
+    // Merge with defaults (use ?? to preserve empty arrays/strings)
     const config: PithConfig = {
       extraction: {
-        include: userConfig.extraction?.include || DEFAULT_CONFIG.extraction.include,
-        exclude: userConfig.extraction?.exclude || DEFAULT_CONFIG.extraction.exclude,
+        include: userConfig.extraction?.include ?? DEFAULT_CONFIG.extraction.include,
+        exclude: userConfig.extraction?.exclude ?? DEFAULT_CONFIG.extraction.exclude,
       },
       llm: userConfig.llm,
       output: {
-        dataDir: userConfig.output?.dataDir || DEFAULT_CONFIG.output.dataDir,
+        dataDir: userConfig.output?.dataDir ?? DEFAULT_CONFIG.output.dataDir,
       },
     };
 

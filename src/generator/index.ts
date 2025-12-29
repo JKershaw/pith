@@ -246,10 +246,14 @@ function isRetryableError(error: Error, status?: number): boolean {
   // Retry on server errors (5xx)
   if (status && status >= 500) return true;
 
+  // Retry on AbortError (timeout via AbortController)
+  if (error.name === 'AbortError') return true;
+
   // Retry on network/timeout errors
   if (error.message.includes('timeout') ||
       error.message.includes('network') ||
-      error.message.includes('ECONNRESET')) {
+      error.message.includes('ECONNRESET') ||
+      error.message.includes('aborted')) {
     return true;
   }
 
