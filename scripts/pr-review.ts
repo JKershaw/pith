@@ -120,9 +120,10 @@ function getRepoInfo(): { owner: string; repo: string } | null {
     // https://github.com/owner/repo.git
     // git@github.com:owner/repo.git
     // http://proxy/git/owner/repo
+    // Repo names can contain: letters, numbers, hyphens, underscores, dots
     const patterns = [
-      /github\.com[/:]([\w-]+)\/([\w-]+?)(?:\.git)?$/,
-      /\/git\/([\w-]+)\/([\w-]+?)(?:\.git)?$/,
+      /github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?$/,
+      /\/git\/([\w.-]+)\/([\w.-]+?)(?:\.git)?$/,
     ];
 
     for (const pattern of patterns) {
