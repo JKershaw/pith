@@ -2,21 +2,57 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 5 (Polish) - MVP COMPLETE
-**Current step**: Phase 6.1 - On-Demand Prose Generation
+**Last completed phase**: Phase 6.1 - On-Demand Prose Generation
+**Current step**: Phase 6.2 - Test File Mapping
 **Date**: 2025-12-29
 
-### Next Up: Phase 6 - On-Demand Generation & Task-Oriented Context
+### Phase 6 - On-Demand Generation & Task-Oriented Context
 
 Based on testing validation (see `docs/testing-plan.md`), prioritized improvements:
 
 | Priority | Feature | Status |
 |----------|---------|--------|
-| 1 | On-demand prose generation | TODO |
+| 1 | On-demand prose generation | **DONE** |
 | 2 | Test file mapping | TODO |
 | 3 | Modification impact in context | TODO |
 | 4 | Pattern examples | TODO |
 | 5 | Gotcha validation | TODO |
+
+---
+
+## Phase 6.1: On-Demand Prose Generation - COMPLETE
+
+### Implementation Summary
+| Step | Description | Status |
+|------|-------------|--------|
+| 6.1.1 | Modify `/node/:path` to check for prose | Done |
+| 6.1.2 | Add `generateProseForNode()` function | Done |
+| 6.1.3 | Cache generated prose in DB | Done (existing) |
+| 6.1.4 | Add `--lazy` flag to `pith serve` | Done |
+| 6.1.5 | Keep `pith generate` for batch pre-generation | Done (unchanged) |
+| 6.1.6 | Add `?prose=false` query param | Done |
+
+### Key Changes
+- **Generator**: New `generateProseForNode()` function for single-node generation
+- **API**: `/node/:path` auto-generates prose when missing (unless `?prose=false`)
+- **CLI**: `pith serve --lazy` (default) enables on-demand generation
+- **Tests**: 7 new tests added (241 total, all passing)
+
+### Usage
+```bash
+# Start server with lazy generation (default)
+export OPENROUTER_API_KEY=your-key
+pith serve
+
+# Start server without lazy generation
+pith serve --no-lazy
+
+# Get node (auto-generates prose if missing)
+curl http://localhost:3000/node/src/auth/login.ts
+
+# Skip prose generation
+curl http://localhost:3000/node/src/auth/login.ts?prose=false
+```
 
 ---
 
@@ -293,15 +329,15 @@ Based on testing validation (see `docs/testing-plan.md`), prioritized improvemen
 
 ## Test Summary
 
-As of 2025-12-29:
-- **Total tests**: 234
+As of 2025-12-29 (Phase 6.1):
+- **Total tests**: 241
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 60
+- **Test suites**: 62
 
 Commands:
 ```bash
-npm test      # 234 tests pass
+npm test      # 241 tests pass
 npm run lint  # No errors
 ```
 
