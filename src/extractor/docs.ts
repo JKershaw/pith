@@ -44,6 +44,15 @@ export interface Todo {
 }
 
 /**
+ * Deprecation information.
+ */
+export interface Deprecation {
+  entityName: string; // Name of deprecated function/class/method
+  message: string; // The deprecation message
+  line: number; // Line where the entity is declared
+}
+
+/**
  * Extract JSDoc from a function, method, or class declaration.
  * @param node - The node to extract JSDoc from
  * @returns JSDoc data or null if no JSDoc is present
@@ -144,7 +153,8 @@ export function extractJSDoc(
   const deprecatedTag = tags.find((tag) => tag.getTagName() === 'deprecated');
   if (deprecatedTag) {
     const comment = deprecatedTag.getComment();
-    deprecated = typeof comment === 'string' ? comment : undefined;
+    // Set to empty string if tag exists but has no comment
+    deprecated = typeof comment === 'string' ? comment : '';
   }
 
   // Extract @example tags (can be multiple)
@@ -311,4 +321,55 @@ export async function extractReadme(dirPath: string): Promise<string | null> {
     // Directory doesn't exist or can't be read
     return null;
   }
+}
+
+/**
+ * Extract deprecations from a TypeScript file.
+ * Finds all @deprecated markers and returns information about deprecated entities.
+ * @param ctx - The project context
+ * @param relativePath - The relative path to the file
+ * @returns Array of deprecations with entity name, message, and line number
+ */
+export function extractDeprecations(ctx: ProjectContext, relativePath: string): Deprecation[] {
+  const fullPath = join(ctx.rootDir, relativePath);
+  const sourceFile = ctx.project.addSourceFileAtPath(fullPath);
+  const deprecations: Deprecation[] = [];
+
+  // Extract deprecations from classes
+  const classes = sourceFile.getClasses();
+  for (const cls of classes) {
+    const jsdoc = extractJSDoc(cls);
+    if (jsdoc?.deprecated !== undefined) {
+      const entityName = cls.getName() || 'anonymous';
+      const message = jsdoc.deprecated || '';
+      const line = cls.getStartLineNumber();
+      deprecations.push({ entityName, message, line });
+    }
+
+    // Extract deprecations from methods
+    const methods = cls.getMethods();
+    for (const method of methods) {
+      const methodJsdoc = extractJSDoc(method);
+      if (methodJsdoc?.deprecated !== undefined) {
+        const entityName = method.getName();
+        const message = methodJsdoc.deprecated || '';
+        const line = method.getStartLineNumber();
+        deprecations.push({ entityName, message, line });
+      }
+    }
+  }
+
+  // Extract deprecations from functions
+  const functions = sourceFile.getFunctions();
+  for (const func of functions) {
+    const jsdoc = extractJSDoc(func);
+    if (jsdoc?.deprecated !== undefined) {
+      const entityName = func.getName() || 'anonymous';
+      const message = jsdoc.deprecated || '';
+      const line = func.getStartLineNumber();
+      deprecations.push({ entityName, message, line });
+    }
+  }
+
+  return deprecations;
 }

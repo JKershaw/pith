@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createProject } from './ast.ts';
-import { extractJSDoc, extractInlineComments, extractReadme, extractTodos } from './docs.ts';
+import { extractJSDoc, extractInlineComments, extractReadme, extractTodos, extractDeprecations } from './docs.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixtureDir = join(__dirname, '../../test/fixtures/simple-project');
@@ -373,6 +373,167 @@ describe('extractTodos', () => {
       const todoItem = todos.find((t) => t.type === 'TODO');
       assert.ok(todoItem);
       assert.strictEqual(todoItem.text, 'Add feature');
+    } finally {
+      unlinkSync(tempFile);
+    }
+  });
+});
+
+describe('extractDeprecations', () => {
+  it('extracts @deprecated from class with message', () => {
+    const ctx = createProject(fixtureDir);
+    const deprecations = extractDeprecations(ctx, 'src/user-service.ts');
+
+    assert.ok(Array.isArray(deprecations));
+    assert.ok(deprecations.length > 0);
+
+    const classDeprecation = deprecations.find((d) => d.entityName === 'UserService');
+    assert.ok(classDeprecation);
+    assert.strictEqual(classDeprecation.message, 'Use UserRepository instead');
+  });
+
+  it('returns correct entity name (class name)', () => {
+    const ctx = createProject(fixtureDir);
+    const deprecations = extractDeprecations(ctx, 'src/user-service.ts');
+
+    const classDeprecation = deprecations.find((d) => d.entityName === 'UserService');
+    assert.ok(classDeprecation);
+    assert.strictEqual(classDeprecation.entityName, 'UserService');
+  });
+
+  it('returns correct line number for class', () => {
+    const ctx = createProject(fixtureDir);
+    const deprecations = extractDeprecations(ctx, 'src/user-service.ts');
+
+    const classDeprecation = deprecations.find((d) => d.entityName === 'UserService');
+    assert.ok(classDeprecation);
+    assert.strictEqual(classDeprecation.line, 7);
+  });
+
+  it('extracts @deprecated from function', async () => {
+    const ctx = createProject(fixtureDir);
+    const tempFile = join(fixtureDir, 'src/temp-deprecation-test.ts');
+    const { writeFileSync, unlinkSync } = await import('node:fs');
+
+    try {
+      writeFileSync(
+        tempFile,
+        `/**
+ * Old function
+ * @deprecated Use newFunction instead
+ */
+export function oldFunction() {
+  return 'old';
+}
+`,
+      );
+      const deprecations = extractDeprecations(ctx, 'src/temp-deprecation-test.ts');
+
+      const funcDeprecation = deprecations.find((d) => d.entityName === 'oldFunction');
+      assert.ok(funcDeprecation);
+      assert.strictEqual(funcDeprecation.message, 'Use newFunction instead');
+      assert.strictEqual(funcDeprecation.line, 5);
+    } finally {
+      unlinkSync(tempFile);
+    }
+  });
+
+  it('extracts @deprecated from method', async () => {
+    const ctx = createProject(fixtureDir);
+    const tempFile = join(fixtureDir, 'src/temp-deprecation-test.ts');
+    const { writeFileSync, unlinkSync } = await import('node:fs');
+
+    try {
+      writeFileSync(
+        tempFile,
+        `export class TestClass {
+  /**
+   * Old method
+   * @deprecated Use newMethod instead
+   */
+  oldMethod() {
+    return 'old';
+  }
+}
+`,
+      );
+      const deprecations = extractDeprecations(ctx, 'src/temp-deprecation-test.ts');
+
+      const methodDeprecation = deprecations.find((d) => d.entityName === 'oldMethod');
+      assert.ok(methodDeprecation);
+      assert.strictEqual(methodDeprecation.message, 'Use newMethod instead');
+      assert.strictEqual(methodDeprecation.line, 6);
+    } finally {
+      unlinkSync(tempFile);
+    }
+  });
+
+  it('handles files with no deprecations (returns empty array)', () => {
+    const ctx = createProject(fixtureDir);
+    const deprecations = extractDeprecations(ctx, 'src/types.ts');
+
+    assert.ok(Array.isArray(deprecations));
+    assert.strictEqual(deprecations.length, 0);
+  });
+
+  it('handles @deprecated without message', async () => {
+    const ctx = createProject(fixtureDir);
+    const tempFile = join(fixtureDir, 'src/temp-deprecation-test.ts');
+    const { writeFileSync, unlinkSync } = await import('node:fs');
+
+    try {
+      writeFileSync(
+        tempFile,
+        `/**
+ * Old function
+ * @deprecated
+ */
+export function deprecatedFunction() {
+  return 'old';
+}
+`,
+      );
+      const deprecations = extractDeprecations(ctx, 'src/temp-deprecation-test.ts');
+
+      const funcDeprecation = deprecations.find((d) => d.entityName === 'deprecatedFunction');
+      assert.ok(funcDeprecation);
+      assert.strictEqual(funcDeprecation.message, '');
+      assert.strictEqual(funcDeprecation.line, 5);
+    } finally {
+      unlinkSync(tempFile);
+    }
+  });
+
+  it('extracts multiple deprecations from same file', async () => {
+    const ctx = createProject(fixtureDir);
+    const tempFile = join(fixtureDir, 'src/temp-deprecation-test.ts');
+    const { writeFileSync, unlinkSync } = await import('node:fs');
+
+    try {
+      writeFileSync(
+        tempFile,
+        `/**
+ * @deprecated Use newFunction instead
+ */
+export function oldFunction() {}
+
+/**
+ * @deprecated Use NewClass instead
+ */
+export class OldClass {}
+`,
+      );
+      const deprecations = extractDeprecations(ctx, 'src/temp-deprecation-test.ts');
+
+      assert.strictEqual(deprecations.length, 2);
+
+      const funcDeprecation = deprecations.find((d) => d.entityName === 'oldFunction');
+      assert.ok(funcDeprecation);
+      assert.strictEqual(funcDeprecation.message, 'Use newFunction instead');
+
+      const classDeprecation = deprecations.find((d) => d.entityName === 'OldClass');
+      assert.ok(classDeprecation);
+      assert.strictEqual(classDeprecation.message, 'Use NewClass instead');
     } finally {
       unlinkSync(tempFile);
     }
