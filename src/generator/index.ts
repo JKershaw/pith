@@ -11,6 +11,7 @@ export interface ProseData {
   summary: string;           // One-line description
   purpose: string;           // 2-3 sentences explaining why this exists
   gotchas: string[];         // Array of warnings, edge cases, non-obvious behavior
+  gotchaConfidence?: ('high' | 'medium' | 'low')[]; // Confidence level for each gotcha (Phase 6.5)
   keyExports?: string[];     // Most important exports (for files)
   keyFiles?: string[];       // Most important files (for modules)
   publicApi?: string[];      // Exports that other modules should use (for modules)
@@ -216,6 +217,165 @@ export function parseLLMResponse(response: string): ProseData {
 }
 
 /**
+ * Result of validating a gotcha
+ */
+export interface ValidatedGotcha {
+  text: string;
+  confidence: 'high' | 'medium' | 'low';
+  verifiedNames: string[];
+}
+
+/**
+ * Extract code-like identifiers from text (camelCase, PascalCase, snake_case)
+ * @param text - The text to extract identifiers from
+ * @returns Array of extracted identifiers
+ */
+export function extractIdentifiers(text: string): string[] {
+  if (!text) return [];
+
+  // Match any identifier-like word (letters, numbers, underscores)
+  const identifierPattern = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
+
+  const matches = text.match(identifierPattern) || [];
+
+  // Filter out common English words and short words
+  const commonWords = new Set([
+    'the', 'is', 'at', 'which', 'on', 'a', 'an', 'as', 'are', 'was', 'were',
+    'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+    'will', 'would', 'should', 'could', 'may', 'might', 'must',
+    'can', 'to', 'of', 'in', 'for', 'with', 'this', 'that', 'from',
+    'by', 'or', 'and', 'but', 'not', 'it', 'if', 'then', 'else',
+    'function', 'requires', 'calls', 'returns', 'uses', 'needs',
+    'when', 'where', 'what', 'why', 'how', 'who', 'which',
+    'all', 'some', 'any', 'each', 'every', 'other', 'another',
+    'var', 'env', 'does', 'exist', 'intensive', 'return', 'null',
+    'their', 'about', 'after', 'also', 'before', 'between', 'both',
+    'during', 'into', 'over', 'through', 'under', 'against', 'along',
+    'among', 'around', 'because', 'before', 'behind', 'below', 'beneath',
+    'beside', 'besides', 'beyond', 'down', 'inside', 'outside', 'since',
+    'than', 'toward', 'upon', 'within', 'without', 'user'
+  ]);
+
+  return matches.filter(match => {
+    // Filter out single letters and common words
+    if (match.length <= 2 || commonWords.has(match.toLowerCase())) {
+      return false;
+    }
+
+    // Keep identifiers that have mixed case (likely code)
+    if (/[a-z].*[A-Z]|[A-Z].*[a-z]/.test(match)) {
+      return true;
+    }
+
+    // Keep identifiers with underscores (snake_case) but not all-caps with underscores (env vars)
+    if (match.includes('_')) {
+      // Exclude SCREAMING_SNAKE_CASE (likely environment variables)
+      if (match === match.toUpperCase()) {
+        return false;
+      }
+      return true;
+    }
+
+    // Exclude all-caps words (likely constants/env vars, not function names)
+    if (match === match.toUpperCase()) {
+      return false;
+    }
+
+    // For lowercase words, only keep them if they're longer and look like identifiers
+    // This catches things like "login", "logout", "session", etc.
+    if (match.length >= 4) {
+      return true;
+    }
+
+    return false;
+  });
+}
+
+/**
+ * Validate a single gotcha against node data
+ * @param gotcha - The gotcha text to validate
+ * @param node - The wiki node to validate against
+ * @returns Validation result with confidence level
+ */
+export function validateGotcha(gotcha: string, node: WikiNode): ValidatedGotcha {
+  // Extract identifiers from the gotcha text
+  const identifiers = extractIdentifiers(gotcha);
+
+  if (identifiers.length === 0) {
+    // No identifiers found - can't verify
+    return {
+      text: gotcha,
+      confidence: 'low',
+      verifiedNames: [],
+    };
+  }
+
+  // Build a set of all names in the node's raw data
+  const knownNames = new Set<string>();
+
+  // Add export names
+  if (node.raw.exports) {
+    for (const exp of node.raw.exports) {
+      knownNames.add(exp.name);
+    }
+  }
+
+  // Add function names from signatures
+  if (node.raw.signature) {
+    for (const sig of node.raw.signature) {
+      // Extract function name from signature (e.g., "login(..." -> "login")
+      const match = sig.match(/^(\w+)\(/);
+      if (match) {
+        knownNames.add(match[1]);
+      }
+    }
+  }
+
+  // Add import names
+  if (node.raw.imports) {
+    for (const imp of node.raw.imports) {
+      if (imp.names) {
+        for (const name of imp.names) {
+          knownNames.add(name);
+        }
+      }
+    }
+  }
+
+  // Check which identifiers are verified
+  const verifiedNames = identifiers.filter(id => knownNames.has(id));
+
+  // Determine confidence level
+  let confidence: 'high' | 'medium' | 'low';
+  if (verifiedNames.length === identifiers.length) {
+    // All identifiers verified
+    confidence = 'high';
+  } else if (verifiedNames.length > 0) {
+    // Some identifiers verified
+    confidence = 'medium';
+  } else {
+    // No identifiers verified
+    confidence = 'low';
+  }
+
+  return {
+    text: gotcha,
+    confidence,
+    verifiedNames,
+  };
+}
+
+/**
+ * Validate multiple gotchas against node data
+ * @param gotchas - Array of gotcha texts to validate
+ * @param node - The wiki node to validate against
+ * @returns Array of validation results
+ */
+export function validateGotchas(gotchas: string[], node: WikiNode): ValidatedGotcha[] {
+  return gotchas.map(gotcha => validateGotcha(gotcha, node));
+}
+
+/**
  * Sleep for a given number of milliseconds
  */
 async function sleep(ms: number): Promise<void> {
@@ -373,7 +533,15 @@ export async function generateProse(
   const response = await callLLM(prompt, config, fetchFn);
 
   // Parse the response into structured prose
-  return parseLLMResponse(response);
+  const prose = parseLLMResponse(response);
+
+  // Validate gotchas and add confidence levels (Phase 6.5)
+  if (prose.gotchas.length > 0) {
+    const validatedGotchas = validateGotchas(prose.gotchas, node);
+    prose.gotchaConfidence = validatedGotchas.map(v => v.confidence);
+  }
+
+  return prose;
 }
 
 /**

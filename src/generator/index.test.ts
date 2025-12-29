@@ -1,7 +1,7 @@
 import { describe, it, mock, afterEach } from 'node:test';
 import assert from 'node:assert';
 import type { ProseData, GeneratorConfig } from './index.ts';
-import { buildPrompt, parseLLMResponse, callLLM, generateProse, updateNodeWithProse, isStale, markStaleNodes, generateProseForNode } from './index.ts';
+import { buildPrompt, parseLLMResponse, callLLM, generateProse, updateNodeWithProse, isStale, markStaleNodes, generateProseForNode, extractIdentifiers, validateGotcha, validateGotchas } from './index.ts';
 import type { WikiNode } from '../builder/index.ts';
 import { getDb, closeDb } from '../db/index.ts';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -1316,5 +1316,303 @@ describe('LLM retry logic', () => {
 
     assert.strictEqual(prose.summary, 'Test');
     assert.strictEqual(attemptCount, 2);
+  });
+});
+
+describe('extractIdentifiers', () => {
+  it('extracts camelCase identifiers', () => {
+    const text = 'The loginUser function requires validation';
+    const identifiers = extractIdentifiers(text);
+
+    assert.ok(identifiers.includes('loginUser'));
+  });
+
+  it('extracts PascalCase identifiers', () => {
+    const text = 'Watch out for SessionManager conflicts';
+    const identifiers = extractIdentifiers(text);
+
+    assert.ok(identifiers.includes('SessionManager'));
+  });
+
+  it('extracts snake_case identifiers', () => {
+    const text = 'The hash_password function is deprecated';
+    const identifiers = extractIdentifiers(text);
+
+    assert.ok(identifiers.includes('hash_password'));
+  });
+
+  it('extracts multiple identifiers from same text', () => {
+    const text = 'loginUser calls hashPassword and SessionManager';
+    const identifiers = extractIdentifiers(text);
+
+    assert.ok(identifiers.includes('loginUser'));
+    assert.ok(identifiers.includes('hashPassword'));
+    assert.ok(identifiers.includes('SessionManager'));
+  });
+
+  it('does not extract common words', () => {
+    const text = 'This function requires the user to login';
+    const identifiers = extractIdentifiers(text);
+
+    // Should not extract simple words like 'function', 'user', 'login'
+    assert.ok(!identifiers.includes('function'));
+    assert.ok(!identifiers.includes('requires'));
+  });
+
+  it('handles empty text', () => {
+    const identifiers = extractIdentifiers('');
+
+    assert.deepStrictEqual(identifiers, []);
+  });
+});
+
+describe('validateGotcha', () => {
+  it('returns high confidence when all identifiers exist in exports', () => {
+    const node: WikiNode = {
+      id: 'src/auth.ts',
+      type: 'file',
+      path: 'src/auth.ts',
+      name: 'auth.ts',
+      metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {
+        exports: [
+          { name: 'login', kind: 'function' },
+          { name: 'logout', kind: 'function' },
+        ],
+      },
+    };
+
+    const gotcha = 'The login function requires OAUTH_SECRET env var';
+    const result = validateGotcha(gotcha, node);
+
+    assert.strictEqual(result.confidence, 'high');
+    assert.ok(result.verifiedNames.includes('login'));
+  });
+
+  it('returns high confidence when identifiers exist in signature', () => {
+    const node: WikiNode = {
+      id: 'src/auth.ts',
+      type: 'file',
+      path: 'src/auth.ts',
+      name: 'auth.ts',
+      metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {
+        signature: ['hashPassword(password: string): string'],
+      },
+    };
+
+    const gotcha = 'hashPassword is CPU intensive';
+    const result = validateGotcha(gotcha, node);
+
+    assert.strictEqual(result.confidence, 'high');
+    assert.ok(result.verifiedNames.includes('hashPassword'));
+  });
+
+  it('returns medium confidence when some identifiers exist', () => {
+    const node: WikiNode = {
+      id: 'src/auth.ts',
+      type: 'file',
+      path: 'src/auth.ts',
+      name: 'auth.ts',
+      metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {
+        exports: [{ name: 'login', kind: 'function' }],
+      },
+    };
+
+    const gotcha = 'login calls nonexistentFunction for validation';
+    const result = validateGotcha(gotcha, node);
+
+    assert.strictEqual(result.confidence, 'medium');
+    assert.ok(result.verifiedNames.includes('login'));
+    assert.ok(!result.verifiedNames.includes('nonexistentFunction'));
+  });
+
+  it('returns low confidence when no identifiers can be verified', () => {
+    const node: WikiNode = {
+      id: 'src/auth.ts',
+      type: 'file',
+      path: 'src/auth.ts',
+      name: 'auth.ts',
+      metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {
+        exports: [{ name: 'login', kind: 'function' }],
+      },
+    };
+
+    const gotcha = 'The fakeFunction calls anotherFake which is problematic';
+    const result = validateGotcha(gotcha, node);
+
+    assert.strictEqual(result.confidence, 'low');
+    assert.strictEqual(result.verifiedNames.length, 0);
+  });
+
+  it('returns low confidence when no identifiers found in text', () => {
+    const node: WikiNode = {
+      id: 'src/auth.ts',
+      type: 'file',
+      path: 'src/auth.ts',
+      name: 'auth.ts',
+      metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    };
+
+    const gotcha = 'This file requires environment variables';
+    const result = validateGotcha(gotcha, node);
+
+    assert.strictEqual(result.confidence, 'low');
+    assert.strictEqual(result.verifiedNames.length, 0);
+  });
+
+  it('checks against import names', () => {
+    const node: WikiNode = {
+      id: 'src/auth.ts',
+      type: 'file',
+      path: 'src/auth.ts',
+      name: 'auth.ts',
+      metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {
+        imports: [
+          { from: './db', names: ['findUser', 'createUser'] },
+        ],
+      },
+    };
+
+    const gotcha = 'findUser may return null';
+    const result = validateGotcha(gotcha, node);
+
+    assert.strictEqual(result.confidence, 'high');
+    assert.ok(result.verifiedNames.includes('findUser'));
+  });
+});
+
+describe('validateGotchas', () => {
+  it('validates multiple gotchas', () => {
+    const node: WikiNode = {
+      id: 'src/auth.ts',
+      type: 'file',
+      path: 'src/auth.ts',
+      name: 'auth.ts',
+      metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {
+        exports: [
+          { name: 'login', kind: 'function' },
+          { name: 'logout', kind: 'function' },
+        ],
+        signature: ['hashPassword(password: string): string'],
+      },
+    };
+
+    const gotchas = [
+      'login requires OAUTH_SECRET env var',
+      'hashPassword is CPU intensive',
+      'fakeFunction does not exist',
+    ];
+
+    const results = validateGotchas(gotchas, node);
+
+    assert.strictEqual(results.length, 3);
+    assert.strictEqual(results[0].text, 'login requires OAUTH_SECRET env var');
+    assert.strictEqual(results[0].confidence, 'high');
+    assert.strictEqual(results[1].text, 'hashPassword is CPU intensive');
+    assert.strictEqual(results[1].confidence, 'high');
+    assert.strictEqual(results[2].text, 'fakeFunction does not exist');
+    assert.strictEqual(results[2].confidence, 'low');
+  });
+
+  it('handles empty gotchas array', () => {
+    const node: WikiNode = {
+      id: 'src/test.ts',
+      type: 'file',
+      path: 'src/test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    };
+
+    const results = validateGotchas([], node);
+
+    assert.deepStrictEqual(results, []);
+  });
+});
+
+describe('ProseData with validated gotchas', () => {
+  it('ProseData supports gotchaConfidence field', () => {
+    const prose: ProseData = {
+      summary: 'Test summary',
+      purpose: 'Test purpose',
+      gotchas: ['login requires env var', 'fakeFunc is problematic'],
+      gotchaConfidence: ['high', 'low'],
+      generatedAt: new Date(),
+    };
+
+    assert.deepStrictEqual(prose.gotchaConfidence, ['high', 'low']);
+  });
+});
+
+describe('generateProse with gotcha validation', () => {
+  it('validates gotchas and adds confidence to ProseData', async () => {
+    const mockLLMResponse = JSON.stringify({
+      summary: 'Handles user authentication',
+      purpose: 'Central authentication entry point.',
+      gotchas: [
+        'login requires OAUTH_SECRET env var',
+        'fakeFunction does not exist'
+      ],
+      keyExports: ['login: Main auth function'],
+    });
+
+    const mockFetch = mock.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: mockLLMResponse } }]
+      }),
+    }));
+
+    const fileNode: WikiNode = {
+      id: 'src/auth/login.ts',
+      type: 'file',
+      path: 'src/auth/login.ts',
+      name: 'login.ts',
+      metadata: {
+        lines: 100,
+        commits: 10,
+        lastModified: new Date(),
+        authors: ['alice@example.com'],
+      },
+      edges: [],
+      raw: {
+        signature: ['login(email: string): Promise<void>'],
+        exports: [{ name: 'login', kind: 'function' }],
+      },
+    };
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+    };
+
+    const prose = await generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch });
+
+    assert.strictEqual(prose.summary, 'Handles user authentication');
+    assert.deepStrictEqual(prose.gotchas, [
+      'login requires OAUTH_SECRET env var',
+      'fakeFunction does not exist'
+    ]);
+
+    // Verify confidence was added
+    assert.ok(prose.gotchaConfidence);
+    assert.strictEqual(prose.gotchaConfidence.length, 2);
+    assert.strictEqual(prose.gotchaConfidence[0], 'high'); // login exists
+    assert.strictEqual(prose.gotchaConfidence[1], 'low');  // fakeFunction doesn't exist
   });
 });
