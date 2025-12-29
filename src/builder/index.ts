@@ -28,7 +28,13 @@ export interface WikiNode {
     lines: number;
     commits: number;
     lastModified: Date;
+    createdAt?: Date;
     authors: string[];
+    // Computed metadata (Phase 2.5)
+    fanIn?: number;
+    fanOut?: number;
+    ageInDays?: number;
+    recencyInDays?: number;
   };
   edges: Edge[];
   raw: {
@@ -58,6 +64,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
     lines: extracted.lines,
     commits: extracted.git?.commitCount ?? 0,
     lastModified: extracted.git?.lastModified ?? new Date(),
+    createdAt: extracted.git?.createdAt,
     authors: extracted.git?.authors ?? [],
   };
 
@@ -135,6 +142,7 @@ export function buildFunctionNode(extracted: ExtractedFile, func: Function): Wik
     lines,
     commits: extracted.git?.commitCount ?? 0,
     lastModified: extracted.git?.lastModified ?? new Date(),
+    createdAt: extracted.git?.createdAt,
     authors: extracted.git?.authors ?? [],
   };
 
@@ -357,4 +365,84 @@ export function buildParentEdge(fileNode: WikiNode, moduleNode: WikiNode): Edge 
     type: 'parent',
     target: moduleNode.id,
   };
+}
+
+/**
+ * Calculate fan-in (number of incoming import edges) for a node.
+ * Step 2.5.1: Count how many nodes import this one.
+ * @param nodeId - The ID of the node to calculate fan-in for
+ * @param allNodes - Array of all nodes in the graph
+ * @returns The number of nodes that import this node
+ */
+export function calculateFanIn(nodeId: string, allNodes: WikiNode[]): number {
+  let count = 0;
+  for (const node of allNodes) {
+    for (const edge of node.edges) {
+      if (edge.type === 'imports' && edge.target === nodeId) {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
+/**
+ * Calculate fan-out (number of outgoing import edges) for a node.
+ * Step 2.5.2: Count how many files this node imports.
+ * @param node - The node to calculate fan-out for
+ * @returns The number of imports from this node
+ */
+export function calculateFanOut(node: WikiNode): number {
+  return node.edges.filter((edge) => edge.type === 'imports').length;
+}
+
+/**
+ * Calculate age in days since creation.
+ * Step 2.5.3: Calculate days between createdAt and now.
+ * @param createdAt - The creation date
+ * @param now - The current date (defaults to Date.now())
+ * @returns The number of days since creation
+ */
+export function calculateAge(createdAt: Date, now: Date = new Date()): number {
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const diffMs = now.getTime() - createdAt.getTime();
+  return Math.floor(diffMs / msPerDay);
+}
+
+/**
+ * Calculate recency in days since last modification.
+ * Step 2.5.4: Calculate days between lastModified and now.
+ * @param lastModified - The last modification date
+ * @param now - The current date (defaults to Date.now())
+ * @returns The number of days since last modification
+ */
+export function calculateRecency(lastModified: Date, now: Date = new Date()): number {
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const diffMs = now.getTime() - lastModified.getTime();
+  return Math.floor(diffMs / msPerDay);
+}
+
+/**
+ * Compute all metadata fields for a collection of nodes.
+ * Step 2.5.5: Add computed metadata to all nodes in place.
+ * @param nodes - Array of nodes to compute metadata for
+ * @param now - The current date (defaults to Date.now())
+ */
+export function computeMetadata(nodes: WikiNode[], now: Date = new Date()): void {
+  // Compute metadata for each node
+  for (const node of nodes) {
+    // Calculate fan-in (how many nodes import this one)
+    node.metadata.fanIn = calculateFanIn(node.id, nodes);
+
+    // Calculate fan-out (how many nodes this one imports)
+    node.metadata.fanOut = calculateFanOut(node);
+
+    // Calculate age (days since creation) if createdAt is available
+    if (node.metadata.createdAt) {
+      node.metadata.ageInDays = calculateAge(node.metadata.createdAt, now);
+    }
+
+    // Calculate recency (days since last modification)
+    node.metadata.recencyInDays = calculateRecency(node.metadata.lastModified, now);
+  }
 }

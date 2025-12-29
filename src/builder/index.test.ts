@@ -12,6 +12,11 @@ import {
   buildContainsEdges,
   buildImportEdges,
   buildParentEdge,
+  calculateFanIn,
+  calculateFanOut,
+  calculateAge,
+  calculateRecency,
+  computeMetadata,
   type WikiNode,
   type Function,
 } from './index.ts';
@@ -1129,5 +1134,383 @@ describe('Edge integration', () => {
     assert.strictEqual(fileNode.edges.length, 1);
     assert.strictEqual(fileNode.edges[0].type, 'parent');
     assert.strictEqual(fileNode.edges[0].target, 'src/auth');
+  });
+});
+
+describe('Computed Metadata - Phase 2.5', () => {
+  describe('calculateFanIn', () => {
+    // Step 2.5.1: Test fan-in calculation
+    it('counts incoming import edges correctly', () => {
+      const nodeId = 'src/utils/helper.ts';
+      const allNodes: WikiNode[] = [
+        {
+          id: 'src/auth/login.ts',
+          type: 'file',
+          path: 'src/auth/login.ts',
+          name: 'login.ts',
+          metadata: {
+            lines: 50,
+            commits: 5,
+            lastModified: new Date(),
+            authors: ['alice@example.com'],
+          },
+          edges: [{ type: 'imports', target: nodeId }],
+          raw: {},
+        },
+        {
+          id: 'src/auth/signup.ts',
+          type: 'file',
+          path: 'src/auth/signup.ts',
+          name: 'signup.ts',
+          metadata: {
+            lines: 40,
+            commits: 3,
+            lastModified: new Date(),
+            authors: ['bob@example.com'],
+          },
+          edges: [{ type: 'imports', target: nodeId }],
+          raw: {},
+        },
+        {
+          id: nodeId,
+          type: 'file',
+          path: nodeId,
+          name: 'helper.ts',
+          metadata: {
+            lines: 30,
+            commits: 2,
+            lastModified: new Date(),
+            authors: ['alice@example.com'],
+          },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      const fanIn = calculateFanIn(nodeId, allNodes);
+
+      assert.strictEqual(fanIn, 2);
+    });
+
+    it('returns 0 when no nodes import the target', () => {
+      const nodeId = 'src/isolated.ts';
+      const allNodes: WikiNode[] = [
+        {
+          id: nodeId,
+          type: 'file',
+          path: nodeId,
+          name: 'isolated.ts',
+          metadata: {
+            lines: 10,
+            commits: 1,
+            lastModified: new Date(),
+            authors: ['alice@example.com'],
+          },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      const fanIn = calculateFanIn(nodeId, allNodes);
+
+      assert.strictEqual(fanIn, 0);
+    });
+
+    it('ignores non-import edge types', () => {
+      const nodeId = 'src/utils/helper.ts';
+      const allNodes: WikiNode[] = [
+        {
+          id: 'src/auth',
+          type: 'module',
+          path: 'src/auth',
+          name: 'auth',
+          metadata: {
+            lines: 0,
+            commits: 0,
+            lastModified: new Date(),
+            authors: [],
+          },
+          edges: [
+            { type: 'contains', target: nodeId }, // Should be ignored
+          ],
+          raw: {},
+        },
+        {
+          id: 'src/login.ts',
+          type: 'file',
+          path: 'src/login.ts',
+          name: 'login.ts',
+          metadata: {
+            lines: 50,
+            commits: 5,
+            lastModified: new Date(),
+            authors: ['alice@example.com'],
+          },
+          edges: [{ type: 'imports', target: nodeId }],
+          raw: {},
+        },
+        {
+          id: nodeId,
+          type: 'file',
+          path: nodeId,
+          name: 'helper.ts',
+          metadata: {
+            lines: 30,
+            commits: 2,
+            lastModified: new Date(),
+            authors: ['alice@example.com'],
+          },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      const fanIn = calculateFanIn(nodeId, allNodes);
+
+      assert.strictEqual(fanIn, 1); // Only the import edge
+    });
+  });
+
+  describe('calculateFanOut', () => {
+    // Step 2.5.2: Test fan-out calculation
+    it('counts outgoing import edges correctly', () => {
+      const node: WikiNode = {
+        id: 'src/auth/login.ts',
+        type: 'file',
+        path: 'src/auth/login.ts',
+        name: 'login.ts',
+        metadata: {
+          lines: 50,
+          commits: 5,
+          lastModified: new Date(),
+          authors: ['alice@example.com'],
+        },
+        edges: [
+          { type: 'imports', target: 'src/utils/helper.ts' },
+          { type: 'imports', target: 'src/utils/validator.ts' },
+          { type: 'imports', target: 'src/config.ts' },
+        ],
+        raw: {},
+      };
+
+      const fanOut = calculateFanOut(node);
+
+      assert.strictEqual(fanOut, 3);
+    });
+
+    it('returns 0 when node has no imports', () => {
+      const node: WikiNode = {
+        id: 'src/isolated.ts',
+        type: 'file',
+        path: 'src/isolated.ts',
+        name: 'isolated.ts',
+        metadata: {
+          lines: 10,
+          commits: 1,
+          lastModified: new Date(),
+          authors: ['alice@example.com'],
+        },
+        edges: [],
+        raw: {},
+      };
+
+      const fanOut = calculateFanOut(node);
+
+      assert.strictEqual(fanOut, 0);
+    });
+
+    it('ignores non-import edge types', () => {
+      const node: WikiNode = {
+        id: 'src/auth/login.ts',
+        type: 'file',
+        path: 'src/auth/login.ts',
+        name: 'login.ts',
+        metadata: {
+          lines: 50,
+          commits: 5,
+          lastModified: new Date(),
+          authors: ['alice@example.com'],
+        },
+        edges: [
+          { type: 'imports', target: 'src/utils/helper.ts' },
+          { type: 'parent', target: 'src/auth' }, // Should be ignored
+          { type: 'contains', target: 'src/auth/login.ts:authenticate' }, // Should be ignored
+        ],
+        raw: {},
+      };
+
+      const fanOut = calculateFanOut(node);
+
+      assert.strictEqual(fanOut, 1); // Only the import edge
+    });
+  });
+
+  describe('calculateAge', () => {
+    // Step 2.5.3: Test age calculation
+    it('calculates correct days since creation', () => {
+      const now = new Date('2024-01-15T00:00:00Z');
+      const createdAt = new Date('2024-01-01T00:00:00Z');
+
+      const ageInDays = calculateAge(createdAt, now);
+
+      assert.strictEqual(ageInDays, 14);
+    });
+
+    it('returns 0 for same-day creation', () => {
+      const now = new Date('2024-01-15T12:00:00Z');
+      const createdAt = new Date('2024-01-15T08:00:00Z');
+
+      const ageInDays = calculateAge(createdAt, now);
+
+      assert.strictEqual(ageInDays, 0);
+    });
+
+    it('handles year boundaries', () => {
+      const now = new Date('2024-01-05T00:00:00Z');
+      const createdAt = new Date('2023-12-25T00:00:00Z');
+
+      const ageInDays = calculateAge(createdAt, now);
+
+      assert.strictEqual(ageInDays, 11);
+    });
+  });
+
+  describe('calculateRecency', () => {
+    // Step 2.5.4: Test recency calculation
+    it('calculates correct days since last change', () => {
+      const now = new Date('2024-01-15T00:00:00Z');
+      const lastModified = new Date('2024-01-10T00:00:00Z');
+
+      const recencyInDays = calculateRecency(lastModified, now);
+
+      assert.strictEqual(recencyInDays, 5);
+    });
+
+    it('returns 0 for same-day modification', () => {
+      const now = new Date('2024-01-15T18:00:00Z');
+      const lastModified = new Date('2024-01-15T09:00:00Z');
+
+      const recencyInDays = calculateRecency(lastModified, now);
+
+      assert.strictEqual(recencyInDays, 0);
+    });
+
+    it('handles recent modifications', () => {
+      const now = new Date('2024-01-15T00:00:00Z');
+      const lastModified = new Date('2024-01-14T23:59:59Z');
+
+      const recencyInDays = calculateRecency(lastModified, now);
+
+      // Should be 0 or 1 depending on how we floor the calculation
+      assert.ok(recencyInDays >= 0 && recencyInDays <= 1);
+    });
+  });
+
+  describe('computeMetadata', () => {
+    // Step 2.5.5: Test complete metadata computation
+    it('adds all computed metadata to nodes', () => {
+      const now = new Date('2024-01-15T00:00:00Z');
+      const nodes: WikiNode[] = [
+        {
+          id: 'src/auth/login.ts',
+          type: 'file',
+          path: 'src/auth/login.ts',
+          name: 'login.ts',
+          metadata: {
+            lines: 50,
+            commits: 5,
+            lastModified: new Date('2024-01-10T00:00:00Z'),
+            createdAt: new Date('2023-12-01T00:00:00Z'),
+            authors: ['alice@example.com'],
+          },
+          edges: [{ type: 'imports', target: 'src/utils/helper.ts' }],
+          raw: {},
+        },
+        {
+          id: 'src/utils/helper.ts',
+          type: 'file',
+          path: 'src/utils/helper.ts',
+          name: 'helper.ts',
+          metadata: {
+            lines: 30,
+            commits: 2,
+            lastModified: new Date('2024-01-12T00:00:00Z'),
+            createdAt: new Date('2023-11-15T00:00:00Z'),
+            authors: ['bob@example.com'],
+          },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      computeMetadata(nodes, now);
+
+      // Check first node
+      assert.strictEqual(nodes[0].metadata.fanIn, 0); // No imports to login.ts
+      assert.strictEqual(nodes[0].metadata.fanOut, 1); // Imports helper.ts
+      assert.strictEqual(nodes[0].metadata.ageInDays, 45); // Dec 1 to Jan 15 = 45 days
+      assert.strictEqual(nodes[0].metadata.recencyInDays, 5); // Jan 10 to Jan 15 = 5 days
+
+      // Check second node
+      assert.strictEqual(nodes[1].metadata.fanIn, 1); // login.ts imports it
+      assert.strictEqual(nodes[1].metadata.fanOut, 0); // No imports
+      assert.strictEqual(nodes[1].metadata.ageInDays, 61); // Nov 15 to Jan 15 = 61 days
+      assert.strictEqual(nodes[1].metadata.recencyInDays, 3); // Jan 12 to Jan 15 = 3 days
+    });
+
+    it('handles nodes without createdAt', () => {
+      const now = new Date('2024-01-15T00:00:00Z');
+      const nodes: WikiNode[] = [
+        {
+          id: 'src/test.ts',
+          type: 'file',
+          path: 'src/test.ts',
+          name: 'test.ts',
+          metadata: {
+            lines: 10,
+            commits: 1,
+            lastModified: new Date('2024-01-14T00:00:00Z'),
+            // No createdAt
+            authors: ['alice@example.com'],
+          },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      computeMetadata(nodes, now);
+
+      assert.strictEqual(nodes[0].metadata.fanIn, 0);
+      assert.strictEqual(nodes[0].metadata.fanOut, 0);
+      assert.strictEqual(nodes[0].metadata.ageInDays, undefined); // Can't calculate without createdAt
+      assert.strictEqual(nodes[0].metadata.recencyInDays, 1);
+    });
+
+    it('updates nodes in place', () => {
+      const nodes: WikiNode[] = [
+        {
+          id: 'src/test.ts',
+          type: 'file',
+          path: 'src/test.ts',
+          name: 'test.ts',
+          metadata: {
+            lines: 10,
+            commits: 1,
+            lastModified: new Date('2024-01-14T00:00:00Z'),
+            authors: ['alice@example.com'],
+          },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      const originalNode = nodes[0];
+
+      computeMetadata(nodes);
+
+      // Should modify the same object
+      assert.strictEqual(nodes[0], originalNode);
+      assert.ok(typeof nodes[0].metadata.fanIn === 'number');
+    });
   });
 });
