@@ -2,11 +2,11 @@
 
 Tracks completed steps and notes from implementation.
 
-## Current Phase: 1.1 AST Extraction
+## Current Phase: 1.2 Git Extraction
 
 ### Status
-- **Last completed step**: 1.0.9 - Set up MangoDB connection helper
-- **Next step**: 1.1.1 - File discovery
+- **Last completed step**: 1.1.12 - Store AST data in MangoDB
+- **Next step**: 1.2.1 - Commit count
 
 ---
 
@@ -25,6 +25,23 @@ Tracks completed steps and notes from implementation.
 | 1.0.7 | Initialize fixture as git repo with sample commits | Done |
 | 1.0.8 | Scaffold CLI with `pith extract` command | Done |
 | 1.0.9 | Set up MangoDB connection helper | Done |
+
+### Phase 1.1 - AST Extraction (COMPLETE)
+
+| Step | Description | Status |
+|------|-------------|--------|
+| 1.1.1 | `findFiles()` returns all .ts paths in fixture | Done |
+| 1.1.2 | `extractFile()` returns correct path (A1) | Done |
+| 1.1.3 | Returns correct line count (A2) | Done |
+| 1.1.4 | Extracts imports with `from` and `names` (A3) | Done |
+| 1.1.5 | Extracts exports with `name` and `kind` (A4) | Done |
+| 1.1.6 | Extracts functions with signature (A5) | Done |
+| 1.1.7 | Extracts classes with methods (A6) | Done |
+| 1.1.8 | Extracts interfaces with properties (A7) | Done |
+| 1.1.9 | Extracts function parameters (A8) | Done |
+| 1.1.10 | Extracts return types (A9) | Done |
+| 1.1.11 | Identifies async functions (A10) | Done |
+| 1.1.12 | Stores AST data in MangoDB | Done |
 
 ---
 
@@ -45,3 +62,23 @@ Project setup is complete. Key decisions:
   - 5 commits from 2 different authors for git history testing
 
 All tests pass, linting passes. Ready to begin AST extraction in Phase 1.1.
+
+### 2025-12-29 - Phase 1.1 Complete
+
+AST extraction is complete. Implementation details:
+
+- Created `createProject()` that returns a ProjectContext with ts-morph Project and rootDir
+- Created `extractFile()` that extracts all AST data from a single file:
+  - File path and line count
+  - Imports (with from, names, isTypeOnly, defaultName, namespaceImport)
+  - Exports (with name, kind, isReExport)
+  - Functions (with signature, params, returnType, isAsync, isExported, line numbers)
+  - Classes (with methods, properties, extends, implements)
+  - Interfaces (with properties)
+- Created `storeExtracted()` to persist data in MangoDB with upsert behavior
+- All 16 tests pass, linting passes
+
+Note: Type resolution in ts-morph produces fully-qualified type names (with import paths).
+This is acceptable for now and could be simplified in post-processing if needed.
+
+Ready to begin Git extraction in Phase 1.2.
