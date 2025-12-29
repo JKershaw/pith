@@ -8,6 +8,13 @@ import { stat } from 'node:fs/promises';
 import { findFiles, createProject, extractFile, storeExtracted, type ExtractedFile } from '../extractor/ast.ts';
 import { extractGitInfo } from '../extractor/git.ts';
 import { extractDocs } from '../extractor/docs.ts';
+import {
+  loadExtractionCache,
+  saveExtractionCache,
+  shouldExtract,
+  getFileHash,
+  type ExtractionCache,
+} from '../extractor/cache.ts';
 import { getDb, closeDb } from '../db/index.ts';
 import {
   buildFileNode,
@@ -39,7 +46,8 @@ program
 program
   .command('extract <path>')
   .description('Extract data from a TypeScript codebase')
-  .action(async (path: string) => {
+  .option('--force', 'Force re-extraction of all files, ignoring cache')
+  .action(async (path: string, options: { force?: boolean }) => {
     try {
       // Resolve path to absolute
       const absolutePath = resolve(path);
@@ -77,43 +85,96 @@ program
       // Get database connection
       const db = await getDb(dataDir);
 
-      // Extract and store each file, collecting errors
+      // Load extraction cache
+      const cache = options.force ? { version: 1, files: {} } : await loadExtractionCache(dataDir);
+
+      // Filter files based on cache (unless --force is used)
+      const filesToExtract: string[] = [];
+      let skippedCount = 0;
+
+      if (options.force) {
+        filesToExtract.push(...files);
+        console.log('Force mode enabled: extracting all files');
+      } else {
+        for (const relativePath of files) {
+          const fullPath = join(absolutePath, relativePath);
+          if (await shouldExtract(fullPath, relativePath, cache)) {
+            filesToExtract.push(relativePath);
+          } else {
+            skippedCount++;
+          }
+        }
+        console.log(`Incremental extraction: ${filesToExtract.length} to extract, ${skippedCount} unchanged`);
+      }
+
+      // Extract and store each file with parallel processing
+      const BATCH_SIZE = 4; // Process 4 files concurrently for extraction
       let processedCount = 0;
       const errors: { path: string; message: string }[] = [];
+      const newCache: ExtractionCache = { version: 1, files: { ...cache.files } };
 
-      for (const relativePath of files) {
-        try {
-          // Extract AST data
-          const extracted = extractFile(ctx, relativePath);
+      // Process files in batches
+      for (let i = 0; i < filesToExtract.length; i += BATCH_SIZE) {
+        const batch = filesToExtract.slice(i, i + BATCH_SIZE);
 
-          // Extract git info
-          const git = await extractGitInfo(absolutePath, relativePath);
+        // Extract files in parallel (but store sequentially to avoid DB corruption)
+        const results = await Promise.allSettled(
+          batch.map(async (relativePath) => {
+            // Extract AST data
+            const extracted = extractFile(ctx, relativePath);
 
-          // Extract docs (need the directory for README)
-          const fileDirPath = join(absolutePath, dirname(relativePath));
-          const docs = await extractDocs(ctx, relativePath, fileDirPath);
+            // Extract git info
+            const git = await extractGitInfo(absolutePath, relativePath);
 
-          // Combine all data
-          extracted.git = git;
-          extracted.docs = docs;
+            // Extract docs (need the directory for README)
+            const fileDirPath = join(absolutePath, dirname(relativePath));
+            const docs = await extractDocs(ctx, relativePath, fileDirPath);
 
-          // Store in database
-          await storeExtracted(db, extracted);
+            // Combine all data
+            extracted.git = git;
+            extracted.docs = docs;
 
-          processedCount++;
-          console.log(`Extracted ${processedCount}/${files.length}: ${relativePath}`);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          errors.push({ path: relativePath, message });
-          console.log(`Error extracting ${relativePath}: ${message}`);
+            // Compute hash for cache
+            const fullPath = join(absolutePath, relativePath);
+            const hash = await getFileHash(fullPath);
+
+            return { relativePath, extracted, hash };
+          })
+        );
+
+        // Store results sequentially to avoid database corruption
+        for (let j = 0; j < results.length; j++) {
+          const result = results[j];
+          const relativePath = batch[j];
+
+          if (result.status === 'fulfilled') {
+            // Store in database (sequential to avoid file corruption)
+            await storeExtracted(db, result.value.extracted);
+
+            // Update cache
+            newCache.files[relativePath] = {
+              hash: result.value.hash,
+              extractedAt: new Date().toISOString(),
+            };
+
+            processedCount++;
+            console.log(`Extracted ${processedCount}/${filesToExtract.length}: ${relativePath}`);
+          } else {
+            const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+            errors.push({ path: relativePath, message });
+            console.log(`Error extracting ${relativePath}: ${message}`);
+          }
         }
       }
+
+      // Save updated cache
+      await saveExtractionCache(dataDir, newCache);
 
       // Close database connection
       await closeDb();
 
       // Report summary
-      console.log(`\nCompleted: ${processedCount} files extracted, ${errors.length} errors`);
+      console.log(`\nCompleted: ${processedCount} files extracted, ${skippedCount} skipped, ${errors.length} errors`);
       if (errors.length > 0) {
         console.log('\nErrors:');
         for (const error of errors) {

@@ -64,9 +64,9 @@ describe('CLI', () => {
   });
 
   it('extracts and stores data from a project', async () => {
-    // Run the extract command on the fixture
+    // Run the extract command on the fixture with --force to ensure all files are extracted
     const result = execSync(
-      `node --experimental-strip-types ${cliPath} extract ${fixtureDir}`,
+      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`,
       { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
     );
 
@@ -203,9 +203,9 @@ describe('CLI', () => {
   });
 
   it('pith build creates all nodes from extracted data', async () => {
-    // First run extract to populate the extracted collection
+    // First run extract to populate the extracted collection (with --force to ensure all files are extracted)
     execSync(
-      `node --experimental-strip-types ${cliPath} extract ${fixtureDir}`,
+      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`,
       { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
     );
 
