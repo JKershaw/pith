@@ -484,7 +484,7 @@ All 172 tests pass, linting passes.
 
 ### Phase 3 Manual Validation
 
-**Status: Pending API key for full LLM validation**
+**Status: Requires environment with external network access**
 
 Code-level validation completed:
 - ✅ All 172 tests pass with mocked LLM responses
@@ -493,12 +493,15 @@ Code-level validation completed:
 - ✅ Generate command validates API key requirement
 - ✅ Fractal generation ordering verified in tests
 - ✅ Staleness detection logic verified in tests
+- ✅ Extract and build work correctly (20 files, 39 functions, 7 modules)
 
-**To complete full validation:**
+**Note:** Full LLM validation could not be completed in current sandbox environment due to TLS certificate restrictions on outbound HTTPS requests.
+
+**To complete full validation (in unrestricted environment):**
 1. Set `OPENROUTER_API_KEY` environment variable
 2. Run `pith extract .` on a TypeScript repo
 3. Run `pith build`
-4. Run `pith generate`
+4. Run `pith generate --model qwen/qwen-turbo`
 5. Review generated prose for accuracy:
    - Are summaries accurate and concise?
    - Does "purpose" explain *why*, not just *what*?
