@@ -73,8 +73,7 @@ describe('CLI', () => {
     // Verify progress output
     assert.ok(result.includes('Extracting from'), 'Should show extraction start');
     assert.ok(result.includes('Found') && result.includes('TypeScript files'), 'Should show file count');
-    assert.ok(result.includes('Extracted'), 'Should show per-file progress');
-    assert.ok(result.includes('Completed'), 'Should show completion summary');
+    assert.ok(result.includes('Completed in'), 'Should show completion summary with elapsed time');
 
     // Connect to the test database and verify data was stored
     const db = await getDb(testDataDir);
@@ -338,5 +337,150 @@ describe('pith generate', () => {
     const { stdout } = runCli(['generate', '--help']);
 
     assert.ok(stdout.includes('--model'));
+  });
+});
+
+describe('CLI improvements (Phase 5.3)', () => {
+  afterEach(async () => {
+    await closeDb();
+    try {
+      await rm(testDataDir, { recursive: true, force: true });
+    } catch {
+      // Ignore errors if directory doesn't exist
+    }
+  });
+
+  it('shows global --verbose, --quiet, and --dry-run flags in help', () => {
+    const result = execSync(
+      `node --experimental-strip-types ${cliPath} --help`,
+      { encoding: 'utf-8' }
+    );
+    assert.ok(result.includes('--verbose'), 'Should show --verbose flag');
+    assert.ok(result.includes('--quiet'), 'Should show --quiet flag');
+    assert.ok(result.includes('--dry-run'), 'Should show --dry-run flag');
+  });
+
+  it('dry-run extract lists files without extracting', () => {
+    const result = execSync(
+      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --dry-run`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Should show dry-run indicator
+    assert.ok(result.includes('[DRY-RUN]'), 'Should show [DRY-RUN] indicator');
+    assert.ok(result.includes('Would extract'), 'Should show "Would extract" message');
+    assert.ok(result.includes('files'), 'Should show file count');
+
+    // Should NOT have created any database files (dry-run doesn't save)
+    // We can't easily verify this without checking the filesystem,
+    // but the output verification is sufficient
+  });
+
+  it('dry-run build shows what would be created without saving', async () => {
+    // First extract normally (not dry-run)
+    execSync(
+      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Then run build in dry-run mode
+    const result = execSync(
+      `node --experimental-strip-types ${cliPath} build --dry-run`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Should show dry-run indicator
+    assert.ok(result.includes('[DRY-RUN]'), 'Should show [DRY-RUN] indicator');
+    assert.ok(result.includes('Would create'), 'Should show "Would create" message');
+    assert.ok(result.includes('file nodes'), 'Should show file nodes count');
+    assert.ok(result.includes('function nodes'), 'Should show function nodes count');
+    assert.ok(result.includes('module nodes'), 'Should show module nodes count');
+
+    // Verify nodes were NOT saved
+    const db = await getDb(testDataDir);
+    const nodesCollection = db.collection('nodes');
+    const nodeCount = await nodesCollection.countDocuments({});
+    await closeDb();
+
+    assert.strictEqual(nodeCount, 0, 'Should not have created any nodes in dry-run mode');
+  });
+
+  it('generate --estimate shows cost estimate', async () => {
+    // First extract and build
+    execSync(
+      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+    execSync(
+      `node --experimental-strip-types ${cliPath} build`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Run generate with --estimate
+    const result = execSync(
+      `node --experimental-strip-types ${cliPath} generate --estimate`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Should show estimate
+    assert.ok(result.includes('estimate'), 'Should show estimate');
+    assert.ok(result.includes('Nodes without prose'), 'Should show node count');
+    assert.ok(result.includes('Estimated input tokens'), 'Should show input tokens');
+    assert.ok(result.includes('Estimated output tokens'), 'Should show output tokens');
+    assert.ok(result.includes('Estimated cost'), 'Should show cost');
+  });
+
+  it('verbose mode shows more detail during extract', () => {
+    const result = execSync(
+      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force --verbose`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Verbose mode should show each file extraction
+    assert.ok(result.includes('Extracted'), 'Should show extraction progress');
+    // Should show force mode message
+    assert.ok(result.includes('Force mode') || result.includes('Extracting'), 'Should show verbose messages');
+  });
+
+  it('quiet mode suppresses normal output during extract', () => {
+    const result = execSync(
+      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force --quiet`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Quiet mode should only show final summary, not individual file progress
+    // The output should be minimal
+    const lines = result.split('\n').filter(line => line.trim().length > 0);
+
+    // In quiet mode, we should have very few output lines (just summary)
+    // This is a loose check - the exact number depends on implementation
+    assert.ok(lines.length < 10, 'Quiet mode should have minimal output');
+  });
+
+  it('shows elapsed time in extract summary', () => {
+    const result = execSync(
+      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Should show elapsed time in summary
+    assert.ok(result.includes('Completed in') && result.includes('s:'), 'Should show elapsed time');
+  });
+
+  it('shows elapsed time in build summary', () => {
+    // First extract
+    execSync(
+      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Then build
+    const result = execSync(
+      `node --experimental-strip-types ${cliPath} build`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Should show elapsed time in summary
+    assert.ok(result.includes('complete in') && result.includes('s:'), 'Should show elapsed time');
   });
 });

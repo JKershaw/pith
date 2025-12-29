@@ -38,16 +38,52 @@ import { loadConfig } from '../config/index.ts';
 
 const program = new Command();
 
+// Global output control
+interface OutputOptions {
+  verbose?: boolean;
+  quiet?: boolean;
+  dryRun?: boolean;
+}
+
+let outputOptions: OutputOptions = {};
+
+function log(message: string, level: 'info' | 'verbose' | 'error' = 'info') {
+  if (outputOptions.quiet && level !== 'error') {
+    return;
+  }
+  if (level === 'verbose' && !outputOptions.verbose) {
+    return;
+  }
+  console.log(message);
+}
+
+function logError(message: string) {
+  console.error(message);
+}
+
 program
   .name('pith')
   .description('A codebase wiki optimized for LLM consumption')
-  .version(version);
+  .version(version)
+  .option('-v, --verbose', 'Show detailed output')
+  .option('-q, --quiet', 'Show minimal output (errors only)')
+  .option('--dry-run', 'Preview actions without executing')
+  .hook('preAction', (thisCommand) => {
+    const opts = thisCommand.optsWithGlobals();
+    outputOptions = {
+      verbose: opts.verbose,
+      quiet: opts.quiet,
+      dryRun: opts.dryRun,
+    };
+  });
 
 program
   .command('extract <path>')
   .description('Extract data from a TypeScript codebase')
   .option('--force', 'Force re-extraction of all files, ignoring cache')
   .action(async (path: string, options: { force?: boolean }) => {
+    const startTime = Date.now();
+
     try {
       // Resolve path to absolute
       const absolutePath = resolve(path);
@@ -56,15 +92,18 @@ program
       try {
         const stats = await stat(absolutePath);
         if (!stats.isDirectory()) {
-          console.error(`Error: "${absolutePath}" is not a directory`);
+          logError(`Error: "${absolutePath}" is not a directory`);
           process.exit(1);
         }
       } catch {
-        console.error(`Error: Path "${absolutePath}" does not exist`);
+        logError(`Error: Path "${absolutePath}" does not exist`);
         process.exit(1);
       }
 
-      console.log(`Extracting from: ${absolutePath}`);
+      if (outputOptions.dryRun) {
+        log('[DRY-RUN] Extract mode - no files will be modified');
+      }
+      log(`Extracting from: ${absolutePath}`);
 
       // Load configuration
       const config = await loadConfig(absolutePath);
@@ -77,7 +116,19 @@ program
         include: config.extraction.include,
         exclude: config.extraction.exclude,
       });
-      console.log(`Found ${files.length} TypeScript files`);
+      log(`Found ${files.length} TypeScript files`);
+
+      // Dry-run: just list files and exit
+      if (outputOptions.dryRun) {
+        log(`\n[DRY-RUN] Would extract ${files.length} files:`);
+        for (const file of files.slice(0, 20)) {
+          log(`  - ${file}`);
+        }
+        if (files.length > 20) {
+          log(`  ... and ${files.length - 20} more`);
+        }
+        return;
+      }
 
       // Create ts-morph project
       const ctx = createProject(absolutePath);
@@ -94,7 +145,7 @@ program
 
       if (options.force) {
         filesToExtract.push(...files);
-        console.log('Force mode enabled: extracting all files');
+        log('Force mode enabled: extracting all files', 'verbose');
       } else {
         for (const relativePath of files) {
           const fullPath = join(absolutePath, relativePath);
@@ -104,7 +155,7 @@ program
             skippedCount++;
           }
         }
-        console.log(`Incremental extraction: ${filesToExtract.length} to extract, ${skippedCount} unchanged`);
+        log(`Incremental extraction: ${filesToExtract.length} to extract, ${skippedCount} unchanged`);
       }
 
       // Extract and store each file with parallel processing
@@ -158,11 +209,14 @@ program
             };
 
             processedCount++;
-            console.log(`Extracted ${processedCount}/${filesToExtract.length}: ${relativePath}`);
+            log(`Extracted ${processedCount}/${filesToExtract.length}: ${relativePath}`, 'verbose');
+            if (!outputOptions.verbose && processedCount % 10 === 0) {
+              log(`Progress: ${processedCount}/${filesToExtract.length} files`);
+            }
           } else {
             const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
             errors.push({ path: relativePath, message });
-            console.log(`Error extracting ${relativePath}: ${message}`);
+            logError(`Error extracting ${relativePath}: ${message}`);
           }
         }
       }
@@ -174,15 +228,17 @@ program
       await closeDb();
 
       // Report summary
-      console.log(`\nCompleted: ${processedCount} files extracted, ${skippedCount} skipped, ${errors.length} errors`);
+      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      log(`\nCompleted in ${elapsedSec}s: ${processedCount} files extracted, ${skippedCount} skipped, ${errors.length} errors`);
       if (errors.length > 0) {
-        console.log('\nErrors:');
+        logError('\nErrors:');
         for (const error of errors) {
-          console.log(`  - ${error.path}: ${error.message}`);
+          logError(`  - ${error.path}: ${error.message}`);
         }
       }
     } catch (error) {
-      console.error('Error during extraction:', error);
+      logError('Error during extraction:');
+      logError(String(error));
       await closeDb();
       process.exit(1);
     }
@@ -192,8 +248,13 @@ program
   .command('build')
   .description('Build node graph from extracted data')
   .action(async () => {
+    const startTime = Date.now();
+
     try {
-      console.log('Building node graph...');
+      if (outputOptions.dryRun) {
+        log('[DRY-RUN] Build mode - no nodes will be saved');
+      }
+      log('Building node graph...');
 
       // Load configuration
       const config = await loadConfig();
@@ -208,12 +269,12 @@ program
       // Step 2.6.2: Check that extracted data exists
       const extractedFiles = await extractedCollection.find({}).toArray();
       if (extractedFiles.length === 0) {
-        console.error('Error: No extracted data found. Please run `pith extract` first.');
+        logError('Error: No extracted data found. Please run `pith extract` first.');
         await closeDb();
         process.exit(1);
       }
 
-      console.log(`Found ${extractedFiles.length} extracted files`);
+      log(`Found ${extractedFiles.length} extracted files`);
 
       // Step 2.6.1: Build all nodes
 
@@ -223,7 +284,7 @@ program
         const fileNode = buildFileNode(extracted);
         fileNodes.push(fileNode);
       }
-      console.log(`Created ${fileNodes.length} file nodes`);
+      log(`Created ${fileNodes.length} file nodes`);
 
       // Build function nodes
       const functionNodes: WikiNode[] = [];
@@ -235,7 +296,7 @@ program
           }
         }
       }
-      console.log(`Created ${functionNodes.length} function nodes`);
+      log(`Created ${functionNodes.length} function nodes`);
 
       // Group files by directory and build module nodes
       const dirMap = new Map<string, string[]>();
@@ -262,7 +323,7 @@ program
           moduleNodes.push(moduleNode);
         }
       }
-      console.log(`Created ${moduleNodes.length} module nodes`);
+      log(`Created ${moduleNodes.length} module nodes`);
 
       // Combine all nodes
       const allNodes = [...fileNodes, ...functionNodes, ...moduleNodes];
@@ -305,11 +366,27 @@ program
         }
       }
 
-      console.log('Built edges');
+      log('Built edges', 'verbose');
 
       // Compute metadata (fan-in, fan-out, age, recency)
       computeMetadata(allNodes);
-      console.log('Computed metadata');
+      log('Computed metadata', 'verbose');
+
+      // Dry-run: show what would be created and exit
+      if (outputOptions.dryRun) {
+        log(`\n[DRY-RUN] Would create ${allNodes.length} nodes:`);
+        log(`  - ${fileNodes.length} file nodes`);
+        log(`  - ${functionNodes.length} function nodes`);
+        log(`  - ${moduleNodes.length} module nodes`);
+        if (outputOptions.verbose) {
+          log(`\nSample nodes:`);
+          for (const node of allNodes.slice(0, 5)) {
+            log(`  - ${node.type}: ${node.id}`);
+          }
+        }
+        await closeDb();
+        return;
+      }
 
       // Store all nodes in database
       const nodesCollection = db.collection<WikiNode>('nodes');
@@ -321,12 +398,14 @@ program
         );
       }
 
-      console.log(`\nBuild complete: ${fileNodes.length} file nodes, ${functionNodes.length} function nodes, ${moduleNodes.length} module nodes`);
+      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      log(`\nBuild complete in ${elapsedSec}s: ${fileNodes.length} file nodes, ${functionNodes.length} function nodes, ${moduleNodes.length} module nodes`);
 
       // Close database connection
       await closeDb();
     } catch (error) {
-      console.error('Error during build:', error);
+      logError('Error during build:');
+      logError(String(error));
       await closeDb();
       process.exit(1);
     }
@@ -338,7 +417,9 @@ program
   .option('-m, --model <model>', 'OpenRouter model to use (or set OPENROUTER_MODEL in .env)')
   .option('--node <nodeId>', 'Generate for specific node only')
   .option('--force', 'Regenerate prose even if already exists')
-  .action(async (options: { model?: string; node?: string; force?: boolean }) => {
+  .option('--estimate', 'Show cost estimate without generating')
+  .action(async (options: { model?: string; node?: string; force?: boolean; estimate?: boolean }) => {
+    const startTime = Date.now();
     // Load configuration
     const config = await loadConfig();
 
@@ -346,9 +427,10 @@ program
     const apiKey = process.env.OPENROUTER_API_KEY;
     const model = options.model || process.env.OPENROUTER_MODEL || config.llm?.model || 'anthropic/claude-sonnet-4';
 
-    if (!apiKey) {
-      console.error('Error: OPENROUTER_API_KEY is required');
-      console.error('Set it in .env file or with: export OPENROUTER_API_KEY=your-key');
+    // For estimation and dry-run, we don't need the API key
+    if (!apiKey && !options.estimate && !outputOptions.dryRun) {
+      logError('Error: OPENROUTER_API_KEY is required');
+      logError('Set it in .env file or with: export OPENROUTER_API_KEY=your-key');
       process.exit(1);
     }
 
@@ -375,17 +457,63 @@ program
 
       if (nodes.length === 0) {
         if (options.node) {
-          console.error(`No node found with id: ${options.node}`);
+          logError(`No node found with id: ${options.node}`);
         } else {
-          console.log('No nodes found that need prose generation.');
-          console.log('Use --force to regenerate existing prose.');
+          log('No nodes found that need prose generation.');
+          log('Use --force to regenerate existing prose.');
         }
         await closeDb();
         return;
       }
 
-      console.log(`Generating prose for ${nodes.length} nodes...`);
-      console.log(`Using model: ${model}`);
+      // Cost estimation mode
+      if (options.estimate || outputOptions.dryRun) {
+        // Estimate tokens based on raw data size
+        let totalInputTokens = 0;
+        const AVG_CHARS_PER_TOKEN = 4; // Rough estimate
+        const AVG_OUTPUT_TOKENS = 500; // Typical output size
+
+        for (const node of nodes) {
+          // Estimate input tokens from prompt (rough calculation)
+          const rawDataSize = JSON.stringify(node.raw).length;
+          const metadataSize = JSON.stringify(node.metadata).length;
+          const estimatedPromptSize = rawDataSize + metadataSize + 500; // +500 for prompt template
+          totalInputTokens += Math.ceil(estimatedPromptSize / AVG_CHARS_PER_TOKEN);
+        }
+
+        const totalOutputTokens = nodes.length * AVG_OUTPUT_TOKENS;
+
+        // OpenRouter pricing for Anthropic Claude Sonnet 4 (approximate)
+        const INPUT_COST_PER_1K = 0.003;  // $3 per 1M tokens
+        const OUTPUT_COST_PER_1K = 0.015; // $15 per 1M tokens
+
+        const inputCost = (totalInputTokens / 1000) * INPUT_COST_PER_1K;
+        const outputCost = (totalOutputTokens / 1000) * OUTPUT_COST_PER_1K;
+        const totalCost = inputCost + outputCost;
+
+        log('\nProse generation estimate:');
+        log(`  Nodes without prose: ${nodes.length}`);
+        log(`  Estimated input tokens: ~${totalInputTokens.toLocaleString()}`);
+        log(`  Estimated output tokens: ~${totalOutputTokens.toLocaleString()}`);
+        log(`  Estimated cost: ~$${totalCost.toFixed(2)}`);
+        log(`  Using model: ${model}`);
+
+        if (outputOptions.dryRun) {
+          log('\n[DRY-RUN] Would generate prose for these nodes:');
+          for (const node of nodes.slice(0, 10)) {
+            log(`  - ${node.type}: ${node.id}`);
+          }
+          if (nodes.length > 10) {
+            log(`  ... and ${nodes.length - 10} more`);
+          }
+        }
+
+        await closeDb();
+        return;
+      }
+
+      log(`Generating prose for ${nodes.length} nodes...`);
+      log(`Using model: ${model}`);
 
       let generated = 0;
       let errors = 0;
@@ -397,7 +525,10 @@ program
 
       for (const node of orderedNodes) {
         try {
-          console.log(`  Generating: ${node.id}`);
+          log(`  Generating: ${node.id}`, 'verbose');
+          if (!outputOptions.verbose && generated % 5 === 0 && generated > 0) {
+            log(`Progress: ${generated}/${orderedNodes.length} nodes`);
+          }
 
           // For module nodes, gather child summaries
           let childSummaries: Map<string, string> | undefined;
@@ -421,18 +552,19 @@ program
           await updateNodeWithProse(db, node.id, prose);
 
           generated++;
-          console.log(`    ✓ ${node.id}`);
+          log(`    ✓ ${node.id}`, 'verbose');
         } catch (error) {
           errors++;
-          console.error(`    ✗ ${node.id}: ${(error as Error).message}`);
+          logError(`    ✗ ${node.id}: ${(error as Error).message}`);
         }
       }
 
-      console.log(`\nCompleted: ${generated} generated, ${errors} errors`);
+      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      log(`\nCompleted in ${elapsedSec}s: ${generated} generated, ${errors} errors`);
       await closeDb();
 
     } catch (error) {
-      console.error(`Error: ${(error as Error).message}`);
+      logError(`Error: ${(error as Error).message}`);
       await closeDb();
       process.exit(1);
     }
@@ -456,7 +588,7 @@ program
       // Verify nodes exist
       const nodeCount = await nodesCollection.countDocuments({});
       if (nodeCount === 0) {
-        console.error('Error: No nodes found. Run `pith extract` and `pith build` first.');
+        logError('Error: No nodes found. Run `pith extract` and `pith build` first.');
         await closeDb();
         process.exit(1);
       }
@@ -464,25 +596,25 @@ program
       const app = createApp(db);
 
       const server = app.listen(port, () => {
-        console.log(`Pith API server running on http://localhost:${port}`);
-        console.log(`\nEndpoints:`);
-        console.log(`  GET  /node/:path      - Fetch a single node`);
-        console.log(`  GET  /context?files=  - Bundled context for files`);
-        console.log(`  POST /refresh         - Re-extract and rebuild`);
-        console.log(`\nServing ${nodeCount} nodes.`);
+        log(`Pith API server running on http://localhost:${port}`);
+        log(`\nEndpoints:`);
+        log(`  GET  /node/:path      - Fetch a single node`);
+        log(`  GET  /context?files=  - Bundled context for files`);
+        log(`  POST /refresh         - Re-extract and rebuild`);
+        log(`\nServing ${nodeCount} nodes.`);
       });
 
       server.on('error', async (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
-          console.error(`Error: Port ${port} is already in use`);
+          logError(`Error: Port ${port} is already in use`);
         } else {
-          console.error(`Server error: ${err.message}`);
+          logError(`Server error: ${err.message}`);
         }
         await closeDb();
         process.exit(1);
       });
     } catch (error) {
-      console.error(`Error: ${(error as Error).message}`);
+      logError(`Error: ${(error as Error).message}`);
       await closeDb();
       process.exit(1);
     }
