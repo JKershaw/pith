@@ -861,3 +861,193 @@ describe('markStaleNodes', () => {
     assert.strictEqual(node?.prose?.stale, undefined);
   });
 });
+
+describe('LLM retry logic', () => {
+  it('retries on 429 rate limit error', async () => {
+    let attemptCount = 0;
+    const mockFetch = mock.fn(async () => {
+      attemptCount++;
+      if (attemptCount < 3) {
+        return {
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          text: async () => 'Rate limited',
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"summary": "Test", "purpose": "Test purpose", "gotchas": []}' } }]
+        }),
+      };
+    });
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+    };
+
+    const fileNode: WikiNode = {
+      id: 'test.ts',
+      type: 'file',
+      path: 'test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    };
+
+    const prose = await generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch });
+
+    // Should succeed after retries
+    assert.strictEqual(prose.summary, 'Test');
+    assert.strictEqual(attemptCount, 3);
+  });
+
+  it('retries on 500 server error', async () => {
+    let attemptCount = 0;
+    const mockFetch = mock.fn(async () => {
+      attemptCount++;
+      if (attemptCount < 2) {
+        return {
+          ok: false,
+          status: 500,
+          statusText: 'Internal Server Error',
+          text: async () => 'Server error',
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"summary": "Test", "purpose": "Test purpose", "gotchas": []}' } }]
+        }),
+      };
+    });
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+    };
+
+    const fileNode: WikiNode = {
+      id: 'test.ts',
+      type: 'file',
+      path: 'test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    };
+
+    const prose = await generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch });
+
+    assert.strictEqual(prose.summary, 'Test');
+    assert.strictEqual(attemptCount, 2);
+  });
+
+  it('fails after max retry attempts', async () => {
+    const mockFetch = mock.fn(async () => ({
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+      text: async () => 'Rate limited',
+    }));
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+    };
+
+    const fileNode: WikiNode = {
+      id: 'test.ts',
+      type: 'file',
+      path: 'test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    };
+
+    await assert.rejects(
+      generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch }),
+      /Rate limited/
+    );
+
+    // Should have tried 3 times (1 initial + 2 retries)
+    assert.strictEqual(mockFetch.mock.calls.length, 3);
+  });
+
+  it('does not retry on 400 client error', async () => {
+    const mockFetch = mock.fn(async () => ({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      text: async () => 'Invalid request',
+    }));
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+    };
+
+    const fileNode: WikiNode = {
+      id: 'test.ts',
+      type: 'file',
+      path: 'test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    };
+
+    await assert.rejects(
+      generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch }),
+      /OpenRouter API error/
+    );
+
+    // Should only try once (no retries for 4xx errors except 429)
+    assert.strictEqual(mockFetch.mock.calls.length, 1);
+  });
+
+  it('handles timeout errors with retry', async () => {
+    let attemptCount = 0;
+    const mockFetch = mock.fn(async () => {
+      attemptCount++;
+      if (attemptCount === 1) {
+        throw new Error('Request timeout');
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"summary": "Test", "purpose": "Test purpose", "gotchas": []}' } }]
+        }),
+      };
+    });
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+    };
+
+    const fileNode: WikiNode = {
+      id: 'test.ts',
+      type: 'file',
+      path: 'test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    };
+
+    const prose = await generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch });
+
+    assert.strictEqual(prose.summary, 'Test');
+    assert.strictEqual(attemptCount, 2);
+  });
+});

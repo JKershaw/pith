@@ -35,6 +35,7 @@ import {
 } from '../generator/index.ts';
 import { createApp } from '../api/index.ts';
 import { loadConfig } from '../config/index.ts';
+import { PithError, formatError, groupErrorsBySeverity } from '../errors/index.ts';
 
 const program = new Command();
 
@@ -161,7 +162,7 @@ program
       // Extract and store each file with parallel processing
       const BATCH_SIZE = 4; // Process 4 files concurrently for extraction
       let processedCount = 0;
-      const errors: { path: string; message: string }[] = [];
+      const errors: Array<{ path: string; error: Error | PithError }> = [];
       const newCache: ExtractionCache = { version: 1, files: { ...cache.files } };
 
       // Process files in batches
@@ -171,25 +172,33 @@ program
         // Extract files in parallel (but store sequentially to avoid DB corruption)
         const results = await Promise.allSettled(
           batch.map(async (relativePath) => {
-            // Extract AST data
-            const extracted = extractFile(ctx, relativePath);
+            try {
+              // Extract AST data
+              const extracted = extractFile(ctx, relativePath);
 
-            // Extract git info
-            const git = await extractGitInfo(absolutePath, relativePath);
+              // Extract git info
+              const git = await extractGitInfo(absolutePath, relativePath);
 
-            // Extract docs (need the directory for README)
-            const fileDirPath = join(absolutePath, dirname(relativePath));
-            const docs = await extractDocs(ctx, relativePath, fileDirPath);
+              // Extract docs (need the directory for README)
+              const fileDirPath = join(absolutePath, dirname(relativePath));
+              const docs = await extractDocs(ctx, relativePath, fileDirPath);
 
-            // Combine all data
-            extracted.git = git;
-            extracted.docs = docs;
+              // Combine all data
+              extracted.git = git;
+              extracted.docs = docs;
 
-            // Compute hash for cache
-            const fullPath = join(absolutePath, relativePath);
-            const hash = await getFileHash(fullPath);
+              // Compute hash for cache
+              const fullPath = join(absolutePath, relativePath);
+              const hash = await getFileHash(fullPath);
 
-            return { relativePath, extracted, hash };
+              return { relativePath, extracted, hash };
+            } catch (error) {
+              // Wrap in PithError if it's a parse error
+              if (error instanceof Error && error.message.includes('parse')) {
+                throw new PithError('PARSE_ERROR', error.message, 'error');
+              }
+              throw error;
+            }
           })
         );
 
@@ -214,9 +223,9 @@ program
               log(`Progress: ${processedCount}/${filesToExtract.length} files`);
             }
           } else {
-            const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
-            errors.push({ path: relativePath, message });
-            logError(`Error extracting ${relativePath}: ${message}`);
+            const error = result.reason instanceof Error ? result.reason : new Error(String(result.reason));
+            errors.push({ path: relativePath, error });
+            log(`  ✗ ${relativePath}: ${error.message}`, 'verbose');
           }
         }
       }
@@ -230,11 +239,34 @@ program
       // Report summary
       const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
       log(`\nCompleted in ${elapsedSec}s: ${processedCount} files extracted, ${skippedCount} skipped, ${errors.length} errors`);
+
       if (errors.length > 0) {
         logError('\nErrors:');
-        for (const error of errors) {
-          logError(`  - ${error.path}: ${error.message}`);
+
+        // Group and display errors by severity
+        const errorList = errors.map(e => e.error);
+        const grouped = groupErrorsBySeverity(errorList);
+
+        // Show fatal errors first
+        if (grouped.fatal.length > 0) {
+          logError('\nFatal errors:');
+          errors.filter(e => e.error instanceof PithError && e.error.severity === 'fatal')
+            .forEach(({ path, error }) => {
+              logError(`  - ${path}:`);
+              logError(`    ${formatError(error).split('\n').join('\n    ')}`);
+            });
         }
+
+        // Show regular errors
+        if (grouped.error.length > 0) {
+          logError('\nErrors:');
+          errors.filter(e => !(e.error instanceof PithError && e.error.severity === 'fatal'))
+            .forEach(({ path, error }) => {
+              logError(`  - ${path}: ${error.message}`);
+            });
+        }
+
+        logError('\nSuggestion: Try --force to reprocess all files, or check the error messages above.');
       }
     } catch (error) {
       logError('Error during extraction:');
@@ -516,7 +548,7 @@ program
       log(`Using model: ${model}`);
 
       let generated = 0;
-      let errors = 0;
+      const generationErrors: Array<{ nodeId: string; error: Error | PithError }> = [];
 
       // Process nodes (file nodes first for fractal generation)
       const fileNodes = nodes.filter(n => n.type === 'file');
@@ -554,13 +586,49 @@ program
           generated++;
           log(`    ✓ ${node.id}`, 'verbose');
         } catch (error) {
-          errors++;
-          logError(`    ✗ ${node.id}: ${(error as Error).message}`);
+          const pithError = error instanceof Error
+            ? (error.message.includes('Rate limited') || error.message.includes('429')
+              ? new PithError('LLM_ERROR', error.message, 'error', 'Wait a few minutes and try again')
+              : error instanceof PithError ? error : new Error(error.message))
+            : new Error(String(error));
+
+          generationErrors.push({ nodeId: node.id, error: pithError });
+          log(`    ✗ ${node.id}: ${(error as Error).message}`, 'verbose');
         }
       }
 
       const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
-      log(`\nCompleted in ${elapsedSec}s: ${generated} generated, ${errors} errors`);
+      log(`\nCompleted in ${elapsedSec}s: ${generated} generated, ${generationErrors.length} errors`);
+
+      if (generationErrors.length > 0) {
+        logError('\nDetailed error information:');
+
+        // Group errors by severity
+        const errorList = generationErrors.map(e => e.error);
+        const grouped = groupErrorsBySeverity(errorList);
+
+        // Show warnings (like rate limits that might retry)
+        if (grouped.warning.length > 0) {
+          logError('\nWarnings:');
+          generationErrors.filter(e => e.error instanceof PithError && e.error.severity === 'warning')
+            .forEach(({ nodeId, error }) => {
+              logError(`  - ${nodeId}:`);
+              logError(`    ${formatError(error).split('\n').join('\n    ')}`);
+            });
+        }
+
+        // Show errors
+        if (grouped.error.length > 0) {
+          logError('\nErrors:');
+          generationErrors.filter(e => !(e.error instanceof PithError && e.error.severity === 'warning'))
+            .forEach(({ nodeId, error }) => {
+              logError(`  - ${nodeId}: ${error.message}`);
+            });
+        }
+
+        logError('\nSuggestion: Check your OPENROUTER_API_KEY and rate limits. Use --force to regenerate failed nodes.');
+      }
+
       await closeDb();
 
     } catch (error) {
