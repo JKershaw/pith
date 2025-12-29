@@ -35,6 +35,15 @@ export interface InlineComment {
 }
 
 /**
+ * TODO comment information.
+ */
+export interface Todo {
+  type: 'TODO' | 'FIXME' | 'HACK' | 'XXX';
+  text: string;
+  line: number;
+}
+
+/**
  * Extract JSDoc from a function, method, or class declaration.
  * @param node - The node to extract JSDoc from
  * @returns JSDoc data or null if no JSDoc is present
@@ -224,6 +233,57 @@ export function extractInlineComments(ctx: ProjectContext, relativePath: string)
   }
 
   return comments;
+}
+
+/**
+ * Extract TODO comments from a TypeScript file.
+ * @param ctx - The project context
+ * @param relativePath - The relative path to the file
+ * @returns Array of TODO comments with their locations
+ */
+export function extractTodos(ctx: ProjectContext, relativePath: string): Todo[] {
+  const fullPath = join(ctx.rootDir, relativePath);
+  const sourceFile = ctx.project.addSourceFileAtPath(fullPath);
+  const todos: Todo[] = [];
+
+  // Get the full text to parse comments
+  const fullText = sourceFile.getFullText();
+  const lines = fullText.split('\n');
+
+  // Regex to match TODO, FIXME, HACK, or XXX markers
+  // Matches: TODO:, TODO , FIXME:, etc. (case-insensitive)
+  const todoRegex = /(TODO|FIXME|HACK|XXX):?\s*(.*)$/i;
+
+  // Parse each line for TODO markers
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+
+    // Check if line contains a comment with a TODO marker
+    const commentMatch = line.match(/(?:\/\/|\/\*)\s*(.*)/);
+    if (commentMatch) {
+      const commentContent = commentMatch[1];
+      if (!commentContent) continue;
+
+      // Check if comment contains a TODO marker
+      const todoMatch = commentContent.match(todoRegex);
+      if (todoMatch) {
+        const type = todoMatch[1]?.toUpperCase() as 'TODO' | 'FIXME' | 'HACK' | 'XXX';
+        let text = todoMatch[2]?.trim() || '';
+
+        // Remove closing */ from block comments
+        text = text.replace(/\*\/\s*$/, '').trim();
+
+        todos.push({
+          type,
+          text,
+          line: i + 1, // Line numbers are 1-indexed
+        });
+      }
+    }
+  }
+
+  return todos;
 }
 
 /**

@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createProject } from './ast.ts';
-import { extractJSDoc, extractInlineComments, extractReadme } from './docs.ts';
+import { extractJSDoc, extractInlineComments, extractReadme, extractTodos } from './docs.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixtureDir = join(__dirname, '../../test/fixtures/simple-project');
@@ -237,6 +237,144 @@ describe('extractReadme', () => {
     } finally {
       // Clean up
       await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('extractTodos', () => {
+  it('extracts TODO comment with correct type', () => {
+    const ctx = createProject(fixtureDir);
+    const todos = extractTodos(ctx, 'src/auth.ts');
+
+    assert.ok(Array.isArray(todos));
+    assert.ok(todos.length > 0);
+
+    const todoItem = todos.find((t) => t.type === 'TODO');
+    assert.ok(todoItem);
+    assert.strictEqual(todoItem.type, 'TODO');
+  });
+
+  it('returns correct line number', () => {
+    const ctx = createProject(fixtureDir);
+    const todos = extractTodos(ctx, 'src/auth.ts');
+
+    const todoItem = todos.find((t) => t.type === 'TODO');
+    assert.ok(todoItem);
+    assert.strictEqual(todoItem.line, 27);
+  });
+
+  it('extracts text after the marker', () => {
+    const ctx = createProject(fixtureDir);
+    const todos = extractTodos(ctx, 'src/auth.ts');
+
+    const todoItem = todos.find((t) => t.type === 'TODO');
+    assert.ok(todoItem);
+    assert.strictEqual(todoItem.text, 'Implement actual token validation');
+  });
+
+  it('handles FIXME markers', async () => {
+    const ctx = createProject(fixtureDir);
+    const tempFile = join(fixtureDir, 'src/temp-test.ts');
+    const { writeFileSync, unlinkSync } = await import('node:fs');
+
+    try {
+      writeFileSync(tempFile, '// FIXME: Fix this bug\nfunction test() {}\n');
+      const todos = extractTodos(ctx, 'src/temp-test.ts');
+
+      const fixmeItem = todos.find((t) => t.type === 'FIXME');
+      assert.ok(fixmeItem);
+      assert.strictEqual(fixmeItem.type, 'FIXME');
+      assert.strictEqual(fixmeItem.text, 'Fix this bug');
+    } finally {
+      unlinkSync(tempFile);
+    }
+  });
+
+  it('handles HACK markers', async () => {
+    const ctx = createProject(fixtureDir);
+    const tempFile = join(fixtureDir, 'src/temp-test.ts');
+    const { writeFileSync, unlinkSync } = await import('node:fs');
+
+    try {
+      writeFileSync(tempFile, '// HACK: Temporary workaround\nfunction test() {}\n');
+      const todos = extractTodos(ctx, 'src/temp-test.ts');
+
+      const hackItem = todos.find((t) => t.type === 'HACK');
+      assert.ok(hackItem);
+      assert.strictEqual(hackItem.type, 'HACK');
+      assert.strictEqual(hackItem.text, 'Temporary workaround');
+    } finally {
+      unlinkSync(tempFile);
+    }
+  });
+
+  it('handles XXX markers', async () => {
+    const ctx = createProject(fixtureDir);
+    const tempFile = join(fixtureDir, 'src/temp-test.ts');
+    const { writeFileSync, unlinkSync } = await import('node:fs');
+
+    try {
+      writeFileSync(tempFile, '// XXX: Review this code\nfunction test() {}\n');
+      const todos = extractTodos(ctx, 'src/temp-test.ts');
+
+      const xxxItem = todos.find((t) => t.type === 'XXX');
+      assert.ok(xxxItem);
+      assert.strictEqual(xxxItem.type, 'XXX');
+      assert.strictEqual(xxxItem.text, 'Review this code');
+    } finally {
+      unlinkSync(tempFile);
+    }
+  });
+
+  it('handles files with no TODO comments', () => {
+    const ctx = createProject(fixtureDir);
+    const todos = extractTodos(ctx, 'src/types.ts');
+
+    assert.ok(Array.isArray(todos));
+    assert.strictEqual(todos.length, 0);
+  });
+
+  it('handles TODO in block comments', async () => {
+    const ctx = createProject(fixtureDir);
+    const tempFile = join(fixtureDir, 'src/temp-test.ts');
+    const { writeFileSync, unlinkSync } = await import('node:fs');
+
+    try {
+      writeFileSync(tempFile, '/* TODO: Block comment task */\nfunction test() {}\n');
+      const todos = extractTodos(ctx, 'src/temp-test.ts');
+
+      const todoItem = todos.find((t) => t.type === 'TODO');
+      assert.ok(todoItem);
+      assert.strictEqual(todoItem.text, 'Block comment task');
+    } finally {
+      unlinkSync(tempFile);
+    }
+  });
+
+  it('handles TODO with colon separator', () => {
+    const ctx = createProject(fixtureDir);
+    const todos = extractTodos(ctx, 'src/auth.ts');
+
+    const todoItem = todos.find((t) => t.type === 'TODO');
+    assert.ok(todoItem);
+    // The TODO in auth.ts is "TODO: Implement actual token validation"
+    assert.strictEqual(todoItem.text, 'Implement actual token validation');
+  });
+
+  it('handles TODO without colon separator', async () => {
+    const ctx = createProject(fixtureDir);
+    const tempFile = join(fixtureDir, 'src/temp-test.ts');
+    const { writeFileSync, unlinkSync } = await import('node:fs');
+
+    try {
+      writeFileSync(tempFile, '// TODO Add feature\nfunction test() {}\n');
+      const todos = extractTodos(ctx, 'src/temp-test.ts');
+
+      const todoItem = todos.find((t) => t.type === 'TODO');
+      assert.ok(todoItem);
+      assert.strictEqual(todoItem.text, 'Add feature');
+    } finally {
+      unlinkSync(tempFile);
     }
   });
 });
