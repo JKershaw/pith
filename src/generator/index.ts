@@ -1,34 +1,8 @@
 import type { WikiNode } from '../builder/index.ts';
 import type { MangoDb } from '@jkershaw/mangodb';
-import { ProxyAgent, setGlobalDispatcher } from 'undici';
 
-/**
- * Redact credentials from a URL for safe logging.
- * Replaces username:password with [redacted] if present.
- */
-function redactUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    if (parsed.username || parsed.password) {
-      parsed.username = '[redacted]';
-      parsed.password = '';
-    }
-    return parsed.toString();
-  } catch {
-    // If URL parsing fails, return a generic message
-    return '[invalid URL]';
-  }
-}
-
-// Configure global proxy if HTTPS_PROXY is set
-const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-if (proxyUrl) {
-  try {
-    setGlobalDispatcher(new ProxyAgent(proxyUrl));
-  } catch (error) {
-    console.warn(`Warning: Failed to configure proxy from ${redactUrl(proxyUrl)}: ${(error as Error).message}`);
-  }
-}
+// Note: Global proxy configuration was removed to avoid conflicts with localhost connections in tests
+// If proxy support is needed for OpenRouter API calls, it should be configured per-request in callLLM
 
 /**
  * Generated prose for a node
@@ -452,4 +426,57 @@ export async function markStaleNodes(db: MangoDb): Promise<number> {
   }
 
   return staleCount;
+}
+
+/**
+ * Generates prose for a node by ID and caches it to the database
+ * @param nodeId - ID of the node to generate prose for
+ * @param db - MangoDB database instance
+ * @param config - LLM provider configuration
+ * @param fetchFn - Optional fetch function for testing
+ * @returns Updated node with prose, or null if node not found
+ */
+export async function generateProseForNode(
+  nodeId: string,
+  db: MangoDb,
+  config: GeneratorConfig,
+  fetchFn?: typeof fetch
+): Promise<WikiNode | null> {
+  const nodes = db.collection<WikiNode>('nodes');
+
+  // Fetch the node from DB
+  const node = await nodes.findOne({ id: nodeId });
+  if (!node) {
+    return null;
+  }
+
+  // For module nodes, gather child summaries
+  let childSummaries: Map<string, string> | undefined;
+  if (node.type === 'module') {
+    const childIds = node.edges
+      .filter(e => e.type === 'contains')
+      .map(e => e.target);
+
+    const children = await nodes
+      .find({ id: { $in: childIds } })
+      .toArray();
+
+    childSummaries = new Map(
+      children
+        .filter(c => c.prose?.summary)
+        .map(c => [c.id, c.prose!.summary])
+    );
+  }
+
+  // Generate prose
+  const prose = await generateProse(node, config, { childSummaries, fetchFn });
+
+  // Cache to DB
+  await updateNodeWithProse(db, nodeId, prose);
+
+  // Return updated node
+  return {
+    ...node,
+    prose,
+  };
 }

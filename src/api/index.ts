@@ -1,5 +1,7 @@
 import type { MangoDb } from '@jkershaw/mangodb';
 import type { WikiNode } from '../builder/index.ts';
+import type { GeneratorConfig } from '../generator/index.ts';
+import { generateProseForNode } from '../generator/index.ts';
 import express, { type Express, type Request, type Response } from 'express';
 import { stat } from 'node:fs/promises';
 
@@ -199,9 +201,15 @@ export function formatContextAsMarkdown(context: BundledContext): string {
  * Create Express application with API routes.
  *
  * @param db - MangoDB database instance
+ * @param generatorConfig - Optional LLM generator configuration for on-demand prose generation
+ * @param fetchFn - Optional fetch function for testing
  * @returns Express application
  */
-export function createApp(db: MangoDb): Express {
+export function createApp(
+  db: MangoDb,
+  generatorConfig?: GeneratorConfig,
+  fetchFn?: typeof fetch
+): Express {
   const app = express();
 
   app.use(express.json());
@@ -213,9 +221,10 @@ export function createApp(db: MangoDb): Express {
     try {
       const pathParts = req.params.path as unknown as string[];
       const nodePath = pathParts.join('/'); // Join array back into path string
+      const proseParam = req.query.prose as string | undefined;
 
       const nodes = db.collection<WikiNode>('nodes');
-      const node = await nodes.findOne({ id: nodePath });
+      let node = await nodes.findOne({ id: nodePath });
 
       if (!node) {
         res.status(404).json({
@@ -223,6 +232,20 @@ export function createApp(db: MangoDb): Express {
           message: `Node not found: ${nodePath}`,
         });
         return;
+      }
+
+      // On-demand prose generation
+      // Generate prose if: node has no prose AND prose param is not 'false' AND generatorConfig is provided
+      if (!node.prose && proseParam !== 'false' && generatorConfig) {
+        try {
+          const updatedNode = await generateProseForNode(nodePath, db, generatorConfig, fetchFn);
+          if (updatedNode) {
+            node = updatedNode;
+          }
+        } catch (error) {
+          // Log error but return node without prose rather than failing the request
+          console.error(`Failed to generate prose for ${nodePath}:`, (error as Error).message);
+        }
       }
 
       res.json(node);

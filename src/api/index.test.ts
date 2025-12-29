@@ -250,6 +250,7 @@ describe('API', () => {
 
       // Use native fetch to test the express app
       const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -270,6 +271,7 @@ describe('API', () => {
       const app = createApp(db);
 
       const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -288,6 +290,7 @@ describe('API', () => {
       const app = createApp(db);
 
       const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -308,6 +311,7 @@ describe('API', () => {
       const app = createApp(db);
 
       const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -327,6 +331,7 @@ describe('API', () => {
       const app = createApp(db);
 
       const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -346,6 +351,7 @@ describe('API', () => {
       const app = createApp(db);
 
       const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -364,6 +370,7 @@ describe('API', () => {
       const app = createApp(db);
 
       const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -387,6 +394,7 @@ describe('API', () => {
       const app = createApp(db);
 
       const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -399,6 +407,206 @@ describe('API', () => {
 
         assert.strictEqual(response.status, 400);
         assert.strictEqual(data.error, 'INVALID_PATH');
+      } finally {
+        server.close();
+      }
+    });
+  });
+
+  describe('on-demand prose generation', () => {
+    it('GET /node/:path generates prose on-the-fly when node has no prose', { timeout: 5000 }, async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a node without prose
+      const nodeWithoutProse: WikiNode = {
+        id: 'src/newfile.ts',
+        type: 'file',
+        path: 'src/newfile.ts',
+        name: 'newfile.ts',
+        metadata: {
+          lines: 50,
+          commits: 2,
+          lastModified: new Date('2024-12-01'),
+          authors: ['dev@example.com'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {
+          signature: ['function newFunction(): void'],
+          exports: [{ name: 'newFunction', kind: 'function' }],
+        },
+      };
+      await nodes.insertOne(nodeWithoutProse);
+
+      // Mock LLM fetch function
+      const mockLLMResponse = JSON.stringify({
+        summary: 'Generated summary for newfile',
+        purpose: 'Generated purpose for newfile.',
+        gotchas: [],
+        keyExports: ['newFunction: Main function'],
+      });
+
+      const mockFetch = async () => ({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: mockLLMResponse } }]
+        }),
+      });
+
+      const generatorConfig = {
+        provider: 'openrouter' as const,
+        model: 'anthropic/claude-sonnet-4',
+        apiKey: 'test-key',
+      };
+
+      const app = createApp(db, generatorConfig, mockFetch as unknown as typeof fetch);
+
+      const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/node/src/newfile.ts`);
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.id, 'src/newfile.ts');
+        // Should have generated prose
+        assert.ok(data.prose);
+        assert.strictEqual(data.prose.summary, 'Generated summary for newfile');
+
+        // Verify prose was cached to DB
+        const nodeFromDb = await nodes.findOne({ id: 'src/newfile.ts' });
+        assert.ok(nodeFromDb?.prose);
+        assert.strictEqual(nodeFromDb.prose.summary, 'Generated summary for newfile');
+      } finally {
+        server.close();
+      }
+    });
+
+    it('GET /node/:path skips generation when prose=false', { timeout: 5000 }, async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a node without prose
+      const nodeWithoutProse: WikiNode = {
+        id: 'src/skipgen.ts',
+        type: 'file',
+        path: 'src/skipgen.ts',
+        name: 'skipgen.ts',
+        metadata: {
+          lines: 50,
+          commits: 2,
+          lastModified: new Date('2024-12-01'),
+          authors: ['dev@example.com'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+      };
+      await nodes.insertOne(nodeWithoutProse);
+
+      const mockFetch = async () => {
+        throw new Error('LLM should not be called');
+      };
+
+      const generatorConfig = {
+        provider: 'openrouter' as const,
+        model: 'anthropic/claude-sonnet-4',
+        apiKey: 'test-key',
+      };
+
+      const app = createApp(db, generatorConfig, mockFetch as unknown as typeof fetch);
+
+      const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/node/src/skipgen.ts?prose=false`);
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.id, 'src/skipgen.ts');
+        // Should NOT have generated prose
+        assert.strictEqual(data.prose, undefined);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('GET /node/:path returns existing prose without regenerating', { timeout: 5000 }, async () => {
+      const db = client.db('pith');
+
+      const mockFetch = async () => {
+        throw new Error('LLM should not be called for existing prose');
+      };
+
+      const generatorConfig = {
+        provider: 'openrouter' as const,
+        model: 'anthropic/claude-sonnet-4',
+        apiKey: 'test-key',
+      };
+
+      const app = createApp(db, generatorConfig, mockFetch as unknown as typeof fetch);
+
+      const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        // Request node that already has prose
+        const response = await fetch(`http://localhost:${port}/node/src/auth/login.ts`);
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.id, 'src/auth/login.ts');
+        // Should return existing prose
+        assert.ok(data.prose);
+        assert.strictEqual(data.prose.summary, 'Handles user authentication via credentials.');
+      } finally {
+        server.close();
+      }
+    });
+
+    it('GET /node/:path works without generatorConfig', { timeout: 5000 }, async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a node without prose
+      const nodeWithoutProse: WikiNode = {
+        id: 'src/nogen.ts',
+        type: 'file',
+        path: 'src/nogen.ts',
+        name: 'nogen.ts',
+        metadata: {
+          lines: 50,
+          commits: 2,
+          lastModified: new Date('2024-12-01'),
+          authors: ['dev@example.com'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+      };
+      await nodes.insertOne(nodeWithoutProse);
+
+      // No generatorConfig provided
+      const app = createApp(db);
+
+      const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/node/src/nogen.ts`);
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.id, 'src/nogen.ts');
+        // Should NOT have prose (no generation)
+        assert.strictEqual(data.prose, undefined);
       } finally {
         server.close();
       }

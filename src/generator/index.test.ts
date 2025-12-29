@@ -1,7 +1,7 @@
 import { describe, it, mock, afterEach } from 'node:test';
 import assert from 'node:assert';
 import type { ProseData, GeneratorConfig } from './index.ts';
-import { buildPrompt, parseLLMResponse, callLLM, generateProse, updateNodeWithProse, isStale, markStaleNodes } from './index.ts';
+import { buildPrompt, parseLLMResponse, callLLM, generateProse, updateNodeWithProse, isStale, markStaleNodes, generateProseForNode } from './index.ts';
 import type { WikiNode } from '../builder/index.ts';
 import { getDb, closeDb } from '../db/index.ts';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -859,6 +859,175 @@ describe('markStaleNodes', () => {
     // Verify node was NOT marked stale
     const node = await nodes.findOne({ id: 'fresh.ts' });
     assert.strictEqual(node?.prose?.stale, undefined);
+  });
+});
+
+describe('generateProseForNode', () => {
+  let testDataDir: string;
+
+  afterEach(async () => {
+    await closeDb();
+    if (testDataDir) {
+      await rm(testDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('fetches node, generates prose, and caches to DB', async () => {
+    testDataDir = await mkdtemp(join(tmpdir(), 'pith-test-'));
+    const db = await getDb(testDataDir);
+    const nodes = db.collection<WikiNode>('nodes');
+
+    // Insert test node without prose
+    const testNode: WikiNode = {
+      id: 'src/test.ts',
+      type: 'file',
+      path: 'src/test.ts',
+      name: 'test.ts',
+      metadata: {
+        lines: 50,
+        commits: 5,
+        lastModified: new Date(),
+        authors: ['dev@example.com'],
+      },
+      edges: [],
+      raw: {
+        signature: ['function test(): void'],
+        exports: [{ name: 'test', kind: 'function' }],
+      },
+    };
+    await nodes.insertOne(testNode);
+
+    // Mock LLM response
+    const mockLLMResponse = JSON.stringify({
+      summary: 'Test file summary',
+      purpose: 'Test purpose for the file.',
+      gotchas: ['Watch out for edge cases'],
+      keyExports: ['test: Main test function'],
+    });
+
+    const mockFetch = mock.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: mockLLMResponse } }]
+      }),
+    }));
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+    };
+
+    // Call generateProseForNode
+    const updatedNode = await generateProseForNode('src/test.ts', db, config, mockFetch as unknown as typeof fetch);
+
+    // Verify the returned node has prose
+    assert.ok(updatedNode);
+    assert.strictEqual(updatedNode.id, 'src/test.ts');
+    assert.ok(updatedNode.prose);
+    assert.strictEqual(updatedNode.prose.summary, 'Test file summary');
+    assert.strictEqual(updatedNode.prose.purpose, 'Test purpose for the file.');
+
+    // Verify prose was cached to DB
+    const nodeFromDb = await nodes.findOne({ id: 'src/test.ts' });
+    assert.ok(nodeFromDb?.prose);
+    assert.strictEqual(nodeFromDb.prose.summary, 'Test file summary');
+  });
+
+  it('returns null when node not found', async () => {
+    testDataDir = await mkdtemp(join(tmpdir(), 'pith-test-'));
+    const db = await getDb(testDataDir);
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+    };
+
+    const mockFetch = mock.fn();
+
+    const result = await generateProseForNode('nonexistent.ts', db, config, mockFetch as unknown as typeof fetch);
+
+    assert.strictEqual(result, null);
+    // LLM should not be called
+    assert.strictEqual(mockFetch.mock.calls.length, 0);
+  });
+
+  it('handles module nodes with child summaries', async () => {
+    testDataDir = await mkdtemp(join(tmpdir(), 'pith-test-'));
+    const db = await getDb(testDataDir);
+    const nodes = db.collection<WikiNode>('nodes');
+
+    // Insert a module node
+    const moduleNode: WikiNode = {
+      id: 'src/auth',
+      type: 'module',
+      path: 'src/auth',
+      name: 'auth',
+      metadata: {
+        lines: 200,
+        commits: 20,
+        lastModified: new Date(),
+        authors: ['alice@example.com'],
+      },
+      edges: [
+        { type: 'contains', target: 'src/auth/login.ts' },
+      ],
+      raw: {},
+    };
+
+    // Insert child node with prose
+    const childNode: WikiNode = {
+      id: 'src/auth/login.ts',
+      type: 'file',
+      path: 'src/auth/login.ts',
+      name: 'login.ts',
+      metadata: {
+        lines: 100,
+        commits: 10,
+        lastModified: new Date(),
+        authors: ['alice@example.com'],
+      },
+      edges: [],
+      raw: {},
+      prose: {
+        summary: 'Handles user authentication',
+        purpose: 'OAuth login flow',
+        gotchas: [],
+        generatedAt: new Date(),
+      },
+    };
+
+    await nodes.insertOne(moduleNode);
+    await nodes.insertOne(childNode);
+
+    // Mock LLM response
+    const mockLLMResponse = JSON.stringify({
+      summary: 'Authentication module',
+      purpose: 'Manages user login and sessions.',
+      keyFiles: ['login.ts: Handles OAuth'],
+      publicApi: ['login()', 'logout()'],
+    });
+
+    const mockFetch = mock.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: mockLLMResponse } }]
+      }),
+    }));
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+    };
+
+    const updatedNode = await generateProseForNode('src/auth', db, config, mockFetch as unknown as typeof fetch);
+
+    // Verify module prose was generated
+    assert.ok(updatedNode?.prose);
+    assert.strictEqual(updatedNode.prose.summary, 'Authentication module');
+    assert.deepStrictEqual(updatedNode.prose.keyFiles, ['login.ts: Handles OAuth']);
   });
 });
 

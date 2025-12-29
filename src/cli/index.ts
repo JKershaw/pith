@@ -643,12 +643,15 @@ program
   .command('serve')
   .description('Start the API server')
   .option('-p, --port <port>', 'Port to listen on', '3000')
-  .action(async (options: { port: string }) => {
+  .option('--lazy', 'Enable on-demand prose generation (default: true)')
+  .option('--no-lazy', 'Disable on-demand prose generation')
+  .action(async (options: { port: string; lazy: boolean }) => {
     // Load configuration
     const config = await loadConfig();
 
     const port = parseInt(options.port, 10);
     const dataDir = process.env.PITH_DATA_DIR || config.output.dataDir;
+    const lazy = options.lazy !== false; // Default to true
 
     try {
       const db = await getDb(dataDir);
@@ -662,7 +665,25 @@ program
         process.exit(1);
       }
 
-      const app = createApp(db);
+      // Setup generator config if lazy mode is enabled
+      let generatorConfig: GeneratorConfig | undefined;
+      if (lazy) {
+        const apiKey = process.env.OPENROUTER_API_KEY;
+        const model = process.env.OPENROUTER_MODEL || config.llm?.model || 'anthropic/claude-sonnet-4';
+
+        if (apiKey) {
+          generatorConfig = {
+            provider: 'openrouter',
+            model,
+            apiKey,
+          };
+          log('Lazy prose generation enabled', 'verbose');
+        } else {
+          log('Warning: OPENROUTER_API_KEY not set. On-demand prose generation disabled.', 'verbose');
+        }
+      }
+
+      const app = createApp(db, generatorConfig);
 
       const server = app.listen(port, () => {
         log(`Pith API server running on http://localhost:${port}`);
@@ -671,6 +692,11 @@ program
         log(`  GET  /context?files=  - Bundled context for files`);
         log(`  POST /refresh         - Re-extract and rebuild`);
         log(`\nServing ${nodeCount} nodes.`);
+        if (generatorConfig) {
+          log(`On-demand prose generation: enabled (model: ${generatorConfig.model})`);
+        } else {
+          log(`On-demand prose generation: disabled`);
+        }
       });
 
       server.on('error', async (err: NodeJS.ErrnoException) => {
