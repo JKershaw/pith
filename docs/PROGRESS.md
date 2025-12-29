@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 4 (API Server) - including manual validation
-**Current step**: Ready for Phase 5 (Polish)
+**Last completed phase**: Phase 5 (Polish) - ALL PHASES COMPLETE
+**Current step**: MVP Complete - Ready for production use
 **Date**: 2025-12-29
 
 ---
@@ -229,53 +229,110 @@
 
 ---
 
-## Phase 5: Polish - NOT STARTED
+## Phase 5: Polish - COMPLETE
 
-### Planned Deliverables
-1. **Configuration**
-   - `pith.config.json` for includes/excludes
-   - LLM provider/model selection
-   - Custom complexity thresholds
+### 5.1 Configuration - COMPLETE
+| Feature | Status |
+|---------|--------|
+| `pith.config.json` support | Done |
+| Include/exclude patterns | Done |
+| LLM provider/model selection | Done |
+| Environment variable fallbacks | Done |
 
-2. **Performance**
-   - Incremental extraction (only changed files)
-   - Parallel file parsing
-   - Efficient JSON streaming for large codebases
+**New files**: `src/config/index.ts`, `src/config/index.test.ts`
 
-3. **CLI improvements**
-   - Progress indicators
-   - Dry-run mode
-   - Verbose/quiet modes
-   - Cost estimation for prose generation
+### 5.2 Performance - COMPLETE
+| Feature | Status |
+|---------|--------|
+| Incremental extraction (file hashing) | Done |
+| Parallel file parsing (batch of 4) | Done |
+| Extraction cache (`.pith/extraction-cache.json`) | Done |
+| `--force` flag to bypass cache | Done |
 
-4. **Error handling**
-   - Graceful handling of parse errors
-   - LLM timeout/retry logic
-   - Clear error messages
+**New files**: `src/extractor/cache.ts`, `src/extractor/cache.test.ts`
+
+### 5.3 CLI Improvements - COMPLETE
+| Feature | Status |
+|---------|--------|
+| `--verbose, -v` flag | Done |
+| `--quiet, -q` flag | Done |
+| `--dry-run` mode | Done |
+| Elapsed time display | Done |
+| Cost estimation (`--estimate`) | Done |
+
+### 5.4 Error Handling - COMPLETE
+| Feature | Status |
+|---------|--------|
+| PithError class with severity levels | Done |
+| Error codes (PARSE_ERROR, LLM_ERROR, etc.) | Done |
+| LLM retry with exponential backoff | Done |
+| Clear error messages with suggestions | Done |
+| Error grouping in summaries | Done |
+
+**New files**: `src/errors/index.ts`, `src/errors/index.test.ts`
+
+**Phase 5 Exit Criteria**: All met
+- [x] Configuration file support works
+- [x] Incremental extraction skips unchanged files
+- [x] CLI has verbose/quiet/dry-run modes
+- [x] Errors are handled gracefully with retries
 
 ---
 
 ## Test Summary
 
 As of 2025-12-29:
-- **Total tests**: 100+
+- **Total tests**: 234
 - **All passing**: Yes
 - **Lint**: Clean
+- **Test suites**: 60
 
 Commands:
 ```bash
-npm test    # All tests pass
+npm test      # 234 tests pass
 npm run lint  # No errors
 ```
+
+---
+
+## MVP Feature Summary
+
+### CLI Commands
+```bash
+pith extract <path> [--force] [--verbose] [--quiet] [--dry-run]
+pith build [--verbose] [--quiet] [--dry-run]
+pith generate [--model <model>] [--estimate] [--verbose] [--quiet] [--dry-run]
+pith serve [--port <port>]
+```
+
+### API Endpoints
+- `GET /node/:path` - Fetch single node
+- `GET /context?files=a,b,c` - Bundled context for LLM injection
+- `POST /refresh` - Re-extract and rebuild
+
+### Key Features
+- TypeScript AST extraction (functions, classes, interfaces, imports, exports)
+- Git history extraction (commits, authors, dates)
+- Documentation extraction (JSDoc, comments, TODOs, deprecations)
+- Node graph with edges (imports, contains, parent)
+- Computed metadata (fan-in, fan-out, age, recency)
+- LLM prose generation with OpenRouter
+- Incremental extraction with file hashing
+- Parallel processing for performance
+- Configuration via `pith.config.json`
+- Comprehensive error handling with retries
 
 ---
 
 ## Notes
 
 ### Environment Setup
-- `.env` file created with OPENROUTER_API_KEY and OPENROUTER_MODEL
+- `.env` file with OPENROUTER_API_KEY and OPENROUTER_MODEL
 - Using `qwen/qwen-turbo` as default model
 
 ### Dependencies
 - All npm dependencies installed
 - Node.js v22.x required for experimental-strip-types
+
+### Architecture
+See `docs/ARCHITECTURE.md` for system design and data flow.
