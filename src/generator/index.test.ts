@@ -23,6 +23,22 @@ describe('generator types', () => {
     assert.ok(prose.generatedAt instanceof Date);
   });
 
+  it('ProseData supports optional pattern fields', () => {
+    const proseWithPatterns: ProseData = {
+      summary: 'A test summary',
+      purpose: 'Test purpose',
+      gotchas: [],
+      generatedAt: new Date(),
+      quickStart: 'import { foo } from "./module"; foo();',
+      patterns: ['Common pattern: use X for Y', 'Avoid Z pattern'],
+      similarFiles: ['src/similar1.ts', 'src/similar2.ts'],
+    };
+
+    assert.strictEqual(proseWithPatterns.quickStart, 'import { foo } from "./module"; foo();');
+    assert.deepStrictEqual(proseWithPatterns.patterns, ['Common pattern: use X for Y', 'Avoid Z pattern']);
+    assert.deepStrictEqual(proseWithPatterns.similarFiles, ['src/similar1.ts', 'src/similar2.ts']);
+  });
+
   it('GeneratorConfig has required fields', () => {
     const config: GeneratorConfig = {
       provider: 'openrouter',
@@ -118,6 +134,32 @@ describe('buildPrompt', () => {
     assert.ok(prompt.includes('IMPORTS: (none)') || prompt.includes('IMPORTS:\n'));
     assert.ok(prompt.includes('"summary"'));
   });
+
+  it('file prompt requests patterns and similar files', () => {
+    const fileNode: WikiNode = {
+      id: 'src/utils.ts',
+      type: 'file',
+      path: 'src/utils.ts',
+      name: 'utils.ts',
+      metadata: {
+        lines: 50,
+        commits: 5,
+        lastModified: new Date(),
+        authors: ['dev@example.com'],
+      },
+      edges: [],
+      raw: {
+        signature: ['formatDate(date: Date): string'],
+        exports: [{ name: 'formatDate', kind: 'function' }],
+      },
+    };
+
+    const prompt = buildPrompt(fileNode);
+
+    // Verify prompt asks for patterns and similar files
+    assert.ok(prompt.includes('"patterns"'));
+    assert.ok(prompt.includes('"similarFiles"'));
+  });
 });
 
 describe('buildPrompt for modules', () => {
@@ -189,6 +231,30 @@ describe('buildPrompt for modules', () => {
     assert.ok(prompt.includes('MODULE: src/utils'));
     assert.ok(prompt.includes('helpers.ts'));
     assert.ok(prompt.includes('(no summary yet)'));
+  });
+
+  it('module prompt requests quick start example', () => {
+    const moduleNode: WikiNode = {
+      id: 'src/auth',
+      type: 'module',
+      path: 'src/auth',
+      name: 'auth',
+      metadata: {
+        lines: 300,
+        commits: 20,
+        lastModified: new Date(),
+        authors: ['dev@example.com'],
+      },
+      edges: [
+        { type: 'contains', target: 'src/auth/login.ts' },
+      ],
+      raw: {},
+    };
+
+    const prompt = buildPrompt(moduleNode);
+
+    // Verify prompt asks for quick start
+    assert.ok(prompt.includes('"quickStart"'));
   });
 });
 
@@ -268,6 +334,38 @@ describe('parseLLMResponse', () => {
     const prose = parseLLMResponse(response);
 
     assert.deepStrictEqual(prose.gotchas, []);
+  });
+
+  it('parses file response with patterns and similar files', () => {
+    const response = JSON.stringify({
+      summary: 'Utility functions for date formatting',
+      purpose: 'Provides consistent date formatting across the application.',
+      gotchas: ['Timezone aware - always uses UTC'],
+      keyExports: ['formatDate: Main formatting function'],
+      patterns: ['Use formatDate(new Date()) for current time', 'Import as: import { formatDate } from "./utils"'],
+      similarFiles: ['src/utils/time.ts', 'src/utils/format.ts'],
+    });
+
+    const prose = parseLLMResponse(response);
+
+    assert.strictEqual(prose.summary, 'Utility functions for date formatting');
+    assert.deepStrictEqual(prose.patterns, ['Use formatDate(new Date()) for current time', 'Import as: import { formatDate } from "./utils"']);
+    assert.deepStrictEqual(prose.similarFiles, ['src/utils/time.ts', 'src/utils/format.ts']);
+  });
+
+  it('parses module response with quick start', () => {
+    const response = JSON.stringify({
+      summary: 'Authentication module',
+      purpose: 'Provides user authentication and session management.',
+      keyFiles: ['login.ts: OAuth flow', 'session.ts: Session handling'],
+      publicApi: ['login()', 'logout()'],
+      quickStart: 'import { login } from "./auth";\nawait login(email, password);',
+    });
+
+    const prose = parseLLMResponse(response);
+
+    assert.strictEqual(prose.summary, 'Authentication module');
+    assert.strictEqual(prose.quickStart, 'import { login } from "./auth";\nawait login(email, password);');
   });
 });
 

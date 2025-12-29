@@ -14,6 +14,9 @@ export interface ProseData {
   keyExports?: string[];     // Most important exports (for files)
   keyFiles?: string[];       // Most important files (for modules)
   publicApi?: string[];      // Exports that other modules should use (for modules)
+  quickStart?: string;       // Quick start example (for modules)
+  patterns?: string[];       // Usage patterns (for files)
+  similarFiles?: string[];   // Files with similar patterns (for files)
   generatedAt: Date;         // When prose was generated
   stale?: boolean;           // True if source changed after prose was generated
 }
@@ -105,10 +108,14 @@ Generate documentation in this exact JSON format:
   "summary": "One sentence describing what this file does",
   "purpose": "2-3 sentences explaining why this file exists and its role in the system",
   "gotchas": ["Array of warnings, edge cases, or non-obvious behavior"],
-  "keyExports": ["Most important exports with brief descriptions"]
+  "keyExports": ["Most important exports with brief descriptions"],
+  "patterns": ["Common usage patterns or typical ways to use this file's exports"],
+  "similarFiles": ["Paths to other files that follow similar patterns or serve related purposes"]
 }
 
-Focus on WHAT and WHY, not HOW. Be concise but complete.`;
+Focus on WHAT and WHY, not HOW. Be concise but complete.
+Include practical patterns that show how to use this file.
+List similar files to help developers find related code.`;
 }
 
 /**
@@ -149,10 +156,12 @@ Generate documentation in this exact JSON format:
   "summary": "One sentence describing what this module does",
   "purpose": "2-3 sentences explaining this module's role in the architecture",
   "keyFiles": ["Most important files with brief descriptions"],
-  "publicApi": ["Exports that other modules should use"]
+  "publicApi": ["Exports that other modules should use"],
+  "quickStart": "A brief code example showing how to use this module (2-3 lines)"
 }
 
-Focus on the module's responsibilities, not implementation details.`;
+Focus on the module's responsibilities, not implementation details.
+Include a practical quick start example to help developers get started quickly.`;
 }
 
 /**
@@ -199,6 +208,9 @@ export function parseLLMResponse(response: string): ProseData {
     keyExports: Array.isArray(parsed.keyExports) ? parsed.keyExports : undefined,
     keyFiles: Array.isArray(parsed.keyFiles) ? parsed.keyFiles : undefined,
     publicApi: Array.isArray(parsed.publicApi) ? parsed.publicApi : undefined,
+    quickStart: typeof parsed.quickStart === 'string' ? parsed.quickStart : undefined,
+    patterns: Array.isArray(parsed.patterns) ? parsed.patterns : undefined,
+    similarFiles: Array.isArray(parsed.similarFiles) ? parsed.similarFiles : undefined,
     generatedAt: new Date(),
   };
 }

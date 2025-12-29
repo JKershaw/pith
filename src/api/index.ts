@@ -143,6 +143,33 @@ export function formatContextAsMarkdown(context: BundledContext): string {
           lines.push(`- ${gotcha}`);
         }
       }
+
+      // Quick Start for modules (Phase 6.4)
+      if (node.type === 'module' && node.prose.quickStart) {
+        lines.push('');
+        lines.push('**Quick Start:**');
+        lines.push('```typescript');
+        lines.push(node.prose.quickStart);
+        lines.push('```');
+      }
+
+      // Patterns for files (Phase 6.4)
+      if (node.type === 'file' && node.prose.patterns && node.prose.patterns.length > 0) {
+        lines.push('');
+        lines.push('**Patterns:**');
+        for (const pattern of node.prose.patterns) {
+          lines.push(`- ${pattern}`);
+        }
+      }
+
+      // Similar Files for files (Phase 6.4)
+      if (node.type === 'file' && node.prose.similarFiles && node.prose.similarFiles.length > 0) {
+        lines.push('');
+        lines.push('**Similar Files:**');
+        for (const file of node.prose.similarFiles) {
+          lines.push(`- ${file}`);
+        }
+      }
     }
 
     // Signatures for files

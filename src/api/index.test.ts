@@ -445,6 +445,116 @@ describe('API', () => {
 
       assert.ok(!markdown.includes('Widely used'), 'Should not show warning for low fan-in');
     });
+
+    it('displays quick start for modules - Phase 6.4', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const moduleWithQuickStart: WikiNode = {
+        id: 'src/mymodule',
+        type: 'module',
+        path: 'src/mymodule',
+        name: 'mymodule',
+        metadata: {
+          lines: 200,
+          commits: 10,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+        prose: {
+          summary: 'My module summary',
+          purpose: 'My module purpose',
+          gotchas: [],
+          quickStart: 'import { foo } from "./mymodule";\nfoo();',
+          generatedAt: new Date('2024-12-15'),
+        },
+      };
+
+      await nodes.insertOne(moduleWithQuickStart);
+
+      const context = await bundleContext(db, ['src/mymodule']);
+      const markdown = formatContextAsMarkdown(context);
+
+      assert.ok(markdown.includes('Quick Start'), 'Should have Quick Start section');
+      assert.ok(markdown.includes('import { foo } from "./mymodule"'), 'Should show quick start code');
+    });
+
+    it('displays patterns for files - Phase 6.4', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithPatterns: WikiNode = {
+        id: 'src/utils.ts',
+        type: 'file',
+        path: 'src/utils.ts',
+        name: 'utils.ts',
+        metadata: {
+          lines: 100,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+        prose: {
+          summary: 'Utility functions',
+          purpose: 'Provides common utilities',
+          gotchas: [],
+          patterns: ['Use formatDate() for dates', 'Import with: import { formatDate } from "./utils"'],
+          generatedAt: new Date('2024-12-15'),
+        },
+      };
+
+      await nodes.insertOne(fileWithPatterns);
+
+      const context = await bundleContext(db, ['src/utils.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      assert.ok(markdown.includes('Patterns'), 'Should have Patterns section');
+      assert.ok(markdown.includes('Use formatDate() for dates'), 'Should show first pattern');
+      assert.ok(markdown.includes('Import with:'), 'Should show second pattern');
+    });
+
+    it('displays similar files for files - Phase 6.4', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithSimilar: WikiNode = {
+        id: 'src/parser.ts',
+        type: 'file',
+        path: 'src/parser.ts',
+        name: 'parser.ts',
+        metadata: {
+          lines: 150,
+          commits: 8,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+        prose: {
+          summary: 'Parser implementation',
+          purpose: 'Parses source code',
+          gotchas: [],
+          similarFiles: ['src/lexer.ts', 'src/tokenizer.ts'],
+          generatedAt: new Date('2024-12-15'),
+        },
+      };
+
+      await nodes.insertOne(fileWithSimilar);
+
+      const context = await bundleContext(db, ['src/parser.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      assert.ok(markdown.includes('Similar Files'), 'Should have Similar Files section');
+      assert.ok(markdown.includes('src/lexer.ts'), 'Should show first similar file');
+      assert.ok(markdown.includes('src/tokenizer.ts'), 'Should show second similar file');
+    });
   });
 
   describe('createApp', () => {
