@@ -2,9 +2,21 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 5 (Polish) - ALL PHASES COMPLETE
-**Current step**: MVP Complete - Ready for production use
+**Last completed phase**: Phase 5 (Polish) - MVP COMPLETE
+**Current step**: Phase 6.1 - On-Demand Prose Generation
 **Date**: 2025-12-29
+
+### Next Up: Phase 6 - On-Demand Generation & Task-Oriented Context
+
+Based on testing validation (see `docs/testing-plan.md`), prioritized improvements:
+
+| Priority | Feature | Status |
+|----------|---------|--------|
+| 1 | On-demand prose generation | TODO |
+| 2 | Test file mapping | TODO |
+| 3 | Modification impact in context | TODO |
+| 4 | Pattern examples | TODO |
+| 5 | Gotcha validation | TODO |
 
 ---
 
