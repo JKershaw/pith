@@ -476,3 +476,106 @@ node --test --experimental-test-coverage
 - Tests describe behavior, not implementation
 - Integration tests use fixture directories with real files
 - Extraction tests run against actual (small) git repos
+
+---
+
+## LLM Integration: OpenRouter
+
+**Decision**: Use OpenRouter for prose generation.
+
+**Rationale**:
+- Access to multiple models (Claude, GPT-4, etc.) through one API
+- Fallback options if one provider is down
+- Unified billing and rate limiting
+- OpenAI-compatible API format
+
+**Configuration** (`pith.config.json`):
+```json
+{
+  "llm": {
+    "provider": "openrouter",
+    "model": "anthropic/claude-sonnet-4",
+    "maxTokens": 1024,
+    "temperature": 0.3
+  },
+  "extraction": {
+    "include": ["src/**/*.ts"],
+    "exclude": ["**/*.test.ts", "**/*.spec.ts"]
+  },
+  "output": {
+    "dir": ".pith",
+    "format": "json"
+  }
+}
+```
+
+**API key**: Read from `OPENROUTER_API_KEY` environment variable.
+
+**Base URL**: `https://openrouter.ai/api/v1`
+
+**Rate limiting**:
+- Respect API rate limits with exponential backoff
+- Batch prose requests where possible
+- Cache generated prose to avoid re-generation
+
+**Error handling**:
+- Retry transient failures (429, 500, 503) with backoff
+- Log permanent failures, continue with other nodes
+- Store partial results even if some nodes fail
+
+---
+
+## Prose Prompts: Structured Templates
+
+**Decision**: Use structured prompts with explicit output format.
+
+**File node prompt**:
+```
+You are documenting a TypeScript file for an LLM-optimized codebase wiki.
+
+FILE: {filePath}
+IMPORTS: {imports}
+EXPORTS: {exports}
+FUNCTIONS: {functionSummaries}
+CLASSES: {classSummaries}
+GIT: Last modified {lastModified} by {lastAuthor}. {commitCount} commits total.
+JSDOC: {jsdocComments}
+
+Generate documentation in this exact JSON format:
+{
+  "summary": "One sentence describing what this file does",
+  "purpose": "2-3 sentences explaining why this file exists and its role in the system",
+  "gotchas": ["Array of warnings, edge cases, or non-obvious behavior"],
+  "keyExports": ["Most important exports with brief descriptions"]
+}
+
+Focus on WHAT and WHY, not HOW. Be concise but complete.
+```
+
+**Module node prompt** (aggregates file summaries):
+```
+You are documenting a module (directory) for an LLM-optimized codebase wiki.
+
+MODULE: {modulePath}
+FILES:
+{fileSummaries}
+
+INTERNAL DEPENDENCIES: {internalEdges}
+EXTERNAL DEPENDENCIES: {externalDeps}
+
+Generate documentation in this exact JSON format:
+{
+  "summary": "One sentence describing what this module does",
+  "purpose": "2-3 sentences explaining this module's role in the architecture",
+  "keyFiles": ["Most important files with brief descriptions"],
+  "publicApi": ["Exports that other modules should use"]
+}
+
+Focus on the module's responsibilities, not implementation details.
+```
+
+**Why structured JSON output**:
+- Predictable parsing
+- Easy to validate
+- Separates concerns cleanly
+- LLMs follow JSON schema well

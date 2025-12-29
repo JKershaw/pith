@@ -213,11 +213,148 @@ const staleNodes = await nodes.find({ 'prose.stale': true }).toArray();
 `pith.config.json`:
 ```json
 {
-  "include": ["src/**/*.ts"],
-  "exclude": ["**/*.test.ts", "**/*.spec.ts"],
+  "extraction": {
+    "include": ["src/**/*.ts"],
+    "exclude": ["**/*.test.ts", "**/*.spec.ts"]
+  },
   "llm": {
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514"
+    "provider": "openrouter",
+    "model": "anthropic/claude-sonnet-4"
+  },
+  "output": {
+    "dir": ".pith"
   }
 }
 ```
+
+## API Endpoints
+
+The HTTP API serves wiki data to LLM agents. All responses are JSON.
+
+### `GET /node/:path`
+
+Fetch a single node by path.
+
+**Request**:
+```
+GET /node/src/auth/login.ts
+```
+
+**Response**:
+```json
+{
+  "id": "src/auth/login.ts",
+  "type": "file",
+  "path": "src/auth/login.ts",
+  "prose": {
+    "summary": "Handles user authentication via OAuth providers",
+    "purpose": "Central authentication entry point. Validates credentials and issues session tokens.",
+    "gotchas": ["Requires OAUTH_SECRET env var", "Rate limited to 10 req/min per IP"]
+  },
+  "edges": {
+    "imports": ["src/db/users.ts", "src/utils/crypto.ts"],
+    "importedBy": ["src/api/routes.ts"]
+  },
+  "meta": {
+    "lastModified": "2024-12-15T10:30:00Z",
+    "commitCount": 23,
+    "primaryAuthor": "alice@example.com"
+  }
+}
+```
+
+### `GET /node/:path/children`
+
+Fetch all child nodes of a module.
+
+**Request**:
+```
+GET /node/src/auth/children
+```
+
+**Response**:
+```json
+{
+  "parent": "src/auth",
+  "children": [
+    { "id": "src/auth/login.ts", "type": "file", "summary": "..." },
+    { "id": "src/auth/logout.ts", "type": "file", "summary": "..." }
+  ]
+}
+```
+
+### `GET /search?q=:query`
+
+Search nodes by text content.
+
+**Request**:
+```
+GET /search?q=authentication
+```
+
+**Response**:
+```json
+{
+  "query": "authentication",
+  "results": [
+    { "id": "src/auth/login.ts", "type": "file", "score": 0.95, "snippet": "..." },
+    { "id": "src/middleware/auth.ts", "type": "file", "score": 0.82, "snippet": "..." }
+  ]
+}
+```
+
+### `GET /graph`
+
+Fetch the full node graph (for visualization).
+
+**Request**:
+```
+GET /graph
+```
+
+**Response**:
+```json
+{
+  "nodes": [
+    { "id": "src/auth/login.ts", "type": "file", "label": "login.ts" }
+  ],
+  "edges": [
+    { "from": "src/auth/login.ts", "to": "src/db/users.ts", "type": "imports" }
+  ]
+}
+```
+
+### `POST /generate/:path`
+
+Trigger prose regeneration for a node.
+
+**Request**:
+```
+POST /generate/src/auth/login.ts
+```
+
+**Response**:
+```json
+{
+  "id": "src/auth/login.ts",
+  "status": "generated",
+  "prose": { "summary": "...", "purpose": "...", "gotchas": [...] }
+}
+```
+
+### Error Responses
+
+All errors follow a consistent format:
+
+```json
+{
+  "error": "NOT_FOUND",
+  "message": "Node not found: src/missing.ts"
+}
+```
+
+**Error codes**:
+- `NOT_FOUND` (404): Node doesn't exist
+- `INVALID_PATH` (400): Malformed path
+- `GENERATION_FAILED` (500): LLM call failed
+- `RATE_LIMITED` (429): Too many requests
