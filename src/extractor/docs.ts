@@ -1,5 +1,6 @@
 import type { FunctionDeclaration, MethodDeclaration, ClassDeclaration } from 'ts-morph';
 import { join } from 'node:path';
+import { readFile, readdir } from 'node:fs/promises';
 import type { ProjectContext } from './ast.ts';
 
 /**
@@ -223,4 +224,31 @@ export function extractInlineComments(ctx: ProjectContext, relativePath: string)
   }
 
   return comments;
+}
+
+/**
+ * Extracts README.md content from a directory.
+ * @param dirPath - Absolute path to directory
+ * @returns README content or null if not found
+ */
+export async function extractReadme(dirPath: string): Promise<string | null> {
+  try {
+    // Read directory contents
+    const files = await readdir(dirPath);
+
+    // Look for README file (case-insensitive)
+    const readmeFile = files.find((file) => file.toLowerCase() === 'readme.md');
+
+    if (!readmeFile) {
+      return null;
+    }
+
+    // Read and return the README content
+    const readmePath = join(dirPath, readmeFile);
+    const content = await readFile(readmePath, 'utf-8');
+    return content;
+  } catch {
+    // Directory doesn't exist or can't be read
+    return null;
+  }
 }

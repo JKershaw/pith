@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createProject } from './ast.ts';
-import { extractJSDoc, extractInlineComments } from './docs.ts';
+import { extractJSDoc, extractInlineComments, extractReadme } from './docs.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixtureDir = join(__dirname, '../../test/fixtures/simple-project');
@@ -189,5 +189,54 @@ describe('extractInlineComments', () => {
 
     assert.ok(Array.isArray(comments));
     assert.strictEqual(comments.length, 0);
+  });
+});
+
+describe('extractReadme', () => {
+  it('returns README content when README.md exists', async () => {
+    const content = await extractReadme(fixtureDir);
+
+    assert.ok(content);
+    assert.strictEqual(typeof content, 'string');
+    assert.ok(content.includes('# Simple Project'));
+    assert.ok(content.includes('A test fixture for Pith extraction tests.'));
+  });
+
+  it('returns full markdown content including headers and lists', async () => {
+    const content = await extractReadme(fixtureDir);
+
+    assert.ok(content);
+    assert.ok(content.includes('## Structure'));
+    assert.ok(content.includes('- `src/types.ts` - Type definitions'));
+    assert.ok(content.includes('- `src/auth.ts` - Authentication utilities'));
+    assert.ok(content.includes('- `src/user-service.ts` - User management service'));
+    assert.ok(content.includes('- `src/index.ts` - Main exports'));
+  });
+
+  it('returns null when no README exists', async () => {
+    const nonExistentDir = join(__dirname, '../../test/fixtures/simple-project/src');
+    const content = await extractReadme(nonExistentDir);
+
+    assert.strictEqual(content, null);
+  });
+
+  it('handles README.MD (case variation)', async () => {
+    const tempDir = join(__dirname, '../../test/fixtures/temp-readme-test');
+    const { mkdir, writeFile, rm } = await import('node:fs/promises');
+
+    try {
+      // Create a temp directory with README.MD (uppercase extension)
+      await mkdir(tempDir, { recursive: true });
+      await writeFile(join(tempDir, 'README.MD'), '# Uppercase Extension Test\n\nThis is a test.');
+
+      const content = await extractReadme(tempDir);
+
+      assert.ok(content);
+      assert.ok(content.includes('# Uppercase Extension Test'));
+      assert.ok(content.includes('This is a test.'));
+    } finally {
+      // Clean up
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 });
