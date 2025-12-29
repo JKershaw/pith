@@ -2,13 +2,13 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.4 - Pattern Examples
-**Current step**: Phase 6.5 - Gotcha Validation
+**Last completed phase**: Phase 6 - On-Demand Generation & Task-Oriented Context
+**Current step**: Phase 7 (future) - Advanced Relationships
 **Date**: 2025-12-29
 
-### Phase 6 - On-Demand Generation & Task-Oriented Context
+### Phase 6 - On-Demand Generation & Task-Oriented Context - COMPLETE ✅
 
-Based on testing validation (see `docs/testing-plan.md`), prioritized improvements:
+All Phase 6 priorities implemented:
 
 | Priority | Feature | Status |
 |----------|---------|--------|
@@ -16,7 +16,31 @@ Based on testing validation (see `docs/testing-plan.md`), prioritized improvemen
 | 2 | Test file mapping | **DONE** |
 | 3 | Modification impact in context | **DONE** |
 | 4 | Pattern examples | **DONE** |
-| 5 | Gotcha validation | TODO |
+| 5 | Gotcha validation | **DONE** |
+
+---
+
+## Phase 6.5: Gotcha Validation - COMPLETE
+
+### Implementation Summary
+| Step | Description | Status |
+|------|-------------|--------|
+| 6.5.1 | Validate gotchas after LLM generation | Done |
+| 6.5.2 | Check function/variable names exist | Done |
+| 6.5.3 | Flag unverifiable with confidence levels | Done |
+| 6.5.4 | Integration with generateProse() | Done |
+
+### Key Changes
+- **Generator**: `extractIdentifiers()` finds code identifiers in text
+- **Generator**: `validateGotcha()` checks against exports, signatures, imports
+- **Generator**: `validateGotchas()` for batch validation
+- **ProseData**: New `gotchaConfidence` array (high/medium/low)
+- **Tests**: 16 new tests added (286 total, all passing)
+
+### Confidence Levels
+- **High**: All mentioned identifiers verified in raw data
+- **Medium**: Some identifiers verified
+- **Low**: No identifiers could be verified (possible hallucination)
 
 ---
 
@@ -417,15 +441,15 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2025-12-29 (Phase 6.4):
-- **Total tests**: 270
+As of 2025-12-29 (Phase 6 Complete):
+- **Total tests**: 286
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 66
+- **Test suites**: 71
 
 Commands:
 ```bash
-npm test      # 270 tests pass
+npm test      # 286 tests pass
 npm run lint  # No errors
 ```
 
