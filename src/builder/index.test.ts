@@ -6,6 +6,9 @@ import {
   shouldCreateFunctionNode,
   buildFunctionNode,
   storeFunctionNodes,
+  shouldCreateModuleNode,
+  buildModuleNode,
+  storeModuleNodes,
   type WikiNode,
   type Function,
 } from './index.ts';
@@ -693,6 +696,150 @@ describe('storeFunctionNodes', () => {
     assert.strictEqual(stored.name, 'authenticate');
     assert.strictEqual(stored.metadata.lines, 6);
     assert.strictEqual(stored.metadata.commits, 10);
+  });
+
+  after(async () => {
+    await closeDb();
+    if (testDataDir) {
+      await rm(testDataDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('shouldCreateModuleNode', () => {
+  // Step 2.3.1: Test returns true for dirs with index.ts
+  it('returns true for directories with index.ts', () => {
+    const files = ['src/auth/index.ts', 'src/auth/login.ts', 'src/auth/logout.ts'];
+
+    const result = shouldCreateModuleNode(files);
+
+    assert.strictEqual(result, true);
+  });
+
+  // Step 2.3.2: Test returns true for dirs with 3+ files
+  it('returns true for directories with 3 or more files', () => {
+    const files = ['src/utils/helper.ts', 'src/utils/format.ts', 'src/utils/validate.ts'];
+
+    const result = shouldCreateModuleNode(files);
+
+    assert.strictEqual(result, true);
+  });
+
+  it('returns false for directories with less than 3 files and no index.ts', () => {
+    const files = ['src/small/helper.ts', 'src/small/format.ts'];
+
+    const result = shouldCreateModuleNode(files);
+
+    assert.strictEqual(result, false);
+  });
+
+  it('returns true even if only one file is index.ts', () => {
+    const files = ['src/single/index.ts'];
+
+    const result = shouldCreateModuleNode(files);
+
+    assert.strictEqual(result, true);
+  });
+});
+
+describe('buildModuleNode', () => {
+  // Step 2.3.3: Test returns correct structure
+  it('returns correct structure', () => {
+    const dirPath = 'src/auth';
+    const files = ['src/auth/index.ts', 'src/auth/login.ts', 'src/auth/logout.ts'];
+
+    const node = buildModuleNode(dirPath, files);
+
+    assert.ok(node);
+    assert.strictEqual(typeof node.id, 'string');
+    assert.strictEqual(node.type, 'module');
+    assert.strictEqual(typeof node.path, 'string');
+    assert.strictEqual(typeof node.name, 'string');
+    assert.ok(node.metadata);
+    assert.ok(Array.isArray(node.edges));
+    assert.ok(node.raw);
+  });
+
+  it('has correct id (directory path)', () => {
+    const dirPath = 'src/auth';
+    const files = ['src/auth/index.ts', 'src/auth/login.ts'];
+
+    const node = buildModuleNode(dirPath, files);
+
+    assert.strictEqual(node.id, 'src/auth');
+  });
+
+  it('has correct name (directory basename)', () => {
+    const dirPath = 'src/auth';
+    const files = ['src/auth/index.ts'];
+
+    const node = buildModuleNode(dirPath, files);
+
+    assert.strictEqual(node.name, 'auth');
+  });
+
+  it('has aggregated metadata from child files', () => {
+    const dirPath = 'src/auth';
+    const files = ['src/auth/index.ts', 'src/auth/login.ts', 'src/auth/logout.ts'];
+
+    const node = buildModuleNode(dirPath, files);
+
+    // Basic metadata structure should exist
+    assert.strictEqual(typeof node.metadata.lines, 'number');
+    assert.strictEqual(typeof node.metadata.commits, 'number');
+    assert.ok(node.metadata.lastModified instanceof Date);
+    assert.ok(Array.isArray(node.metadata.authors));
+  });
+
+  // Step 2.3.4: Test raw.readme
+  it('has raw.readme when provided', () => {
+    const dirPath = 'src/auth';
+    const files = ['src/auth/index.ts'];
+    const readme = '# Authentication Module\n\nThis module handles user authentication.';
+
+    const node = buildModuleNode(dirPath, files, readme);
+
+    assert.ok(node.raw.readme);
+    assert.strictEqual(node.raw.readme, readme);
+  });
+
+  it('does not have raw.readme when not provided', () => {
+    const dirPath = 'src/auth';
+    const files = ['src/auth/index.ts'];
+
+    const node = buildModuleNode(dirPath, files);
+
+    assert.strictEqual(node.raw.readme, undefined);
+  });
+});
+
+describe('storeModuleNodes', () => {
+  let testDataDir: string;
+
+  // Step 2.3.5: Test storing module nodes to database
+  it('stores module nodes in nodes collection', async () => {
+    // Create temp directory for test database
+    testDataDir = await mkdtemp(join(tmpdir(), 'pith-test-'));
+
+    const dirPath = 'src/auth';
+    const files = ['src/auth/index.ts', 'src/auth/login.ts', 'src/auth/logout.ts'];
+    const readme = '# Authentication Module';
+
+    const node = buildModuleNode(dirPath, files, readme);
+
+    // Store the node
+    const db = await getDb(testDataDir);
+    await storeModuleNodes(db, [node]);
+
+    // Verify it was stored
+    const collection = db.collection<WikiNode>('nodes');
+    const stored = await collection.findOne({ id: 'src/auth' });
+
+    assert.ok(stored);
+    assert.strictEqual(stored.id, 'src/auth');
+    assert.strictEqual(stored.type, 'module');
+    assert.strictEqual(stored.name, 'auth');
+    assert.strictEqual(stored.raw.readme, '# Authentication Module');
   });
 
   after(async () => {

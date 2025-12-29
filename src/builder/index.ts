@@ -37,6 +37,7 @@ export interface WikiNode {
     imports?: Import[];
     exports?: Export[];
     recentCommits?: Commit[];
+    readme?: string;
   };
 }
 
@@ -166,6 +167,72 @@ export function buildFunctionNode(extracted: ExtractedFile, func: Function): Wik
  * @param nodes - Array of WikiNodes to store
  */
 export async function storeFunctionNodes(db: MangoDb, nodes: WikiNode[]): Promise<void> {
+  const collection = db.collection<WikiNode>('nodes');
+
+  for (const node of nodes) {
+    await collection.updateOne({ id: node.id }, { $set: node }, { upsert: true });
+  }
+}
+
+/**
+ * Check if a module node should be created for a directory.
+ * @param files - Array of file paths in the directory
+ * @returns True if directory has index.ts or 3+ files
+ */
+export function shouldCreateModuleNode(files: string[]): boolean {
+  // Step 2.3.1 & 2.3.2: Create module node if directory has index.ts OR 3+ files
+  const hasIndexTs = files.some((file) => basename(file) === 'index.ts');
+  const hasThreeOrMoreFiles = files.length >= 3;
+
+  return hasIndexTs || hasThreeOrMoreFiles;
+}
+
+/**
+ * Build a module node from directory information.
+ * @param dirPath - The directory path
+ * @param files - Array of file paths in the directory
+ * @param readme - Optional README content
+ * @returns A WikiNode for the module
+ */
+export function buildModuleNode(dirPath: string, files: string[], readme?: string): WikiNode {
+  // Step 2.3.3: Generate ID from directory path
+  const id = dirPath;
+
+  // Step 2.3.3: Extract name (directory basename)
+  const name = basename(dirPath);
+
+  // Build metadata (aggregated from files, but for now with defaults)
+  // In a real implementation, we would aggregate from child file nodes
+  const metadata = {
+    lines: 0,
+    commits: 0,
+    lastModified: new Date(),
+    authors: [],
+  };
+
+  // Step 2.3.4: Copy README if exists
+  const raw: WikiNode['raw'] = {};
+  if (readme !== undefined) {
+    raw.readme = readme;
+  }
+
+  return {
+    id,
+    type: 'module',
+    path: dirPath,
+    name,
+    metadata,
+    edges: [], // Will be populated in Phase 2.4
+    raw,
+  };
+}
+
+/**
+ * Store module nodes in the database.
+ * @param db - The MangoDB database instance
+ * @param nodes - Array of WikiNodes to store
+ */
+export async function storeModuleNodes(db: MangoDb, nodes: WikiNode[]): Promise<void> {
   const collection = db.collection<WikiNode>('nodes');
 
   for (const node of nodes) {
