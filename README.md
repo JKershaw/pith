@@ -108,6 +108,8 @@ This displays:
 - CodeRabbit inline comments with file:line references
 - Other reviewer comments
 
+Set `GITHUB_TOKEN` or `GH_TOKEN` for higher API rate limits (5000/hr vs 60/hr unauthenticated).
+
 ## Status
 
 This is an early-stage project validating an idea. Currently supports TypeScript codebases only.

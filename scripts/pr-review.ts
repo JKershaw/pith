@@ -147,12 +147,19 @@ function getCurrentBranch(): string | null {
 }
 
 async function fetchJSON<T>(url: string): Promise<T> {
+  // Support GITHUB_TOKEN or GH_TOKEN for higher rate limits (5000/hr vs 60/hr)
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github.v3+json',
+    'User-Agent': 'pith-pr-review',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const { statusCode, body } = await request(url, {
     method: 'GET',
-    headers: {
-      Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'pith-pr-review',
-    },
+    headers,
   });
 
   if (statusCode !== 200) {
