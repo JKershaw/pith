@@ -307,8 +307,6 @@ export async function callLLM(
           signal: controller.signal,
         });
 
-        clearTimeout(timeoutId);
-
         if (!response.ok) {
           const errorText = await response.text();
           lastStatus = response.status;
@@ -357,8 +355,8 @@ export async function callLLM(
     }
   }
 
-  // If we get here, we've exhausted all retries
-  throw lastError || new Error('Failed after maximum retry attempts');
+  // Fallback for edge case where maxRetries = 0 (loop never executes)
+  throw lastError ?? new Error('Failed after maximum retry attempts');
 }
 
 /**
