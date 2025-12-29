@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.3 - Modification Impact
-**Current step**: Phase 6.4 - Pattern Examples
+**Last completed phase**: Phase 6.4 - Pattern Examples
+**Current step**: Phase 6.5 - Gotcha Validation
 **Date**: 2025-12-29
 
 ### Phase 6 - On-Demand Generation & Task-Oriented Context
@@ -15,8 +15,39 @@ Based on testing validation (see `docs/testing-plan.md`), prioritized improvemen
 | 1 | On-demand prose generation | **DONE** |
 | 2 | Test file mapping | **DONE** |
 | 3 | Modification impact in context | **DONE** |
-| 4 | Pattern examples | TODO |
+| 4 | Pattern examples | **DONE** |
 | 5 | Gotcha validation | TODO |
+
+---
+
+## Phase 6.4: Pattern Examples - COMPLETE
+
+### Implementation Summary
+| Step | Description | Status |
+|------|-------------|--------|
+| 6.4.1 | Quick Start section in module prose | Done |
+| 6.4.2 | LLM prompts request code patterns | Done |
+| 6.4.3 | Similar file references | Done |
+
+### Key Changes
+- **ProseData**: New fields `quickStart`, `patterns`, `similarFiles`
+- **File Prompt**: Requests usage patterns and similar files
+- **Module Prompt**: Requests Quick Start code example
+- **API**: Displays patterns and Quick Start in markdown output
+- **Tests**: 8 new tests added (270 total, all passing)
+
+### Example Output
+```markdown
+## src/auth
+
+**Type:** module
+
+**Quick Start:**
+\`\`\`typescript
+import { login, logout } from './auth';
+await login(username, password);
+\`\`\`
+```
 
 ---
 
@@ -386,15 +417,15 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2025-12-29 (Phase 6.3):
-- **Total tests**: 262
+As of 2025-12-29 (Phase 6.4):
+- **Total tests**: 270
 - **All passing**: Yes
 - **Lint**: Clean
 - **Test suites**: 66
 
 Commands:
 ```bash
-npm test      # 262 tests pass
+npm test      # 270 tests pass
 npm run lint  # No errors
 ```
 
