@@ -339,29 +339,136 @@ Works smoothly on a 100+ file codebase. Clear feedback during operations.
 
 ## Future Phases (Post-MVP)
 
-### Phase 6: Advanced Nodes
-- Domain nodes (logical groupings)
-- Concept nodes (cross-cutting patterns)
-- Collection nodes ("all handlers", "all models")
-- Co-change analysis from git history
+### Phase 6: On-Demand Generation & Task-Oriented Context ⬅️ NEXT
 
-### Phase 7: Intelligence
-- Complexity scoring (cyclomatic, cognitive)
-- Churn analysis (change frequency)
-- Hotspot detection (high churn + high complexity)
-- Coupling analysis
+**Goal**: Make output more useful for LLM task context, reduce upfront costs.
 
-### Phase 8: Integration
-- Git webhooks for automatic refresh
-- IDE extensions
-- GitHub Actions for CI
-- MCP server for direct LLM tool use
+Based on testing (see `docs/testing-plan.md`), the current output scores 3.3-4/5 vs control agent's 5/5. Key gaps:
+- Lacks specificity (function names, line numbers)
+- Gotchas can contain factual errors (LLM hallucination)
+- Missing task-oriented context (test files, patterns, modification impact)
 
-### Phase 9: Scale
-- MongoDB for persistent storage
-- Background prose generation
-- Multi-repo support
-- Incremental prose updates
+| Feature | Impact | Effort | Priority |
+|---------|--------|--------|----------|
+| **On-demand prose generation** | HIGH | Medium | 1 |
+| **Test file mapping** | HIGH | Low | 2 |
+| **Modification impact** | HIGH | Low | 3 |
+| **Pattern examples (code snippets)** | HIGH | Medium | 4 |
+| **Gotcha validation** | HIGH | High | 5 |
+
+#### 6.1 On-Demand Prose Generation
+
+Current: `extract → build → generate ALL → serve` (slow, expensive upfront)
+Target: `extract → build → serve` (instant), generate prose on first API request
+
+| Step | Implementation |
+|------|----------------|
+| 6.1.1 | Modify `/node/:path` to check for prose, generate if missing |
+| 6.1.2 | Add `generateProseForNode()` function (single node, not batch) |
+| 6.1.3 | Cache generated prose in DB (already exists) |
+| 6.1.4 | Add `--lazy` flag to `pith serve` (default behavior) |
+| 6.1.5 | Keep `pith generate` for batch pre-generation |
+| 6.1.6 | Add `/node/:path?prose=false` option to skip generation |
+
+#### 6.2 Test File Mapping
+
+Add relationship between source files and their tests.
+
+| Step | Implementation |
+|------|----------------|
+| 6.2.1 | Detect test files by pattern (`*.test.ts`, `*.spec.ts`, `__tests__/`) |
+| 6.2.2 | Add `testFile` edge type: `src/foo.ts → src/foo.test.ts` |
+| 6.2.3 | Include test file in `/context` bundle |
+| 6.2.4 | Add `testCommand` to node metadata (infer from package.json) |
+
+#### 6.3 Modification Impact
+
+Show "what breaks if I change this".
+
+| Step | Implementation |
+|------|----------------|
+| 6.3.1 | Add `dependents` field (reverse of imports) - already have fanIn |
+| 6.3.2 | List dependent file paths in context output |
+| 6.3.3 | Add warning if fanIn > 5 ("widely used, be careful") |
+
+#### 6.4 Pattern Examples
+
+Include actual code snippets showing patterns.
+
+| Step | Implementation |
+|------|----------------|
+| 6.4.1 | In module prose, include "Quick Start" section |
+| 6.4.2 | LLM prompt asks for example pattern from actual code |
+| 6.4.3 | Include similar file references ("follows same pattern as X") |
+
+#### 6.5 Gotcha Validation
+
+Cross-check LLM claims against code to reduce hallucinations.
+
+| Step | Implementation |
+|------|----------------|
+| 6.5.1 | After LLM generates gotchas, validate claims |
+| 6.5.2 | Check if mentioned function/variable names exist |
+| 6.5.3 | Flag unverifiable claims with low confidence |
+| 6.5.4 | Re-prompt if critical claims don't validate |
+
+### Phase 7: Advanced Relationships
+
+**Lower priority** - nice to have but not critical for task context.
+
+| Feature | Priority | Notes |
+|---------|----------|-------|
+| Co-change analysis | MEDIUM | "Files that change together" - useful |
+| Domain nodes | LOW | High-level grouping - less actionable |
+| Concept nodes | LOW | Cross-cutting patterns - hard to generate accurately |
+| Collection nodes | LOW | "All handlers" - rarely needed |
+
+### Phase 8: Intelligence (DEPRIORITIZED)
+
+These provide interesting metrics but don't directly improve task context.
+
+| Feature | Priority | Notes |
+|---------|----------|-------|
+| Complexity scoring | LOW | Interesting but not actionable for tasks |
+| Churn analysis | MEDIUM | Identifies hotspots |
+| Hotspot detection | MEDIUM | Useful for code review, not task context |
+| Coupling analysis | MEDIUM | Already have via import edges |
+
+### Phase 9: Integration
+
+| Feature | Priority | Notes |
+|---------|----------|-------|
+| MCP server | HIGH | Enables direct LLM tool use |
+| Git webhooks | LOW | Automation, not output quality |
+| IDE extensions | LOW | Delivery mechanism |
+| GitHub Actions | LOW | CI integration |
+
+### Phase 10: Scale (DEPRIORITIZED)
+
+Only needed for very large codebases.
+
+| Feature | Priority | Notes |
+|---------|----------|-------|
+| MongoDB backend | LOW | MangoDB works fine for 100k+ lines |
+| Background generation | LOW | On-demand solves this |
+| Multi-repo | LOW | Scope expansion |
+| Incremental prose | MEDIUM | Handled by staleness detection |
+
+---
+
+## Priority Summary
+
+Based on testing validation, focus on:
+
+1. **On-demand prose** - Zero upfront cost, instant setup
+2. **Task-oriented context** - Test files, modification impact, patterns
+3. **Accuracy improvements** - Gotcha validation
+4. **MCP server** - LLM tool integration
+
+Skip for now:
+- Advanced node types (domain, concept, collection)
+- Intelligence features (complexity, churn)
+- Scale features (already works on 100+ files)
 
 ---
 
