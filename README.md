@@ -24,6 +24,10 @@ The key insight: documentation, comments, and commit messages aren't stored sepa
 # Install
 npm install -g pith
 
+# Configure (copy .env.example to .env and add your API key)
+cp .env.example .env
+# Edit .env and set OPENROUTER_API_KEY
+
 # Extract facts from a TypeScript codebase
 pith extract ./my-project
 
@@ -36,6 +40,23 @@ pith generate
 # Start the API server
 pith serve
 ```
+
+## Configuration
+
+Create a `.env` file in your project root (or copy from `.env.example`):
+
+```bash
+# Required: OpenRouter API key for prose generation
+OPENROUTER_API_KEY=sk-or-v1-your-key-here
+
+# Optional: Default model (defaults to anthropic/claude-sonnet-4)
+OPENROUTER_MODEL=qwen/qwen-turbo
+
+# Optional: Data directory (defaults to ./data)
+PITH_DATA_DIR=./data
+```
+
+Get your OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys)
 
 ## API
 
