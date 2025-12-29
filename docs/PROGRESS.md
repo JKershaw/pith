@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.1 - On-Demand Prose Generation
-**Current step**: Phase 6.2 - Test File Mapping
+**Last completed phase**: Phase 6.2 - Test File Mapping
+**Current step**: Phase 6.3 - Modification Impact
 **Date**: 2025-12-29
 
 ### Phase 6 - On-Demand Generation & Task-Oriented Context
@@ -13,10 +13,36 @@ Based on testing validation (see `docs/testing-plan.md`), prioritized improvemen
 | Priority | Feature | Status |
 |----------|---------|--------|
 | 1 | On-demand prose generation | **DONE** |
-| 2 | Test file mapping | TODO |
+| 2 | Test file mapping | **DONE** |
 | 3 | Modification impact in context | TODO |
 | 4 | Pattern examples | TODO |
 | 5 | Gotcha validation | TODO |
+
+---
+
+## Phase 6.2: Test File Mapping - COMPLETE
+
+### Implementation Summary
+| Step | Description | Status |
+|------|-------------|--------|
+| 6.2.1 | Detect test files by pattern | Done |
+| 6.2.2 | Add `testFile` edge type | Done |
+| 6.2.3 | Include test file in /context bundle | Done |
+| 6.2.4 | Add `testCommand` to metadata | Done |
+
+### Key Changes
+- **Builder**: `isTestFile()` detects `*.test.ts`, `*.spec.ts`, `__tests__/` patterns
+- **Builder**: `buildTestFileEdges()` creates edges from source to test files
+- **API**: `bundleContext()` automatically includes test files
+- **Metadata**: Test files have `testCommand: "npm test -- <path>"`
+- **Tests**: 13 new tests added (254 total, all passing)
+
+### Usage
+```bash
+# Context now includes test files automatically
+curl http://localhost:3000/context?files=src/builder/index.ts
+# Returns: src/builder/index.ts + src/builder/index.test.ts
+```
 
 ---
 
@@ -329,15 +355,15 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2025-12-29 (Phase 6.1):
-- **Total tests**: 241
+As of 2025-12-29 (Phase 6.2):
+- **Total tests**: 254
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 62
+- **Test suites**: 65
 
 Commands:
 ```bash
-npm test      # 241 tests pass
+npm test      # 254 tests pass
 npm run lint  # No errors
 ```
 
