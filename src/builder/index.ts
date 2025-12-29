@@ -1,8 +1,11 @@
 import { basename } from 'node:path';
 import type { MangoDb } from '@jkershaw/mangodb';
-import type { ExtractedFile, Import, Export } from '../extractor/ast.ts';
+import type { ExtractedFile, Import, Export, Function } from '../extractor/ast.ts';
 import type { Commit } from '../extractor/git.ts';
 import type { JSDoc } from '../extractor/docs.ts';
+
+// Re-export types for testing
+export type { Function };
 
 /**
  * Edge between wiki nodes.
@@ -95,6 +98,74 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
  * @param nodes - Array of WikiNodes to store
  */
 export async function storeFileNodes(db: MangoDb, nodes: WikiNode[]): Promise<void> {
+  const collection = db.collection<WikiNode>('nodes');
+
+  for (const node of nodes) {
+    await collection.updateOne({ id: node.id }, { $set: node }, { upsert: true });
+  }
+}
+
+/**
+ * Check if a function node should be created for a function.
+ * @param func - The function data
+ * @returns True if the function is exported
+ */
+export function shouldCreateFunctionNode(func: Function): boolean {
+  // Step 2.2.1: Create nodes for exported functions only
+  return func.isExported;
+}
+
+/**
+ * Build a function node from extracted data.
+ * @param extracted - The extracted file data
+ * @param func - The function data
+ * @returns A WikiNode for the function
+ */
+export function buildFunctionNode(extracted: ExtractedFile, func: Function): WikiNode {
+  // Step 2.2.3: Generate ID (file:function)
+  const id = `${extracted.path}:${func.name}`;
+
+  // Step 2.2.2: Set name to function name
+  const name = func.name;
+
+  // Build metadata
+  const lines = func.endLine - func.startLine + 1;
+  const metadata = {
+    lines,
+    commits: extracted.git?.commitCount ?? 0,
+    lastModified: extracted.git?.lastModified ?? new Date(),
+    authors: extracted.git?.authors ?? [],
+  };
+
+  // Step 2.2.4: Copy function signature
+  const signature = [func.signature];
+
+  // Step 2.2.5: Copy function's JSDoc if exists
+  const jsdoc =
+    extracted.docs?.jsdoc && extracted.docs.jsdoc[func.name]
+      ? { [func.name]: extracted.docs.jsdoc[func.name] }
+      : undefined;
+
+  return {
+    id,
+    type: 'function',
+    path: extracted.path,
+    name,
+    metadata,
+    edges: [], // Will be populated in Phase 2.4
+    raw: {
+      signature,
+      jsdoc,
+    },
+  };
+}
+
+/**
+ * Store function nodes in the database.
+ * @param db - The MangoDB database instance
+ * @param nodes - Array of WikiNodes to store
+ */
+export async function storeFunctionNodes(db: MangoDb, nodes: WikiNode[]): Promise<void> {
   const collection = db.collection<WikiNode>('nodes');
 
   for (const node of nodes) {
