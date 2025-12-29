@@ -108,3 +108,26 @@ Git extraction is complete. Implementation details:
 - All 22 tests pass, linting passes
 
 Ready to begin Documentation extraction in Phase 1.3.
+
+### 2025-12-29 - Code Review (Pre-Phase 1.3)
+
+Conducted thorough code review before proceeding. Findings:
+
+**Passing:**
+- All 22 tests pass, linting is clean
+- Full extraction pipeline works end-to-end
+- Good separation of concerns (ast, git, db modules)
+- Functional style maintained (functions over classes)
+
+**Issues Fixed:**
+1. `export const/let/var` statements were not being extracted
+2. `export * from './module'` star exports were not being extracted
+
+Both issues fixed by adding handlers in `extractFile()` for:
+- Variable statements with export keyword
+- Namespace exports (star exports)
+
+**Acceptable Trade-offs:**
+- `Function` interface name shadows global type (acceptable, scoped to module)
+- Type resolution produces fully-qualified paths (can simplify in post-processing)
+- Test suite takes ~7s due to ts-morph Project creation per test (acceptable for now)
