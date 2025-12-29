@@ -33,7 +33,7 @@ Pith has four main stages: extraction, node building, prose generation, and serv
 │  • Creates nodes for files, functions, modules                  │
 │  • Creates edges (contains, imports, calls)                     │
 │  • Decides what deserves its own node                           │
-│  • Outputs: nodes.json                                          │
+│  • Stores to MangoDB (nodes collection)                         │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -44,7 +44,7 @@ Pith has four main stages: extraction, node building, prose generation, and serv
 │  • Synthesizes summary, purpose, gotchas                        │
 │  • Builds fractally: file → module → domain                     │
 │  • Caches prose on node, flags staleness                        │
-│  • Outputs: nodes.json (enriched with prose)                    │
+│  • Updates nodes in MangoDB with prose                          │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -93,7 +93,7 @@ Transforms raw extraction into a navigable graph.
 - `contains`: module → files, file → functions
 - `imports`: file → file (based on import statements)
 
-Output: `nodes.json` with all nodes and edges, no prose yet.
+Output: Nodes stored in MangoDB `nodes` collection, no prose yet.
 
 ### Prose Generator (`pith generate`)
 
@@ -116,11 +116,11 @@ Calls LLM to synthesize human-readable prose from raw facts.
 - Module summaries synthesized from child file summaries
 - This enables coherent high-level understanding
 
-Output: `nodes.json` updated with `prose` field on each node.
+Output: Nodes updated in MangoDB with `prose` field.
 
 ### API Server (`pith serve`)
 
-Express server exposing the node graph.
+Express server exposing the node graph. Reads from MangoDB.
 
 **`GET /node/:path`**
 Returns single node with all metadata and prose.
@@ -142,12 +142,12 @@ Triggers re-extraction and rebuild. Marks affected prose as stale.
 3. Raw data saved to `extracted/`
 4. User runs `pith build`
 5. Node builder creates graph from raw data
-6. Graph saved to `nodes.json`
+6. Nodes stored in MangoDB
 7. User runs `pith generate`
 8. Prose generator calls LLM for each node
-9. `nodes.json` updated with prose
+9. Nodes updated in MangoDB with prose
 10. User runs `pith serve`
-11. API serves nodes to LLM agents via HTTP
+11. API queries MangoDB and serves nodes to LLM agents via HTTP
 
 ## File Structure
 
@@ -169,12 +169,44 @@ pith/
 │   │   └── index.ts
 │   ├── api/              # Express routes
 │   │   └── index.ts
+│   ├── db/               # Database layer
+│   │   └── index.ts
 │   └── types/            # Shared TypeScript types
 │       └── index.ts
 ├── extracted/            # Raw extraction output (gitignored)
-├── nodes.json            # Built node graph (gitignored)
+├── data/                 # MangoDB storage (gitignored)
+│   └── pith/             # Database directory
+│       └── nodes.json    # Nodes collection
 └── pith.config.json      # Project configuration
 ```
+
+## Storage
+
+Pith uses [MangoDB](https://github.com/JKershaw/mangodb) for storage—a file-based MongoDB replacement. This gives us MongoDB-compatible queries while keeping data as human-readable JSON files.
+
+```typescript
+import { MangoClient } from '@jkershaw/mangodb';
+
+// Initialize once at startup
+const client = new MangoClient('./data');
+await client.connect();
+const db = client.db('pith');
+
+// Collections
+const nodes = db.collection<WikiNode>('nodes');
+const extracted = db.collection<ExtractedData>('extracted');
+
+// Query examples
+const fileNode = await nodes.findOne({ path: 'src/auth/login.ts' });
+const moduleNodes = await nodes.find({ type: 'module' }).toArray();
+const staleNodes = await nodes.find({ 'prose.stale': true }).toArray();
+```
+
+**Why MangoDB over raw JSON files?**
+- Query operators (`$in`, `$regex`, `$exists`) for filtering
+- Update operators (`$set`, `$push`) for partial updates
+- Aggregation for computing statistics
+- Same API as MongoDB for production migration
 
 ## Configuration
 

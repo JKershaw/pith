@@ -50,39 +50,39 @@ Key choices made and why.
 
 ---
 
-## Storage: JSON Files (MVP)
+## Storage: MangoDB
 
-**Decision**: Store extracted data and nodes as JSON files.
+**Decision**: Use MangoDB for storage throughout development and MVP.
 
-**Rationale**:
-- Zero setup required
-- Human-readable for debugging
-- Easy to version control during development
-- Sufficient for single-repo use case
-
-**Trade-offs**:
-- Doesn't scale to huge codebases
-- No efficient querying
-- Full reload on every operation
-
-**Migration path**: MongoDB later when needed.
-
----
-
-## Storage: MongoDB (Future)
-
-**Decision**: Migrate to MongoDB post-MVP.
+**What it is**: MangoDB is a file-based MongoDB replacement. "SQLite is to SQL as MangoDB is to MongoDB." It provides the same API as MongoDB's official driver but persists data as JSON files on disk.
 
 **Rationale**:
-- Document structure maps naturally to nodes
-- Good query performance for graph traversal
-- Mature ecosystem
-- Easy to embed or connect to existing instance
+- Zero setup required (no Docker, no database service)
+- MongoDB-compatible API from day one
+- Human-readable JSON files for debugging
+- Seamless switch to production MongoDB later (change one import)
+- Sufficient for codebases under 10,000 documents
+
+**Usage**:
+```typescript
+import { MangoClient } from '@jkershaw/mangodb';
+
+const client = new MangoClient('./data');
+await client.connect();
+
+const db = client.db('pith');
+const nodes = db.collection<WikiNode>('nodes');
+
+await nodes.insertOne(fileNode);
+const node = await nodes.findOne({ path: 'src/auth/login.ts' });
+```
+
+**Migration to MongoDB**: When scaling beyond MangoDB's limits, change the import to MongoDB's official driver. The API is identical.
 
 **Alternatives considered**:
-- SQLite: Simpler, but less natural for document-shaped data
-- Neo4j: Better graph queries, but overkill for MVP
-- Redis: Fast, but less suitable for persistence
+- Raw JSON files: No querying capability
+- SQLite: Less natural for document-shaped data
+- Full MongoDB from start: Unnecessary setup complexity for MVP
 
 ---
 
