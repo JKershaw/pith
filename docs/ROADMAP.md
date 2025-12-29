@@ -430,6 +430,31 @@ After each phase:
 
 ---
 
+## Emergent Decisions
+
+Some decisions should be made during implementation, not upfront:
+
+**Shared types (`types/` directory)**:
+- Don't create upfront
+- Extract when 2+ modules need the same type
+- Refactor during natural code evolution
+
+**File structure within `src/`**:
+- Start flat, add directories when a clear grouping emerges
+- Let the code tell you what belongs together
+
+**Error handling granularity**:
+- Start with basic try/catch per file
+- Add more nuanced severity levels if needed during testing
+
+**Function node thresholds**:
+- Start with "exported functions only"
+- Adjust based on what proves useful in validation
+
+The atomic steps in this roadmap specify *what* to implement, not *how* to structure the code. Let implementation experience guide organization.
+
+---
+
 ## Dependencies Between Phases
 
 ```

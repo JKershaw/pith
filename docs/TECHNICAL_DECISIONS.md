@@ -196,6 +196,62 @@ const node = await nodes.findOne({ path: 'src/auth/login.ts' });
 
 ---
 
+## Error Handling: Collect and Continue
+
+**Decision**: Extraction collects errors rather than failing fast.
+
+**Rationale**:
+- One unparseable file shouldn't block extracting 99 others
+- Users want to see partial results, not nothing
+- Errors can be reviewed and fixed incrementally
+
+**Severity levels**:
+- **Fatal**: Can't continue at all (e.g., target directory doesn't exist)
+- **Error**: File skipped, extraction continues (e.g., parse error)
+- **Warning**: Data incomplete but file processed (e.g., git history unavailable)
+
+**Implementation pattern**:
+```typescript
+interface ExtractionResult {
+  files: ExtractedFile[];
+  errors: ExtractionError[];
+}
+
+interface ExtractionError {
+  path: string;
+  severity: 'fatal' | 'error' | 'warning';
+  message: string;
+  cause?: Error;
+}
+
+function extractFiles(paths: string[]): ExtractionResult {
+  const files: ExtractedFile[] = [];
+  const errors: ExtractionError[] = [];
+
+  for (const path of paths) {
+    try {
+      files.push(extractFile(path));
+    } catch (err) {
+      errors.push({
+        path,
+        severity: 'error',
+        message: `Failed to parse: ${err.message}`,
+        cause: err,
+      });
+    }
+  }
+
+  return { files, errors };
+}
+```
+
+**What this enables**:
+- Run extraction on large codebases with some problematic files
+- Report all issues at once instead of one at a time
+- Let users decide which errors matter
+
+---
+
 ## Node Granularity: Files as Atoms
 
 **Decision**: Files are the smallest guaranteed node type.

@@ -26,8 +26,16 @@ interface Import {
   from: string;           // Module path
   names: string[];        // Named imports
   defaultName?: string;   // Default import name
+  namespaceImport?: string; // import * as X
   isTypeOnly: boolean;    // import type { ... }
 }
+
+// Covers all import forms:
+// - Named: import { a, b } from './x'
+// - Default: import X from './x'
+// - Namespace: import * as X from './x'
+// - Type-only: import type { T } from './x'
+// - Mixed: import X, { a } from './x'
 
 interface Export {
   name: string;
@@ -45,6 +53,10 @@ interface Function {
   startLine: number;
   endLine: number;
 }
+
+// Note: Arrow functions assigned to variables (e.g., `const login = async () => {}`)
+// are accessed via getVariableDeclarations() → getInitializer(), not getFunctions().
+// The extractor handles both cases uniformly.
 
 interface Param {
   name: string;
