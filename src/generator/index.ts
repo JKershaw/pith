@@ -53,6 +53,7 @@ export interface GeneratorConfig {
   apiKey: string;            // OpenRouter API key
   maxTokens?: number;        // Default: 1024
   temperature?: number;      // Default: 0.3
+  timeout?: number;          // Request timeout in milliseconds (default: 30000)
 }
 
 /**
@@ -229,6 +230,37 @@ export function parseLLMResponse(response: string): ProseData {
 }
 
 /**
+ * Sleep for a given number of milliseconds
+ */
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Determines if an error should trigger a retry
+ */
+function isRetryableError(error: Error, status?: number): boolean {
+  // Retry on rate limits (429)
+  if (status === 429) return true;
+
+  // Retry on server errors (5xx)
+  if (status && status >= 500) return true;
+
+  // Retry on AbortError (timeout via AbortController)
+  if (error.name === 'AbortError') return true;
+
+  // Retry on network/timeout errors
+  if (error.message.includes('timeout') ||
+      error.message.includes('network') ||
+      error.message.includes('ECONNRESET') ||
+      error.message.includes('aborted')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Calls OpenRouter API and returns the response content
  * @param prompt - The prompt to send to the LLM
  * @param config - Generator configuration with API key and model
@@ -240,6 +272,8 @@ export async function callLLM(
   fetchFn: typeof fetch = fetch
 ): Promise<string> {
   const url = 'https://openrouter.ai/api/v1/chat/completions';
+  const maxRetries = 3;
+  const timeout = config.timeout ?? 30000; // 30 seconds default
 
   const body = {
     model: config.model,
@@ -250,34 +284,79 @@ export async function callLLM(
     temperature: config.temperature ?? 0.3,
   };
 
-  const response = await fetchFn(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://github.com/pith-wiki/pith',
-      'X-Title': 'Pith Codebase Wiki',
-    },
-    body: JSON.stringify(body),
-  });
+  let lastError: Error | null = null;
+  let lastStatus: number | undefined;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    if (response.status === 429) {
-      throw new Error(`Rate limited by OpenRouter. Please wait and try again. ${errorText}`);
+  // Try up to maxRetries times
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+      try {
+        const response = await fetchFn(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${config.apiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://github.com/pith-wiki/pith',
+            'X-Title': 'Pith Codebase Wiki',
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          lastStatus = response.status;
+
+          if (response.status === 429) {
+            lastError = new Error(`Rate limited by OpenRouter. Please wait and try again. ${errorText}`);
+          } else {
+            lastError = new Error(`OpenRouter API error: ${response.status} ${response.statusText}. ${errorText}`);
+          }
+
+          // Check if we should retry
+          if (isRetryableError(lastError, response.status) && attempt < maxRetries) {
+            // Exponential backoff: 2^attempt seconds
+            const backoffMs = Math.pow(2, attempt) * 1000;
+            await sleep(backoffMs);
+            continue;
+          }
+
+          throw lastError;
+        }
+
+        const data = await response.json() as {
+          choices: Array<{ message: { content: string } }>;
+        };
+
+        if (!data.choices || data.choices.length === 0) {
+          throw new Error('Empty response from OpenRouter');
+        }
+
+        return data.choices[0].message.content;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Check if we should retry
+      if (isRetryableError(lastError, lastStatus) && attempt < maxRetries) {
+        // Exponential backoff: 2^attempt seconds
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        await sleep(backoffMs);
+        continue;
+      }
+
+      throw lastError;
     }
-    throw new Error(`OpenRouter API error: ${response.status} ${response.statusText}. ${errorText}`);
   }
 
-  const data = await response.json() as {
-    choices: Array<{ message: { content: string } }>;
-  };
-
-  if (!data.choices || data.choices.length === 0) {
-    throw new Error('Empty response from OpenRouter');
-  }
-
-  return data.choices[0].message.content;
+  // Fallback for edge case where maxRetries = 0 (loop never executes)
+  throw lastError ?? new Error('Failed after maximum retry attempts');
 }
 
 /**

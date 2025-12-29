@@ -8,6 +8,13 @@ import { stat } from 'node:fs/promises';
 import { findFiles, createProject, extractFile, storeExtracted, type ExtractedFile } from '../extractor/ast.ts';
 import { extractGitInfo } from '../extractor/git.ts';
 import { extractDocs } from '../extractor/docs.ts';
+import {
+  loadExtractionCache,
+  saveExtractionCache,
+  shouldExtract,
+  getFileHash,
+  type ExtractionCache,
+} from '../extractor/cache.ts';
 import { getDb, closeDb } from '../db/index.ts';
 import {
   buildFileNode,
@@ -27,18 +34,57 @@ import {
   type GeneratorConfig,
 } from '../generator/index.ts';
 import { createApp } from '../api/index.ts';
+import { loadConfig } from '../config/index.ts';
+import { PithError, formatError, groupErrorsBySeverity } from '../errors/index.ts';
 
 const program = new Command();
+
+// Global output control
+interface OutputOptions {
+  verbose?: boolean;
+  quiet?: boolean;
+  dryRun?: boolean;
+}
+
+let outputOptions: OutputOptions = {};
+
+function log(message: string, level: 'info' | 'verbose' | 'error' = 'info') {
+  if (outputOptions.quiet && level !== 'error') {
+    return;
+  }
+  if (level === 'verbose' && !outputOptions.verbose) {
+    return;
+  }
+  console.log(message);
+}
+
+function logError(message: string) {
+  console.error(message);
+}
 
 program
   .name('pith')
   .description('A codebase wiki optimized for LLM consumption')
-  .version(version);
+  .version(version)
+  .option('-v, --verbose', 'Show detailed output')
+  .option('-q, --quiet', 'Show minimal output (errors only)')
+  .option('--dry-run', 'Preview actions without executing')
+  .hook('preAction', (thisCommand) => {
+    const opts = thisCommand.optsWithGlobals();
+    outputOptions = {
+      verbose: opts.verbose,
+      quiet: opts.quiet,
+      dryRun: opts.dryRun,
+    };
+  });
 
 program
   .command('extract <path>')
   .description('Extract data from a TypeScript codebase')
-  .action(async (path: string) => {
+  .option('--force', 'Force re-extraction of all files, ignoring cache')
+  .action(async (path: string, options: { force?: boolean }) => {
+    const startTime = Date.now();
+
     try {
       // Resolve path to absolute
       const absolutePath = resolve(path);
@@ -47,22 +93,43 @@ program
       try {
         const stats = await stat(absolutePath);
         if (!stats.isDirectory()) {
-          console.error(`Error: "${absolutePath}" is not a directory`);
+          logError(`Error: "${absolutePath}" is not a directory`);
           process.exit(1);
         }
       } catch {
-        console.error(`Error: Path "${absolutePath}" does not exist`);
+        logError(`Error: Path "${absolutePath}" does not exist`);
         process.exit(1);
       }
 
-      console.log(`Extracting from: ${absolutePath}`);
+      if (outputOptions.dryRun) {
+        log('[DRY-RUN] Extract mode - no files will be modified');
+      }
+      log(`Extracting from: ${absolutePath}`);
 
-      // Get data directory from environment or use default
-      const dataDir = process.env.PITH_DATA_DIR || './data';
+      // Load configuration
+      const config = await loadConfig(absolutePath);
 
-      // Find all TypeScript files
-      const files = await findFiles(absolutePath);
-      console.log(`Found ${files.length} TypeScript files`);
+      // Get data directory from environment, config, or use default
+      const dataDir = process.env.PITH_DATA_DIR || config.output.dataDir;
+
+      // Find all TypeScript files using config patterns
+      const files = await findFiles(absolutePath, {
+        include: config.extraction.include,
+        exclude: config.extraction.exclude,
+      });
+      log(`Found ${files.length} TypeScript files`);
+
+      // Dry-run: just list files and exit
+      if (outputOptions.dryRun) {
+        log(`\n[DRY-RUN] Would extract ${files.length} files:`);
+        for (const file of files.slice(0, 20)) {
+          log(`  - ${file}`);
+        }
+        if (files.length > 20) {
+          log(`  ... and ${files.length - 20} more`);
+        }
+        return;
+      }
 
       // Create ts-morph project
       const ctx = createProject(absolutePath);
@@ -70,51 +137,140 @@ program
       // Get database connection
       const db = await getDb(dataDir);
 
-      // Extract and store each file, collecting errors
+      // Load extraction cache
+      const cache = options.force ? { version: 1, files: {} } : await loadExtractionCache(dataDir);
+
+      // Filter files based on cache (unless --force is used)
+      const filesToExtract: string[] = [];
+      let skippedCount = 0;
+
+      if (options.force) {
+        filesToExtract.push(...files);
+        log('Force mode enabled: extracting all files', 'verbose');
+      } else {
+        for (const relativePath of files) {
+          const fullPath = join(absolutePath, relativePath);
+          if (await shouldExtract(fullPath, relativePath, cache)) {
+            filesToExtract.push(relativePath);
+          } else {
+            skippedCount++;
+          }
+        }
+        log(`Incremental extraction: ${filesToExtract.length} to extract, ${skippedCount} unchanged`);
+      }
+
+      // Extract and store each file with parallel processing
+      const BATCH_SIZE = 4; // Process 4 files concurrently for extraction
       let processedCount = 0;
-      const errors: { path: string; message: string }[] = [];
+      const errors: Array<{ path: string; error: Error | PithError }> = [];
+      const newCache: ExtractionCache = { version: 1, files: { ...cache.files } };
 
-      for (const relativePath of files) {
-        try {
-          // Extract AST data
-          const extracted = extractFile(ctx, relativePath);
+      // Process files in batches
+      for (let i = 0; i < filesToExtract.length; i += BATCH_SIZE) {
+        const batch = filesToExtract.slice(i, i + BATCH_SIZE);
 
-          // Extract git info
-          const git = await extractGitInfo(absolutePath, relativePath);
+        // Extract files in parallel (but store sequentially to avoid DB corruption)
+        const results = await Promise.allSettled(
+          batch.map(async (relativePath) => {
+            try {
+              // Extract AST data
+              const extracted = extractFile(ctx, relativePath);
 
-          // Extract docs (need the directory for README)
-          const fileDirPath = join(absolutePath, dirname(relativePath));
-          const docs = await extractDocs(ctx, relativePath, fileDirPath);
+              // Extract git info
+              const git = await extractGitInfo(absolutePath, relativePath);
 
-          // Combine all data
-          extracted.git = git;
-          extracted.docs = docs;
+              // Extract docs (need the directory for README)
+              const fileDirPath = join(absolutePath, dirname(relativePath));
+              const docs = await extractDocs(ctx, relativePath, fileDirPath);
 
-          // Store in database
-          await storeExtracted(db, extracted);
+              // Combine all data
+              extracted.git = git;
+              extracted.docs = docs;
 
-          processedCount++;
-          console.log(`Extracted ${processedCount}/${files.length}: ${relativePath}`);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          errors.push({ path: relativePath, message });
-          console.log(`Error extracting ${relativePath}: ${message}`);
+              // Compute hash for cache
+              const fullPath = join(absolutePath, relativePath);
+              const hash = await getFileHash(fullPath);
+
+              return { relativePath, extracted, hash };
+            } catch (error) {
+              // Wrap in PithError if it's a parse error
+              if (error instanceof Error && error.message.includes('parse')) {
+                throw new PithError('PARSE_ERROR', error.message, 'error');
+              }
+              throw error;
+            }
+          })
+        );
+
+        // Store results sequentially to avoid database corruption
+        for (let j = 0; j < results.length; j++) {
+          const result = results[j];
+          const relativePath = batch[j];
+
+          if (result.status === 'fulfilled') {
+            // Store in database (sequential to avoid file corruption)
+            await storeExtracted(db, result.value.extracted);
+
+            // Update cache
+            newCache.files[relativePath] = {
+              hash: result.value.hash,
+              extractedAt: new Date().toISOString(),
+            };
+
+            processedCount++;
+            log(`Extracted ${processedCount}/${filesToExtract.length}: ${relativePath}`, 'verbose');
+            if (!outputOptions.verbose && processedCount % 10 === 0) {
+              log(`Progress: ${processedCount}/${filesToExtract.length} files`);
+            }
+          } else {
+            const error = result.reason instanceof Error ? result.reason : new Error(String(result.reason));
+            errors.push({ path: relativePath, error });
+            log(`  ✗ ${relativePath}: ${error.message}`, 'verbose');
+          }
         }
       }
+
+      // Save updated cache
+      await saveExtractionCache(dataDir, newCache);
 
       // Close database connection
       await closeDb();
 
       // Report summary
-      console.log(`\nCompleted: ${processedCount} files extracted, ${errors.length} errors`);
+      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      log(`\nCompleted in ${elapsedSec}s: ${processedCount} files extracted, ${skippedCount} skipped, ${errors.length} errors`);
+
       if (errors.length > 0) {
-        console.log('\nErrors:');
-        for (const error of errors) {
-          console.log(`  - ${error.path}: ${error.message}`);
+        logError('\nErrors:');
+
+        // Group and display errors by severity
+        const errorList = errors.map(e => e.error);
+        const grouped = groupErrorsBySeverity(errorList);
+
+        // Show fatal errors first
+        if (grouped.fatal.length > 0) {
+          logError('\nFatal errors:');
+          errors.filter(e => e.error instanceof PithError && e.error.severity === 'fatal')
+            .forEach(({ path, error }) => {
+              logError(`  - ${path}:`);
+              logError(`    ${formatError(error).split('\n').join('\n    ')}`);
+            });
         }
+
+        // Show regular errors
+        if (grouped.error.length > 0) {
+          logError('\nErrors:');
+          errors.filter(e => !(e.error instanceof PithError && e.error.severity === 'fatal'))
+            .forEach(({ path, error }) => {
+              logError(`  - ${path}: ${error.message}`);
+            });
+        }
+
+        logError('\nSuggestion: Try --force to reprocess all files, or check the error messages above.');
       }
     } catch (error) {
-      console.error('Error during extraction:', error);
+      logError('Error during extraction:');
+      logError(String(error));
       await closeDb();
       process.exit(1);
     }
@@ -124,11 +280,19 @@ program
   .command('build')
   .description('Build node graph from extracted data')
   .action(async () => {
-    try {
-      console.log('Building node graph...');
+    const startTime = Date.now();
 
-      // Get data directory from environment or use default
-      const dataDir = process.env.PITH_DATA_DIR || './data';
+    try {
+      if (outputOptions.dryRun) {
+        log('[DRY-RUN] Build mode - no nodes will be saved');
+      }
+      log('Building node graph...');
+
+      // Load configuration
+      const config = await loadConfig();
+
+      // Get data directory from environment, config, or use default
+      const dataDir = process.env.PITH_DATA_DIR || config.output.dataDir;
 
       // Get database connection
       const db = await getDb(dataDir);
@@ -137,12 +301,12 @@ program
       // Step 2.6.2: Check that extracted data exists
       const extractedFiles = await extractedCollection.find({}).toArray();
       if (extractedFiles.length === 0) {
-        console.error('Error: No extracted data found. Please run `pith extract` first.');
+        logError('Error: No extracted data found. Please run `pith extract` first.');
         await closeDb();
         process.exit(1);
       }
 
-      console.log(`Found ${extractedFiles.length} extracted files`);
+      log(`Found ${extractedFiles.length} extracted files`);
 
       // Step 2.6.1: Build all nodes
 
@@ -152,7 +316,7 @@ program
         const fileNode = buildFileNode(extracted);
         fileNodes.push(fileNode);
       }
-      console.log(`Created ${fileNodes.length} file nodes`);
+      log(`Created ${fileNodes.length} file nodes`);
 
       // Build function nodes
       const functionNodes: WikiNode[] = [];
@@ -164,7 +328,7 @@ program
           }
         }
       }
-      console.log(`Created ${functionNodes.length} function nodes`);
+      log(`Created ${functionNodes.length} function nodes`);
 
       // Group files by directory and build module nodes
       const dirMap = new Map<string, string[]>();
@@ -191,7 +355,7 @@ program
           moduleNodes.push(moduleNode);
         }
       }
-      console.log(`Created ${moduleNodes.length} module nodes`);
+      log(`Created ${moduleNodes.length} module nodes`);
 
       // Combine all nodes
       const allNodes = [...fileNodes, ...functionNodes, ...moduleNodes];
@@ -234,11 +398,27 @@ program
         }
       }
 
-      console.log('Built edges');
+      log('Built edges', 'verbose');
 
       // Compute metadata (fan-in, fan-out, age, recency)
       computeMetadata(allNodes);
-      console.log('Computed metadata');
+      log('Computed metadata', 'verbose');
+
+      // Dry-run: show what would be created and exit
+      if (outputOptions.dryRun) {
+        log(`\n[DRY-RUN] Would create ${allNodes.length} nodes:`);
+        log(`  - ${fileNodes.length} file nodes`);
+        log(`  - ${functionNodes.length} function nodes`);
+        log(`  - ${moduleNodes.length} module nodes`);
+        if (outputOptions.verbose) {
+          log(`\nSample nodes:`);
+          for (const node of allNodes.slice(0, 5)) {
+            log(`  - ${node.type}: ${node.id}`);
+          }
+        }
+        await closeDb();
+        return;
+      }
 
       // Store all nodes in database
       const nodesCollection = db.collection<WikiNode>('nodes');
@@ -250,12 +430,14 @@ program
         );
       }
 
-      console.log(`\nBuild complete: ${fileNodes.length} file nodes, ${functionNodes.length} function nodes, ${moduleNodes.length} module nodes`);
+      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      log(`\nBuild complete in ${elapsedSec}s: ${fileNodes.length} file nodes, ${functionNodes.length} function nodes, ${moduleNodes.length} module nodes`);
 
       // Close database connection
       await closeDb();
     } catch (error) {
-      console.error('Error during build:', error);
+      logError('Error during build:');
+      logError(String(error));
       await closeDb();
       process.exit(1);
     }
@@ -267,21 +449,28 @@ program
   .option('-m, --model <model>', 'OpenRouter model to use (or set OPENROUTER_MODEL in .env)')
   .option('--node <nodeId>', 'Generate for specific node only')
   .option('--force', 'Regenerate prose even if already exists')
-  .action(async (options: { model?: string; node?: string; force?: boolean }) => {
-    const dataDir = process.env.PITH_DATA_DIR || './data';
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    const model = options.model || process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4';
+  .option('--estimate', 'Show cost estimate without generating')
+  .action(async (options: { model?: string; node?: string; force?: boolean; estimate?: boolean }) => {
+    const startTime = Date.now();
+    // Load configuration
+    const config = await loadConfig();
 
-    if (!apiKey) {
-      console.error('Error: OPENROUTER_API_KEY is required');
-      console.error('Set it in .env file or with: export OPENROUTER_API_KEY=your-key');
+    const dataDir = process.env.PITH_DATA_DIR || config.output.dataDir;
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    const model = options.model || process.env.OPENROUTER_MODEL || config.llm?.model || 'anthropic/claude-sonnet-4';
+
+    // For estimation and dry-run, we don't need the API key
+    const needsApiKey = !options.estimate && !outputOptions.dryRun;
+    if (!apiKey && needsApiKey) {
+      logError('Error: OPENROUTER_API_KEY is required');
+      logError('Set it in .env file or with: export OPENROUTER_API_KEY=your-key');
       process.exit(1);
     }
 
-    const config: GeneratorConfig = {
+    const generatorConfig: GeneratorConfig = {
       provider: 'openrouter',
       model,
-      apiKey,
+      apiKey: apiKey ?? '', // Empty string for estimate/dry-run modes
     };
 
     try {
@@ -301,20 +490,66 @@ program
 
       if (nodes.length === 0) {
         if (options.node) {
-          console.error(`No node found with id: ${options.node}`);
+          logError(`No node found with id: ${options.node}`);
         } else {
-          console.log('No nodes found that need prose generation.');
-          console.log('Use --force to regenerate existing prose.');
+          log('No nodes found that need prose generation.');
+          log('Use --force to regenerate existing prose.');
         }
         await closeDb();
         return;
       }
 
-      console.log(`Generating prose for ${nodes.length} nodes...`);
-      console.log(`Using model: ${model}`);
+      // Cost estimation mode
+      if (options.estimate || outputOptions.dryRun) {
+        // Estimate tokens based on raw data size
+        let totalInputTokens = 0;
+        const AVG_CHARS_PER_TOKEN = 4; // Rough estimate
+        const AVG_OUTPUT_TOKENS = 500; // Typical output size
+
+        for (const node of nodes) {
+          // Estimate input tokens from prompt (rough calculation)
+          const rawDataSize = JSON.stringify(node.raw).length;
+          const metadataSize = JSON.stringify(node.metadata).length;
+          const estimatedPromptSize = rawDataSize + metadataSize + 500; // +500 for prompt template
+          totalInputTokens += Math.ceil(estimatedPromptSize / AVG_CHARS_PER_TOKEN);
+        }
+
+        const totalOutputTokens = nodes.length * AVG_OUTPUT_TOKENS;
+
+        // OpenRouter pricing for Anthropic Claude Sonnet 4 (approximate)
+        const INPUT_COST_PER_1K = 0.003;  // $3 per 1M tokens
+        const OUTPUT_COST_PER_1K = 0.015; // $15 per 1M tokens
+
+        const inputCost = (totalInputTokens / 1000) * INPUT_COST_PER_1K;
+        const outputCost = (totalOutputTokens / 1000) * OUTPUT_COST_PER_1K;
+        const totalCost = inputCost + outputCost;
+
+        log('\nProse generation estimate:');
+        log(`  Nodes without prose: ${nodes.length}`);
+        log(`  Estimated input tokens: ~${totalInputTokens.toLocaleString()}`);
+        log(`  Estimated output tokens: ~${totalOutputTokens.toLocaleString()}`);
+        log(`  Estimated cost: ~$${totalCost.toFixed(2)}`);
+        log(`  Using model: ${model}`);
+
+        if (outputOptions.dryRun) {
+          log('\n[DRY-RUN] Would generate prose for these nodes:');
+          for (const node of nodes.slice(0, 10)) {
+            log(`  - ${node.type}: ${node.id}`);
+          }
+          if (nodes.length > 10) {
+            log(`  ... and ${nodes.length - 10} more`);
+          }
+        }
+
+        await closeDb();
+        return;
+      }
+
+      log(`Generating prose for ${nodes.length} nodes...`);
+      log(`Using model: ${model}`);
 
       let generated = 0;
-      let errors = 0;
+      const generationErrors: Array<{ nodeId: string; error: Error | PithError }> = [];
 
       // Process nodes (file nodes first for fractal generation)
       const fileNodes = nodes.filter(n => n.type === 'file');
@@ -323,7 +558,10 @@ program
 
       for (const node of orderedNodes) {
         try {
-          console.log(`  Generating: ${node.id}`);
+          log(`  Generating: ${node.id}`, 'verbose');
+          if (!outputOptions.verbose && generated % 5 === 0 && generated > 0) {
+            log(`Progress: ${generated}/${orderedNodes.length} nodes`);
+          }
 
           // For module nodes, gather child summaries
           let childSummaries: Map<string, string> | undefined;
@@ -343,22 +581,59 @@ program
             );
           }
 
-          const prose = await generateProse(node, config, { childSummaries });
+          const prose = await generateProse(node, generatorConfig, { childSummaries });
           await updateNodeWithProse(db, node.id, prose);
 
           generated++;
-          console.log(`    ✓ ${node.id}`);
+          log(`    ✓ ${node.id}`, 'verbose');
         } catch (error) {
-          errors++;
-          console.error(`    ✗ ${node.id}: ${(error as Error).message}`);
+          const pithError = error instanceof Error
+            ? (error.message.includes('Rate limited') || error.message.includes('429')
+              ? new PithError('LLM_ERROR', error.message, 'error', 'Wait a few minutes and try again')
+              : error instanceof PithError ? error : new Error(error.message))
+            : new Error(String(error));
+
+          generationErrors.push({ nodeId: node.id, error: pithError });
+          log(`    ✗ ${node.id}: ${(error as Error).message}`, 'verbose');
         }
       }
 
-      console.log(`\nCompleted: ${generated} generated, ${errors} errors`);
+      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      log(`\nCompleted in ${elapsedSec}s: ${generated} generated, ${generationErrors.length} errors`);
+
+      if (generationErrors.length > 0) {
+        logError('\nDetailed error information:');
+
+        // Group errors by severity
+        const errorList = generationErrors.map(e => e.error);
+        const grouped = groupErrorsBySeverity(errorList);
+
+        // Show warnings (like rate limits that might retry)
+        if (grouped.warning.length > 0) {
+          logError('\nWarnings:');
+          generationErrors.filter(e => e.error instanceof PithError && e.error.severity === 'warning')
+            .forEach(({ nodeId, error }) => {
+              logError(`  - ${nodeId}:`);
+              logError(`    ${formatError(error).split('\n').join('\n    ')}`);
+            });
+        }
+
+        // Show errors
+        if (grouped.error.length > 0) {
+          logError('\nErrors:');
+          generationErrors.filter(e => !(e.error instanceof PithError && e.error.severity === 'warning'))
+            .forEach(({ nodeId, error }) => {
+              logError(`  - ${nodeId}: ${error.message}`);
+            });
+        }
+
+        logError('\nSuggestion: Check your OPENROUTER_API_KEY and rate limits. Use --force to regenerate failed nodes.');
+      }
+
       await closeDb();
 
     } catch (error) {
-      console.error(`Error: ${(error as Error).message}`);
+      logError(`Error: ${(error as Error).message}`);
       await closeDb();
       process.exit(1);
     }
@@ -369,8 +644,11 @@ program
   .description('Start the API server')
   .option('-p, --port <port>', 'Port to listen on', '3000')
   .action(async (options: { port: string }) => {
+    // Load configuration
+    const config = await loadConfig();
+
     const port = parseInt(options.port, 10);
-    const dataDir = process.env.PITH_DATA_DIR || './data';
+    const dataDir = process.env.PITH_DATA_DIR || config.output.dataDir;
 
     try {
       const db = await getDb(dataDir);
@@ -379,7 +657,7 @@ program
       // Verify nodes exist
       const nodeCount = await nodesCollection.countDocuments({});
       if (nodeCount === 0) {
-        console.error('Error: No nodes found. Run `pith extract` and `pith build` first.');
+        logError('Error: No nodes found. Run `pith extract` and `pith build` first.');
         await closeDb();
         process.exit(1);
       }
@@ -387,25 +665,25 @@ program
       const app = createApp(db);
 
       const server = app.listen(port, () => {
-        console.log(`Pith API server running on http://localhost:${port}`);
-        console.log(`\nEndpoints:`);
-        console.log(`  GET  /node/:path      - Fetch a single node`);
-        console.log(`  GET  /context?files=  - Bundled context for files`);
-        console.log(`  POST /refresh         - Re-extract and rebuild`);
-        console.log(`\nServing ${nodeCount} nodes.`);
+        log(`Pith API server running on http://localhost:${port}`);
+        log(`\nEndpoints:`);
+        log(`  GET  /node/:path      - Fetch a single node`);
+        log(`  GET  /context?files=  - Bundled context for files`);
+        log(`  POST /refresh         - Re-extract and rebuild`);
+        log(`\nServing ${nodeCount} nodes.`);
       });
 
       server.on('error', async (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
-          console.error(`Error: Port ${port} is already in use`);
+          logError(`Error: Port ${port} is already in use`);
         } else {
-          console.error(`Server error: ${err.message}`);
+          logError(`Server error: ${err.message}`);
         }
         await closeDb();
         process.exit(1);
       });
     } catch (error) {
-      console.error(`Error: ${(error as Error).message}`);
+      logError(`Error: ${(error as Error).message}`);
       await closeDb();
       process.exit(1);
     }
