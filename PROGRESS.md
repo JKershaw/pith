@@ -482,4 +482,27 @@ All 172 tests pass, linting passes.
 - [x] Fractal generation: file prose before module prose
 - [x] Staleness detection with `isStale()` function
 
+### Phase 3 Manual Validation
+
+**Status: Pending API key for full LLM validation**
+
+Code-level validation completed:
+- ✅ All 172 tests pass with mocked LLM responses
+- ✅ Lint passes with no issues
+- ✅ CLI `pith generate --help` shows correct options
+- ✅ Generate command validates API key requirement
+- ✅ Fractal generation ordering verified in tests
+- ✅ Staleness detection logic verified in tests
+
+**To complete full validation:**
+1. Set `OPENROUTER_API_KEY` environment variable
+2. Run `pith extract .` on a TypeScript repo
+3. Run `pith build`
+4. Run `pith generate`
+5. Review generated prose for accuracy:
+   - Are summaries accurate and concise?
+   - Does "purpose" explain *why*, not just *what*?
+   - Are gotchas actionable?
+   - Do module summaries coherently describe their children?
+
 Ready to begin Phase 4: API.
