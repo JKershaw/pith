@@ -30,6 +30,7 @@
   "dependencies": {
     "@jkershaw/mangodb": "^0.1.0",
     "commander": "^14.0.2",
+    "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "simple-git": "^3.30.0",
     "ts-morph": "^27.0.2",

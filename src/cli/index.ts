@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import { Command } from 'commander';
 import { version } from '../index.ts';
 import { resolve, dirname, join } from 'node:path';
@@ -263,22 +264,23 @@ program
 program
   .command('generate')
   .description('Generate prose documentation for nodes using LLM')
-  .option('-m, --model <model>', 'OpenRouter model to use', 'anthropic/claude-sonnet-4')
+  .option('-m, --model <model>', 'OpenRouter model to use (or set OPENROUTER_MODEL in .env)')
   .option('--node <nodeId>', 'Generate for specific node only')
   .option('--force', 'Regenerate prose even if already exists')
-  .action(async (options: { model: string; node?: string; force?: boolean }) => {
+  .action(async (options: { model?: string; node?: string; force?: boolean }) => {
     const dataDir = process.env.PITH_DATA_DIR || './data';
     const apiKey = process.env.OPENROUTER_API_KEY;
+    const model = options.model || process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4';
 
     if (!apiKey) {
-      console.error('Error: OPENROUTER_API_KEY environment variable is required');
-      console.error('Set it with: export OPENROUTER_API_KEY=your-key');
+      console.error('Error: OPENROUTER_API_KEY is required');
+      console.error('Set it in .env file or with: export OPENROUTER_API_KEY=your-key');
       process.exit(1);
     }
 
     const config: GeneratorConfig = {
       provider: 'openrouter',
-      model: options.model,
+      model,
       apiKey,
     };
 
@@ -309,7 +311,7 @@ program
       }
 
       console.log(`Generating prose for ${nodes.length} nodes...`);
-      console.log(`Using model: ${options.model}`);
+      console.log(`Using model: ${model}`);
 
       let generated = 0;
       let errors = 0;
