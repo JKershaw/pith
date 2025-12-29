@@ -88,6 +88,28 @@ Plus structured metadata: complexity, churn, authors, dependencies.
 - **Code review**: Understand the history and intent behind code you're reviewing
 - **Refactoring**: Know what depends on what before making changes
 
+## Development
+
+### PR Review Summary
+
+When working on the codebase, you can get a quick summary of the current branch's PR status, CI checks, and CodeRabbit review comments:
+
+```bash
+# Review PR for current branch
+npm run pr:review
+
+# Review a specific PR by number
+npm run pr:review -- --pr 7
+```
+
+This displays:
+- PR status (open/draft/closed)
+- CI check results (GitHub Actions, CodeRabbit)
+- CodeRabbit inline comments with file:line references
+- Other reviewer comments
+
+Set `GITHUB_TOKEN` or `GH_TOKEN` for higher API rate limits (5000/hr vs 60/hr unauthenticated).
+
 ## Status
 
 This is an early-stage project validating an idea. Currently supports TypeScript codebases only.
