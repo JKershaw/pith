@@ -2,11 +2,11 @@
 
 Tracks completed steps and notes from implementation.
 
-## Current Phase: 1.3 Documentation Extraction
+## Current Phase: 1.4 CLI Integration
 
 ### Status
-- **Last completed step**: 1.2.7 - Store git data in MangoDB
-- **Next step**: 1.3.1 - JSDoc extraction
+- **Last completed step**: 1.3.6 - Store docs in MangoDB
+- **Next step**: 1.4.1 - Wire up CLI to extractors
 
 ---
 
@@ -54,6 +54,17 @@ Tracks completed steps and notes from implementation.
 | 1.2.5 | Returns recent commits (G5) | Done |
 | 1.2.6 | Returns primary author (G6) | Done |
 | 1.2.7 | Git data integrates with ExtractedFile | Done |
+
+### Phase 1.3 - Documentation Extraction (COMPLETE)
+
+| Step | Description | Status |
+|------|-------------|--------|
+| 1.3.1 | Extracts JSDoc (D1) - description, @param, @returns, @throws | Done |
+| 1.3.2 | Extracts inline comments (D2) with line numbers | Done |
+| 1.3.3 | Extracts README content (D3) per directory | Done |
+| 1.3.4 | Extracts TODO/FIXME/HACK/XXX comments (D4) | Done |
+| 1.3.5 | Extracts @deprecated markers (D5) with entity names | Done |
+| 1.3.6 | DocsInfo integrates with ExtractedFile storage | Done |
 
 ---
 
@@ -131,3 +142,41 @@ Both issues fixed by adding handlers in `extractFile()` for:
 - `Function` interface name shadows global type (acceptable, scoped to module)
 - Type resolution produces fully-qualified paths (can simplify in post-processing)
 - Test suite takes ~7s due to ts-morph Project creation per test (acceptable for now)
+
+### 2025-12-29 - Phase 1.3 Complete
+
+Documentation extraction is complete. Implementation in `src/extractor/docs.ts`:
+
+**JSDoc Extraction (1.3.1):**
+- Extracts description, @param, @returns, @throws, @deprecated, @example, @see tags
+- Works on functions, classes, and methods
+- Uses ts-morph's `getJsDocs()` and `getTags()` APIs
+- Flexible @param parsing supporting both `@param {Type} name - desc` and `@param name - desc`
+
+**Inline Comments (1.3.2):**
+- Extracts single-line `//` comments (not JSDoc)
+- Associates comments with containing functions via `nearFunction` field
+- Line-by-line regex parsing with URL filtering to avoid matching `://`
+
+**README Extraction (1.3.3):**
+- Case-insensitive detection of README.md files
+- Returns raw markdown content or null if not found
+- Uses Node.js `fs/promises` for async file reading
+
+**TODO Comments (1.3.4):**
+- Detects TODO, FIXME, HACK, XXX markers in comments
+- Supports both `//` and `/* */` comment styles
+- Extracts type, text, and line number
+
+**Deprecations (1.3.5):**
+- Extracts @deprecated from classes, methods, and functions
+- Returns entity name, message, and line number
+- Integrates with existing JSDoc extraction
+
+**Storage Integration (1.3.6):**
+- Created `DocsInfo` interface bundling all doc types
+- Added `extractDocs()` function combining all extractors
+- JSDoc mapped by entity name for easy lookup
+- Added `docs?: DocsInfo` field to ExtractedFile interface
+
+All 69 tests pass, linting passes. Ready for Phase 1.4 CLI Integration.
