@@ -9,6 +9,9 @@ import {
   shouldCreateModuleNode,
   buildModuleNode,
   storeModuleNodes,
+  buildContainsEdges,
+  buildImportEdges,
+  buildParentEdge,
   type WikiNode,
   type Function,
 } from './index.ts';
@@ -847,5 +850,284 @@ describe('storeModuleNodes', () => {
     if (testDataDir) {
       await rm(testDataDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('buildContainsEdges (module → file)', () => {
+  // Step 2.4.1: Test contains edge from module to file
+  it('creates contains edges for each file in module', () => {
+    const moduleNode: WikiNode = {
+      id: 'src/auth',
+      type: 'module',
+      path: 'src/auth',
+      name: 'auth',
+      metadata: {
+        lines: 0,
+        commits: 0,
+        lastModified: new Date(),
+        authors: [],
+      },
+      edges: [],
+      raw: {},
+    };
+
+    const fileNodes: WikiNode[] = [
+      {
+        id: 'src/auth/login.ts',
+        type: 'file',
+        path: 'src/auth/login.ts',
+        name: 'login.ts',
+        metadata: {
+          lines: 50,
+          commits: 5,
+          lastModified: new Date(),
+          authors: ['alice@example.com'],
+        },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/auth/logout.ts',
+        type: 'file',
+        path: 'src/auth/logout.ts',
+        name: 'logout.ts',
+        metadata: {
+          lines: 30,
+          commits: 3,
+          lastModified: new Date(),
+          authors: ['bob@example.com'],
+        },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    const edges = buildContainsEdges(moduleNode, fileNodes);
+
+    assert.strictEqual(edges.length, 2);
+    assert.strictEqual(edges[0].type, 'contains');
+    assert.strictEqual(edges[0].target, 'src/auth/login.ts');
+    assert.strictEqual(edges[1].type, 'contains');
+    assert.strictEqual(edges[1].target, 'src/auth/logout.ts');
+  });
+});
+
+describe('buildContainsEdges (file → function)', () => {
+  // Step 2.4.2: Test contains edge from file to function
+  it('creates contains edges for each function in file', () => {
+    const fileNode: WikiNode = {
+      id: 'src/auth/login.ts',
+      type: 'file',
+      path: 'src/auth/login.ts',
+      name: 'login.ts',
+      metadata: {
+        lines: 50,
+        commits: 5,
+        lastModified: new Date(),
+        authors: ['alice@example.com'],
+      },
+      edges: [],
+      raw: {},
+    };
+
+    const functionNodes: WikiNode[] = [
+      {
+        id: 'src/auth/login.ts:authenticate',
+        type: 'function',
+        path: 'src/auth/login.ts',
+        name: 'authenticate',
+        metadata: {
+          lines: 10,
+          commits: 5,
+          lastModified: new Date(),
+          authors: ['alice@example.com'],
+        },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/auth/login.ts:validateCredentials',
+        type: 'function',
+        path: 'src/auth/login.ts',
+        name: 'validateCredentials',
+        metadata: {
+          lines: 8,
+          commits: 5,
+          lastModified: new Date(),
+          authors: ['alice@example.com'],
+        },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    const edges = buildContainsEdges(fileNode, functionNodes);
+
+    assert.strictEqual(edges.length, 2);
+    assert.strictEqual(edges[0].type, 'contains');
+    assert.strictEqual(edges[0].target, 'src/auth/login.ts:authenticate');
+    assert.strictEqual(edges[1].type, 'contains');
+    assert.strictEqual(edges[1].target, 'src/auth/login.ts:validateCredentials');
+  });
+});
+
+describe('buildImportEdges', () => {
+  // Step 2.4.3: Test imports edge from file to file
+  it('creates import edges for each import', () => {
+    const fileNode: WikiNode = {
+      id: 'src/auth/login.ts',
+      type: 'file',
+      path: 'src/auth/login.ts',
+      name: 'login.ts',
+      metadata: {
+        lines: 50,
+        commits: 5,
+        lastModified: new Date(),
+        authors: ['alice@example.com'],
+      },
+      edges: [],
+      raw: {
+        imports: [
+          { from: './session', names: ['createSession'], isTypeOnly: false },
+          { from: '../utils/hash', names: ['hashPassword'], isTypeOnly: false },
+        ],
+      },
+    };
+
+    const allFilePaths = [
+      'src/auth/login.ts',
+      'src/auth/session.ts',
+      'src/utils/hash.ts',
+    ];
+
+    const edges = buildImportEdges(fileNode, allFilePaths);
+
+    assert.strictEqual(edges.length, 2);
+    assert.strictEqual(edges[0].type, 'imports');
+    assert.strictEqual(edges[0].target, 'src/auth/session.ts');
+    assert.strictEqual(edges[1].type, 'imports');
+    assert.strictEqual(edges[1].target, 'src/utils/hash.ts');
+  });
+
+  it('skips imports that cannot be resolved', () => {
+    const fileNode: WikiNode = {
+      id: 'src/test.ts',
+      type: 'file',
+      path: 'src/test.ts',
+      name: 'test.ts',
+      metadata: {
+        lines: 10,
+        commits: 1,
+        lastModified: new Date(),
+        authors: ['test@example.com'],
+      },
+      edges: [],
+      raw: {
+        imports: [
+          { from: 'node:fs', names: ['readFile'], isTypeOnly: false },
+          { from: './local', names: ['helper'], isTypeOnly: false },
+        ],
+      },
+    };
+
+    const allFilePaths = ['src/test.ts', 'src/local.ts'];
+
+    const edges = buildImportEdges(fileNode, allFilePaths);
+
+    // Should only resolve ./local, not node:fs
+    assert.strictEqual(edges.length, 1);
+    assert.strictEqual(edges[0].target, 'src/local.ts');
+  });
+});
+
+describe('buildParentEdge', () => {
+  // Step 2.4.4: Test parent edge from file to module
+  it('creates parent edge from file to module', () => {
+    const fileNode: WikiNode = {
+      id: 'src/auth/login.ts',
+      type: 'file',
+      path: 'src/auth/login.ts',
+      name: 'login.ts',
+      metadata: {
+        lines: 50,
+        commits: 5,
+        lastModified: new Date(),
+        authors: ['alice@example.com'],
+      },
+      edges: [],
+      raw: {},
+    };
+
+    const moduleNode: WikiNode = {
+      id: 'src/auth',
+      type: 'module',
+      path: 'src/auth',
+      name: 'auth',
+      metadata: {
+        lines: 0,
+        commits: 0,
+        lastModified: new Date(),
+        authors: [],
+      },
+      edges: [],
+      raw: {},
+    };
+
+    const edge = buildParentEdge(fileNode, moduleNode);
+
+    assert.ok(edge);
+    assert.strictEqual(edge.type, 'parent');
+    assert.strictEqual(edge.target, 'src/auth');
+  });
+});
+
+describe('Edge integration', () => {
+  // Step 2.4.5: Test that edges are stored on nodes
+  it('edges are added to node.edges array', () => {
+    const moduleNode: WikiNode = {
+      id: 'src/auth',
+      type: 'module',
+      path: 'src/auth',
+      name: 'auth',
+      metadata: {
+        lines: 0,
+        commits: 0,
+        lastModified: new Date(),
+        authors: [],
+      },
+      edges: [],
+      raw: {},
+    };
+
+    const fileNode: WikiNode = {
+      id: 'src/auth/login.ts',
+      type: 'file',
+      path: 'src/auth/login.ts',
+      name: 'login.ts',
+      metadata: {
+        lines: 50,
+        commits: 5,
+        lastModified: new Date(),
+        authors: ['alice@example.com'],
+      },
+      edges: [],
+      raw: {},
+    };
+
+    // Add contains edge to module
+    const containsEdges = buildContainsEdges(moduleNode, [fileNode]);
+    moduleNode.edges.push(...containsEdges);
+
+    // Add parent edge to file
+    const parentEdge = buildParentEdge(fileNode, moduleNode);
+    fileNode.edges.push(parentEdge);
+
+    assert.strictEqual(moduleNode.edges.length, 1);
+    assert.strictEqual(moduleNode.edges[0].type, 'contains');
+    assert.strictEqual(moduleNode.edges[0].target, 'src/auth/login.ts');
+
+    assert.strictEqual(fileNode.edges.length, 1);
+    assert.strictEqual(fileNode.edges[0].type, 'parent');
+    assert.strictEqual(fileNode.edges[0].target, 'src/auth');
   });
 });

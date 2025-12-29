@@ -239,3 +239,122 @@ export async function storeModuleNodes(db: MangoDb, nodes: WikiNode[]): Promise<
     await collection.updateOne({ id: node.id }, { $set: node }, { upsert: true });
   }
 }
+
+/**
+ * Build contains edges from a parent node to child nodes.
+ * Supports both module → file and file → function relationships.
+ * @param parentNode - The parent node (module or file)
+ * @param childNodes - Array of child nodes (files or functions)
+ * @returns Array of contains edges
+ */
+export function buildContainsEdges(parentNode: WikiNode, childNodes: WikiNode[]): Edge[] {
+  return childNodes.map((child) => ({
+    type: 'contains' as const,
+    target: child.id,
+  }));
+}
+
+/**
+ * Build import edges from a file to other files it imports.
+ * Resolves relative import paths to absolute file paths.
+ * @param fileNode - The file node with imports
+ * @param allFilePaths - Array of all file paths in the project
+ * @returns Array of import edges
+ */
+export function buildImportEdges(fileNode: WikiNode, allFilePaths: string[]): Edge[] {
+  if (!fileNode.raw.imports) {
+    return [];
+  }
+
+  const edges: Edge[] = [];
+  const fileDir = fileNode.path.substring(0, fileNode.path.lastIndexOf('/'));
+
+  for (const imp of fileNode.raw.imports) {
+    // Skip node modules and external packages
+    if (!imp.from.startsWith('.')) {
+      continue;
+    }
+
+    // Resolve relative path to absolute
+    const resolvedPath = resolveImportPath(fileDir, imp.from, allFilePaths);
+    if (resolvedPath) {
+      edges.push({
+        type: 'imports',
+        target: resolvedPath,
+      });
+    }
+  }
+
+  return edges;
+}
+
+/**
+ * Resolve a relative import path to an absolute file path.
+ * @param fileDir - Directory of the importing file
+ * @param importFrom - The import path (e.g., './session', '../utils/hash')
+ * @param allFilePaths - Array of all file paths in the project
+ * @returns Resolved file path or null if not found
+ */
+function resolveImportPath(fileDir: string, importFrom: string, allFilePaths: string[]): string | null {
+  // Handle relative paths
+  let candidatePath: string;
+
+  if (importFrom.startsWith('./')) {
+    // Same directory
+    candidatePath = `${fileDir}/${importFrom.substring(2)}`;
+  } else if (importFrom.startsWith('../')) {
+    // Parent directory
+    const parts = fileDir.split('/');
+    const importParts = importFrom.split('/');
+
+    // Count how many levels up we need to go
+    let upLevels = 0;
+    for (const part of importParts) {
+      if (part === '..') {
+        upLevels++;
+      } else {
+        break;
+      }
+    }
+
+    // Build the base path
+    const baseParts = parts.slice(0, -upLevels);
+    const remainingParts = importParts.slice(upLevels);
+    candidatePath = [...baseParts, ...remainingParts].join('/');
+  } else {
+    return null;
+  }
+
+  // Try to match against known file paths
+  // Try with .ts extension first
+  const withTs = `${candidatePath}.ts`;
+  if (allFilePaths.includes(withTs)) {
+    return withTs;
+  }
+
+  // Try exact match
+  if (allFilePaths.includes(candidatePath)) {
+    return candidatePath;
+  }
+
+  // Try as directory with index.ts
+  const withIndex = `${candidatePath}/index.ts`;
+  if (allFilePaths.includes(withIndex)) {
+    return withIndex;
+  }
+
+  return null;
+}
+
+/**
+ * Build a parent edge from a file to its containing module.
+ * @param fileNode - The file node
+ * @param moduleNode - The parent module node
+ * @returns Parent edge
+ */
+export function buildParentEdge(fileNode: WikiNode, moduleNode: WikiNode): Edge {
+  return {
+    type: 'parent',
+    target: moduleNode.id,
+  };
+}
