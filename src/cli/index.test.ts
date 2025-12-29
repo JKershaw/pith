@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { rm, mkdir, writeFile } from 'node:fs/promises';
 import { getDb, closeDb } from '../db/index.ts';
 import type { ExtractedFile } from '../extractor/ast.ts';
+import type { WikiNode } from '../builder/index.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPath = join(__dirname, 'index.ts');
@@ -168,6 +169,89 @@ describe('CLI', () => {
       await closeDb();
       await rm(tempDir, { recursive: true, force: true });
       await rm(tempDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('has build command', () => {
+    const result = execSync(
+      `node --experimental-strip-types ${cliPath} build --help`,
+      { encoding: 'utf-8' }
+    );
+    assert.ok(result.includes('build'));
+    assert.ok(result.includes('Build node graph'));
+  });
+
+  it('pith build creates all nodes from extracted data', async () => {
+    // First run extract to populate the extracted collection
+    execSync(
+      `node --experimental-strip-types ${cliPath} extract ${fixtureDir}`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Now run build to create nodes
+    const result = execSync(
+      `node --experimental-strip-types ${cliPath} build`,
+      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+    );
+
+    // Verify progress output
+    assert.ok(result.includes('Building node graph'), 'Should show build start');
+    assert.ok(result.includes('Found') && result.includes('extracted files'), 'Should show extracted file count');
+    assert.ok(result.includes('Created') && result.includes('file nodes'), 'Should show file node count');
+    assert.ok(result.includes('function nodes'), 'Should show function node count');
+    assert.ok(result.includes('module nodes'), 'Should show module node count');
+    assert.ok(result.includes('Build complete'), 'Should show completion');
+
+    // Connect to the test database and verify nodes were created
+    const db = await getDb(testDataDir);
+    const nodesCollection = db.collection('nodes');
+    const nodes = await nodesCollection.find({}).toArray();
+
+    // Should have file nodes for all 4 TypeScript files
+    const fileNodes = nodes.filter((n: WikiNode) => n.type === 'file');
+    assert.ok(fileNodes.length >= 4, 'Should have at least 4 file nodes');
+
+    // Should have function nodes for exported functions
+    const functionNodes = nodes.filter((n: WikiNode) => n.type === 'function');
+    assert.ok(functionNodes.length > 0, 'Should have function nodes');
+
+    // Should have module nodes
+    const moduleNodes = nodes.filter((n: WikiNode) => n.type === 'module');
+    assert.ok(moduleNodes.length > 0, 'Should have module nodes');
+
+    // Verify a file node has correct structure
+    const fileNode = fileNodes[0];
+    assert.ok(fileNode.id, 'File node should have id');
+    assert.ok(fileNode.type === 'file', 'File node should have correct type');
+    assert.ok(fileNode.path, 'File node should have path');
+    assert.ok(fileNode.name, 'File node should have name');
+    assert.ok(fileNode.metadata, 'File node should have metadata');
+    assert.ok(typeof fileNode.metadata.lines === 'number', 'File node should have lines');
+    assert.ok(Array.isArray(fileNode.edges), 'File node should have edges array');
+
+    // Verify computed metadata was added
+    assert.ok(typeof fileNode.metadata.fanIn === 'number', 'File node should have fanIn');
+    assert.ok(typeof fileNode.metadata.fanOut === 'number', 'File node should have fanOut');
+    assert.ok(typeof fileNode.metadata.recencyInDays === 'number', 'File node should have recencyInDays');
+  });
+
+  it('pith build requires extract first', async () => {
+    // Try to run build without extracting first (on a fresh database)
+    try {
+      execSync(
+        `node --experimental-strip-types ${cliPath} build`,
+        { encoding: 'utf-8', stdio: 'pipe', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
+      );
+      assert.fail('Should have thrown an error');
+    } catch (error) {
+      // The command should fail with a descriptive error message
+      const execError = error as { stderr?: string; status?: number };
+      assert.strictEqual(execError.status, 1, 'Should exit with code 1');
+      assert.ok(
+        execError.stderr?.includes('No extracted data found') ||
+        execError.stderr?.includes('extract first'),
+        'Should show error message about missing extracted data'
+      );
     }
   });
 });
