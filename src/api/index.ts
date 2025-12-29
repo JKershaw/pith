@@ -46,11 +46,11 @@ export async function bundleContext(
     }
   }
 
-  // Traverse to find related nodes (depth 1 = immediate imports + parent)
+  // Traverse to find related nodes (depth 1 = immediate imports + parent + test files)
   if (maxDepth >= 1) {
     const initialNodes = [...nodeMap.values()];
 
-    // Collect all targets to fetch (imports + parents)
+    // Collect all targets to fetch (imports + parents + test files)
     const targetsToFetch = new Set<string>();
 
     for (const node of initialNodes) {
@@ -66,6 +66,14 @@ export async function bundleContext(
       const parentEdge = node.edges.find(e => e.type === 'parent');
       if (parentEdge && !nodeMap.has(parentEdge.target)) {
         targetsToFetch.add(parentEdge.target);
+      }
+
+      // Collect test file targets (Phase 6.2.3)
+      const testFileEdges = node.edges.filter(e => e.type === 'testFile');
+      for (const edge of testFileEdges) {
+        if (!nodeMap.has(edge.target)) {
+          targetsToFetch.add(edge.target);
+        }
       }
     }
 

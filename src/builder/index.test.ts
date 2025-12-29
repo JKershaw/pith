@@ -17,6 +17,8 @@ import {
   calculateAge,
   calculateRecency,
   computeMetadata,
+  isTestFile,
+  buildTestFileEdges,
   type WikiNode,
   type Function,
 } from './index.ts';
@@ -1134,6 +1136,229 @@ describe('Edge integration', () => {
     assert.strictEqual(fileNode.edges.length, 1);
     assert.strictEqual(fileNode.edges[0].type, 'parent');
     assert.strictEqual(fileNode.edges[0].target, 'src/auth');
+  });
+});
+
+describe('Test File Detection - Phase 6.2.1', () => {
+  it('returns true for .test.ts files', () => {
+    assert.strictEqual(isTestFile('src/builder/index.test.ts'), true);
+  });
+
+  it('returns true for .spec.ts files', () => {
+    assert.strictEqual(isTestFile('src/api/index.spec.ts'), true);
+  });
+
+  it('returns true for files in __tests__ directories', () => {
+    assert.strictEqual(isTestFile('src/__tests__/helper.ts'), true);
+    assert.strictEqual(isTestFile('src/utils/__tests__/parser.ts'), true);
+  });
+
+  it('returns false for regular source files', () => {
+    assert.strictEqual(isTestFile('src/builder/index.ts'), false);
+    assert.strictEqual(isTestFile('src/api/index.ts'), false);
+  });
+
+  it('returns false for files with test in name but not extension', () => {
+    assert.strictEqual(isTestFile('src/testUtils.ts'), false);
+    assert.strictEqual(isTestFile('src/mytest.ts'), false);
+  });
+});
+
+describe('Test Command - Phase 6.2.4', () => {
+  it('adds testCommand to test file metadata', () => {
+    const extracted: ExtractedFile = {
+      path: 'src/builder/index.test.ts',
+      lines: 200,
+      imports: [],
+      exports: [],
+      functions: [],
+      classes: [],
+      interfaces: [],
+    };
+
+    const node = buildFileNode(extracted);
+
+    assert.ok(node.metadata.testCommand);
+    assert.strictEqual(node.metadata.testCommand, 'npm test -- src/builder/index.test.ts');
+  });
+
+  it('does not add testCommand to regular source files', () => {
+    const extracted: ExtractedFile = {
+      path: 'src/builder/index.ts',
+      lines: 100,
+      imports: [],
+      exports: [],
+      functions: [],
+      classes: [],
+      interfaces: [],
+    };
+
+    const node = buildFileNode(extracted);
+
+    assert.strictEqual(node.metadata.testCommand, undefined);
+  });
+});
+
+describe('Test File Mapping - Phase 6.2.2', () => {
+  it('creates testFile edges from source to .test.ts files', () => {
+    const fileNodes: WikiNode[] = [
+      {
+        id: 'src/builder/index.ts',
+        type: 'file',
+        path: 'src/builder/index.ts',
+        name: 'index.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/builder/index.test.ts',
+        type: 'file',
+        path: 'src/builder/index.test.ts',
+        name: 'index.test.ts',
+        metadata: { lines: 200, commits: 3, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    const edges = buildTestFileEdges(fileNodes);
+
+    assert.strictEqual(edges.length, 1);
+    assert.strictEqual(edges[0].type, 'testFile');
+    assert.strictEqual(edges[0].target, 'src/builder/index.test.ts');
+  });
+
+  it('creates testFile edges from source to .spec.ts files', () => {
+    const fileNodes: WikiNode[] = [
+      {
+        id: 'src/api/index.ts',
+        type: 'file',
+        path: 'src/api/index.ts',
+        name: 'index.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/api/index.spec.ts',
+        type: 'file',
+        path: 'src/api/index.spec.ts',
+        name: 'index.spec.ts',
+        metadata: { lines: 150, commits: 2, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    const edges = buildTestFileEdges(fileNodes);
+
+    assert.strictEqual(edges.length, 1);
+    assert.strictEqual(edges[0].type, 'testFile');
+    assert.strictEqual(edges[0].target, 'src/api/index.spec.ts');
+  });
+
+  it('creates testFile edges to tests in __tests__ directory', () => {
+    const fileNodes: WikiNode[] = [
+      {
+        id: 'src/utils/helper.ts',
+        type: 'file',
+        path: 'src/utils/helper.ts',
+        name: 'helper.ts',
+        metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/utils/__tests__/helper.test.ts',
+        type: 'file',
+        path: 'src/utils/__tests__/helper.test.ts',
+        name: 'helper.test.ts',
+        metadata: { lines: 80, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    const edges = buildTestFileEdges(fileNodes);
+
+    assert.strictEqual(edges.length, 1);
+    assert.strictEqual(edges[0].type, 'testFile');
+    assert.strictEqual(edges[0].target, 'src/utils/__tests__/helper.test.ts');
+  });
+
+  it('returns empty array when no test files exist', () => {
+    const fileNodes: WikiNode[] = [
+      {
+        id: 'src/utils/helper.ts',
+        type: 'file',
+        path: 'src/utils/helper.ts',
+        name: 'helper.ts',
+        metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/utils/format.ts',
+        type: 'file',
+        path: 'src/utils/format.ts',
+        name: 'format.ts',
+        metadata: { lines: 30, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    const edges = buildTestFileEdges(fileNodes);
+
+    assert.strictEqual(edges.length, 0);
+  });
+
+  it('handles multiple source files with tests', () => {
+    const fileNodes: WikiNode[] = [
+      {
+        id: 'src/auth/login.ts',
+        type: 'file',
+        path: 'src/auth/login.ts',
+        name: 'login.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/auth/login.test.ts',
+        type: 'file',
+        path: 'src/auth/login.test.ts',
+        name: 'login.test.ts',
+        metadata: { lines: 150, commits: 3, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/auth/logout.ts',
+        type: 'file',
+        path: 'src/auth/logout.ts',
+        name: 'logout.ts',
+        metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/auth/logout.spec.ts',
+        type: 'file',
+        path: 'src/auth/logout.spec.ts',
+        name: 'logout.spec.ts',
+        metadata: { lines: 80, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    const edges = buildTestFileEdges(fileNodes);
+
+    assert.strictEqual(edges.length, 2);
+    assert.ok(edges.some(e => e.target === 'src/auth/login.test.ts'));
+    assert.ok(edges.some(e => e.target === 'src/auth/logout.spec.ts'));
   });
 });
 

@@ -204,6 +204,61 @@ describe('API', () => {
       // Depth 1: imports + parent
       assert.strictEqual(context.depth, 1);
     });
+
+    it('includes test files via testFile edges - Phase 6.2.3', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a source file with a testFile edge
+      const sourceNode: WikiNode = {
+        id: 'src/utils/parser.ts',
+        type: 'file',
+        path: 'src/utils/parser.ts',
+        name: 'parser.ts',
+        metadata: {
+          lines: 100,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [
+          { type: 'testFile', target: 'src/utils/parser.test.ts' },
+        ],
+        raw: {
+          signature: ['function parse(input: string): AST'],
+          exports: [{ name: 'parse', kind: 'function' }],
+        },
+      };
+
+      // Add the test file
+      const testNode: WikiNode = {
+        id: 'src/utils/parser.test.ts',
+        type: 'file',
+        path: 'src/utils/parser.test.ts',
+        name: 'parser.test.ts',
+        metadata: {
+          lines: 150,
+          commits: 3,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {
+          signature: ['function testParse(): void'],
+        },
+      };
+
+      await nodes.insertOne(sourceNode);
+      await nodes.insertOne(testNode);
+
+      const context = await bundleContext(db, ['src/utils/parser.ts']);
+
+      const nodeIds = context.nodes.map(n => n.id);
+      assert.ok(nodeIds.includes('src/utils/parser.ts'), 'Should include source file');
+      assert.ok(nodeIds.includes('src/utils/parser.test.ts'), 'Should include test file via testFile edge');
+    });
   });
 
   describe('formatContextAsMarkdown', () => {

@@ -12,7 +12,7 @@ export type { Function };
  * Edge between wiki nodes.
  */
 export interface Edge {
-  type: 'contains' | 'imports' | 'calls' | 'co-changes' | 'parent';
+  type: 'contains' | 'imports' | 'calls' | 'co-changes' | 'parent' | 'testFile';
   target: string;
   weight?: number;
 }
@@ -36,6 +36,8 @@ export interface WikiNode {
     fanOut?: number;
     ageInDays?: number;
     recencyInDays?: number;
+    // Test command (Phase 6.2.4)
+    testCommand?: string;
   };
   edges: Edge[];
   raw: {
@@ -62,13 +64,18 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
   const name = basename(extracted.path);
 
   // Step 2.1.4-2.1.7: Build metadata
-  const metadata = {
+  const metadata: WikiNode['metadata'] = {
     lines: extracted.lines,
     commits: extracted.git?.commitCount ?? 0,
     lastModified: extracted.git?.lastModified ?? new Date(),
     createdAt: extracted.git?.createdAt,
     authors: extracted.git?.authors ?? [],
   };
+
+  // Step 6.2.4: Add test command for test files
+  if (isTestFile(extracted.path)) {
+    metadata.testCommand = `npm test -- ${extracted.path}`;
+  }
 
   // Step 2.1.8: Extract function signatures
   const signature = extracted.functions.map((f) => f.signature);
@@ -447,4 +454,100 @@ export function computeMetadata(nodes: WikiNode[], now: Date = new Date()): void
     // Calculate recency (days since last modification)
     node.metadata.recencyInDays = calculateRecency(node.metadata.lastModified, now);
   }
+}
+
+/**
+ * Check if a file path represents a test file.
+ * Step 6.2.1: Detect test files by extension or directory.
+ * @param path - The file path to check
+ * @returns True if the file is a test file
+ */
+export function isTestFile(path: string): boolean {
+  // Check if file ends with .test.ts or .spec.ts
+  if (path.endsWith('.test.ts') || path.endsWith('.spec.ts')) {
+    return true;
+  }
+
+  // Check if file is in a __tests__ directory
+  if (path.includes('__tests__/')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Build testFile edges from source files to their corresponding test files.
+ * Step 6.2.2: Create edges from source to test files.
+ * @param fileNodes - Array of all file nodes
+ * @returns Array of edges with source node ID and target test file ID
+ */
+export function buildTestFileEdges(fileNodes: WikiNode[]): Array<Edge & { sourceId: string }> {
+  const edges: Array<Edge & { sourceId: string }> = [];
+
+  // Create a map of test files for quick lookup
+  const testFileMap = new Map<string, WikiNode>();
+  for (const node of fileNodes) {
+    if (isTestFile(node.path)) {
+      testFileMap.set(node.id, node);
+    }
+  }
+
+  // For each source file, find its corresponding test file
+  for (const node of fileNodes) {
+    // Skip if this is already a test file
+    if (isTestFile(node.path)) {
+      continue;
+    }
+
+    // Try different test file patterns
+    const basePath = node.path.replace(/\.ts$/, '');
+    const dirPath = node.path.substring(0, node.path.lastIndexOf('/'));
+    const fileName = node.path.substring(node.path.lastIndexOf('/') + 1).replace(/\.ts$/, '');
+
+    // Pattern 1: foo.ts → foo.test.ts
+    const testPattern1 = `${basePath}.test.ts`;
+    if (testFileMap.has(testPattern1)) {
+      edges.push({
+        type: 'testFile',
+        target: testPattern1,
+        sourceId: node.id,
+      });
+      continue;
+    }
+
+    // Pattern 2: foo.ts → foo.spec.ts
+    const testPattern2 = `${basePath}.spec.ts`;
+    if (testFileMap.has(testPattern2)) {
+      edges.push({
+        type: 'testFile',
+        target: testPattern2,
+        sourceId: node.id,
+      });
+      continue;
+    }
+
+    // Pattern 3: foo.ts → __tests__/foo.test.ts
+    const testPattern3 = `${dirPath}/__tests__/${fileName}.test.ts`;
+    if (testFileMap.has(testPattern3)) {
+      edges.push({
+        type: 'testFile',
+        target: testPattern3,
+        sourceId: node.id,
+      });
+      continue;
+    }
+
+    // Pattern 4: foo.ts → __tests__/foo.spec.ts
+    const testPattern4 = `${dirPath}/__tests__/${fileName}.spec.ts`;
+    if (testFileMap.has(testPattern4)) {
+      edges.push({
+        type: 'testFile',
+        target: testPattern4,
+        sourceId: node.id,
+      });
+    }
+  }
+
+  return edges;
 }

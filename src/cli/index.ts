@@ -25,6 +25,7 @@ import {
   buildContainsEdges,
   buildImportEdges,
   buildParentEdge,
+  buildTestFileEdges,
   computeMetadata,
   type WikiNode,
 } from '../builder/index.ts';
@@ -395,6 +396,15 @@ program
         if (parentModule) {
           const parentEdge = buildParentEdge(fileNode, parentModule);
           fileNode.edges.push(parentEdge);
+        }
+      }
+
+      // Add test file edges: source → test file (Phase 6.2.2)
+      const testFileEdges = buildTestFileEdges(fileNodes);
+      for (const { sourceId, type, target, weight } of testFileEdges) {
+        const sourceNode = fileNodes.find(n => n.id === sourceId);
+        if (sourceNode) {
+          sourceNode.edges.push({ type, target, weight });
         }
       }
 
