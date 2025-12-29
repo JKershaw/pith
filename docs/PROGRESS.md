@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.2 - Test File Mapping
-**Current step**: Phase 6.3 - Modification Impact
+**Last completed phase**: Phase 6.3 - Modification Impact
+**Current step**: Phase 6.4 - Pattern Examples
 **Date**: 2025-12-29
 
 ### Phase 6 - On-Demand Generation & Task-Oriented Context
@@ -14,9 +14,40 @@ Based on testing validation (see `docs/testing-plan.md`), prioritized improvemen
 |----------|---------|--------|
 | 1 | On-demand prose generation | **DONE** |
 | 2 | Test file mapping | **DONE** |
-| 3 | Modification impact in context | TODO |
+| 3 | Modification impact in context | **DONE** |
 | 4 | Pattern examples | TODO |
 | 5 | Gotcha validation | TODO |
+
+---
+
+## Phase 6.3: Modification Impact - COMPLETE
+
+### Implementation Summary
+| Step | Description | Status |
+|------|-------------|--------|
+| 6.3.1 | Add `importedBy` edges (reverse of imports) | Done |
+| 6.3.2 | Show dependents in context markdown | Done |
+| 6.3.3 | Add warning for high fan-in (> 5) | Done |
+
+### Key Changes
+- **Builder**: `buildDependentEdges()` creates 'importedBy' edges
+- **API**: `formatContextAsMarkdown()` shows "Dependents" section
+- **API**: Warning for widely-used files: "Widely used (N files depend on this)"
+- **CLI**: Build command creates importedBy edges
+- **Tests**: 8 new tests added (262 total, all passing)
+
+### Example Output
+```markdown
+## src/config.ts
+
+**Type:** file
+
+> **Warning:** Widely used (8 files depend on this)
+
+**Dependents:**
+- src/auth/login.ts
+- src/api/routes.ts
+```
 
 ---
 
@@ -355,15 +386,15 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2025-12-29 (Phase 6.2):
-- **Total tests**: 254
+As of 2025-12-29 (Phase 6.3):
+- **Total tests**: 262
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 65
+- **Test suites**: 66
 
 Commands:
 ```bash
-npm test      # 254 tests pass
+npm test      # 262 tests pass
 npm run lint  # No errors
 ```
 
