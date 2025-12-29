@@ -3,7 +3,8 @@ import assert from 'node:assert';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { rm, mkdir, writeFile } from 'node:fs/promises';
+import { rm, mkdir, writeFile, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { getDb, closeDb } from '../db/index.ts';
 import type { ExtractedFile } from '../extractor/ast.ts';
 import type { WikiNode } from '../builder/index.ts';
@@ -12,6 +13,26 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPath = join(__dirname, 'index.ts');
 const fixtureDir = join(__dirname, '../../test/fixtures/simple-project');
 const testDataDir = join(__dirname, '../../test-data');
+
+/**
+ * Helper to run CLI commands and capture output
+ */
+function runCli(args: string[], env: Record<string, string> = {}): { stdout: string; stderr: string; exitCode: number } {
+  try {
+    const stdout = execSync(
+      `node --experimental-strip-types ${cliPath} ${args.join(' ')}`,
+      { encoding: 'utf-8', env: { ...process.env, ...env } }
+    );
+    return { stdout, stderr: '', exitCode: 0 };
+  } catch (error) {
+    const execError = error as { stdout?: string; stderr?: string; status?: number };
+    return {
+      stdout: execError.stdout || '',
+      stderr: execError.stderr || '',
+      exitCode: execError.status || 1,
+    };
+  }
+}
 
 describe('CLI', () => {
   afterEach(async () => {
@@ -253,5 +274,69 @@ describe('CLI', () => {
         'Should show error message about missing extracted data'
       );
     }
+  });
+});
+
+describe('pith generate', () => {
+  let testDataDir: string;
+
+  afterEach(async () => {
+    await closeDb();
+    if (testDataDir) {
+      await rm(testDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('shows error when no nodes exist', async () => {
+    testDataDir = await mkdtemp(join(tmpdir(), 'pith-test-'));
+
+    const { stdout, stderr } = runCli(['generate'], {
+      PITH_DATA_DIR: testDataDir,
+      OPENROUTER_API_KEY: 'dummy-key-for-testing'
+    });
+
+    const output = stdout + stderr;
+    assert.ok(output.includes('No nodes found') || output.includes('error'));
+    // It should still exit cleanly
+  });
+
+  it('shows error when API key not set', async () => {
+    testDataDir = await mkdtemp(join(tmpdir(), 'pith-test-'));
+
+    // Create a node first
+    const db = await getDb(testDataDir);
+    const nodes = db.collection('nodes');
+    await nodes.insertOne({
+      id: 'test.ts',
+      type: 'file',
+      path: 'test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    });
+    await closeDb();
+
+    const { stdout, stderr } = runCli(['generate'], {
+      PITH_DATA_DIR: testDataDir,
+      OPENROUTER_API_KEY: '',  // Not set
+    });
+
+    const output = stdout + stderr;
+    assert.ok(output.includes('OPENROUTER_API_KEY'));
+  });
+
+  it('shows help for generate command', () => {
+    const { stdout } = runCli(['generate', '--help']);
+
+    assert.ok(stdout.includes('generate'));
+    assert.ok(stdout.includes('prose'));
+    assert.ok(stdout.includes('--model'));
+  });
+
+  it('accepts --model option', () => {
+    const { stdout } = runCli(['generate', '--help']);
+
+    assert.ok(stdout.includes('--model'));
   });
 });

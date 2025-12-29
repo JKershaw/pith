@@ -20,6 +20,11 @@ import {
   computeMetadata,
   type WikiNode,
 } from '../builder/index.ts';
+import {
+  generateProse,
+  updateNodeWithProse,
+  type GeneratorConfig,
+} from '../generator/index.ts';
 
 const program = new Command();
 
@@ -256,10 +261,104 @@ program
 
 program
   .command('generate')
-  .description('Generate prose for nodes using LLM')
-  .action(() => {
-    console.log('Generating prose...');
-    // TODO: Implement generation
+  .description('Generate prose documentation for nodes using LLM')
+  .option('-m, --model <model>', 'OpenRouter model to use', 'anthropic/claude-sonnet-4')
+  .option('--node <nodeId>', 'Generate for specific node only')
+  .option('--force', 'Regenerate prose even if already exists')
+  .action(async (options: { model: string; node?: string; force?: boolean }) => {
+    const dataDir = process.env.PITH_DATA_DIR || './data';
+    const apiKey = process.env.OPENROUTER_API_KEY;
+
+    if (!apiKey) {
+      console.error('Error: OPENROUTER_API_KEY environment variable is required');
+      console.error('Set it with: export OPENROUTER_API_KEY=your-key');
+      process.exit(1);
+    }
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: options.model,
+      apiKey,
+    };
+
+    try {
+      const db = await getDb(dataDir);
+      const nodesCollection = db.collection<WikiNode>('nodes');
+
+      // Get nodes to generate for
+      let query: Record<string, unknown> = {};
+      if (options.node) {
+        query = { id: options.node };
+      } else if (!options.force) {
+        // Only nodes without prose
+        query = { prose: { $exists: false } };
+      }
+
+      const nodes = await nodesCollection.find(query).toArray();
+
+      if (nodes.length === 0) {
+        if (options.node) {
+          console.error(`No node found with id: ${options.node}`);
+        } else {
+          console.log('No nodes found that need prose generation.');
+          console.log('Use --force to regenerate existing prose.');
+        }
+        await closeDb();
+        return;
+      }
+
+      console.log(`Generating prose for ${nodes.length} nodes...`);
+      console.log(`Using model: ${options.model}`);
+
+      let generated = 0;
+      let errors = 0;
+
+      // Process nodes (file nodes first for fractal generation)
+      const fileNodes = nodes.filter(n => n.type === 'file');
+      const moduleNodes = nodes.filter(n => n.type === 'module');
+      const orderedNodes = [...fileNodes, ...moduleNodes];
+
+      for (const node of orderedNodes) {
+        try {
+          console.log(`  Generating: ${node.id}`);
+
+          // For module nodes, gather child summaries
+          let childSummaries: Map<string, string> | undefined;
+          if (node.type === 'module') {
+            const childIds = node.edges
+              .filter(e => e.type === 'contains')
+              .map(e => e.target);
+
+            const children = await nodesCollection
+              .find({ id: { $in: childIds } })
+              .toArray();
+
+            childSummaries = new Map(
+              children
+                .filter(c => c.prose?.summary)
+                .map(c => [c.id, c.prose!.summary])
+            );
+          }
+
+          const prose = await generateProse(node, config, { childSummaries });
+          await updateNodeWithProse(db, node.id, prose);
+
+          generated++;
+          console.log(`    ✓ ${node.id}`);
+        } catch (error) {
+          errors++;
+          console.error(`    ✗ ${node.id}: ${(error as Error).message}`);
+        }
+      }
+
+      console.log(`\nCompleted: ${generated} generated, ${errors} errors`);
+      await closeDb();
+
+    } catch (error) {
+      console.error(`Error: ${(error as Error).message}`);
+      await closeDb();
+      process.exit(1);
+    }
   });
 
 program
