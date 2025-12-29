@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+reviews:
+  # Ignore test fixtures - these are intentionally simplified sample code
+  path_filters:
+    - "!test/fixtures/**"

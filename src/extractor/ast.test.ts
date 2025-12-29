@@ -1,0 +1,184 @@
+import { describe, it, after } from 'node:test';
+import assert from 'node:assert';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { findFiles, extractFile, createProject, storeExtracted, type ExtractedFile } from './ast.ts';
+import { getDb, closeDb } from '../db/index.ts';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const fixtureDir = join(__dirname, '../../test/fixtures/simple-project');
+
+describe('findFiles', () => {
+  it('returns all .ts paths in fixture', async () => {
+    const files = await findFiles(fixtureDir);
+
+    assert.ok(Array.isArray(files));
+    assert.strictEqual(files.length, 4);
+
+    // Should include all TypeScript files
+    assert.ok(files.some((f) => f.endsWith('types.ts')));
+    assert.ok(files.some((f) => f.endsWith('auth.ts')));
+    assert.ok(files.some((f) => f.endsWith('user-service.ts')));
+    assert.ok(files.some((f) => f.endsWith('index.ts')));
+  });
+
+  it('returns relative paths from project root', async () => {
+    const files = await findFiles(fixtureDir);
+
+    for (const file of files) {
+      assert.ok(file.startsWith('src/'), `Expected relative path starting with src/, got: ${file}`);
+      assert.ok(!file.startsWith('/'), `Expected relative path, got absolute: ${file}`);
+    }
+  });
+
+  it('excludes non-.ts files', async () => {
+    const files = await findFiles(fixtureDir);
+
+    for (const file of files) {
+      assert.ok(file.endsWith('.ts'), `Expected .ts file, got: ${file}`);
+    }
+  });
+});
+
+describe('extractFile', () => {
+  it('returns correct path (A1)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/types.ts');
+
+    assert.strictEqual(result.path, 'src/types.ts');
+  });
+
+  it('returns correct line count (A2)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/types.ts');
+
+    // types.ts has 21 lines of content (ts-morph reports last line number)
+    assert.ok(result.lines >= 21, `Expected at least 21 lines, got ${result.lines}`);
+    assert.ok(result.lines <= 22, `Expected at most 22 lines, got ${result.lines}`);
+  });
+
+  it('extracts imports (A3)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/auth.ts');
+
+    assert.ok(Array.isArray(result.imports));
+    assert.strictEqual(result.imports.length, 1);
+
+    const imp = result.imports[0];
+    assert.ok(imp);
+    assert.strictEqual(imp.from, './types.ts');
+    assert.deepStrictEqual(imp.names, ['User', 'Session']);
+    assert.strictEqual(imp.isTypeOnly, true);
+  });
+
+  it('extracts exports (A4)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/auth.ts');
+
+    assert.ok(Array.isArray(result.exports));
+    assert.strictEqual(result.exports.length, 3);
+
+    // Check function exports
+    const createSessionExport = result.exports.find((e) => e.name === 'createSession');
+    assert.ok(createSessionExport);
+    assert.strictEqual(createSessionExport.kind, 'function');
+
+    const validateTokenExport = result.exports.find((e) => e.name === 'validateToken');
+    assert.ok(validateTokenExport);
+    assert.strictEqual(validateTokenExport.kind, 'function');
+
+    // Check const export
+    const sessionDurationExport = result.exports.find((e) => e.name === 'SESSION_DURATION');
+    assert.ok(sessionDurationExport);
+    assert.strictEqual(sessionDurationExport.kind, 'const');
+  });
+
+  it('extracts functions with signature and params (A5, A8, A9, A10)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/auth.ts');
+
+    assert.ok(Array.isArray(result.functions));
+    assert.strictEqual(result.functions.length, 3); // createSession, validateToken, generateToken
+
+    // Check async function
+    const createSession = result.functions.find((f) => f.name === 'createSession');
+    assert.ok(createSession);
+    assert.strictEqual(createSession.isAsync, true);
+    assert.strictEqual(createSession.isExported, true);
+    assert.ok(createSession.returnType.includes('Promise'), 'Return type should include Promise');
+    assert.ok(createSession.returnType.includes('Session'), 'Return type should include Session');
+    assert.strictEqual(createSession.params.length, 1);
+    assert.strictEqual(createSession.params[0]?.name, 'user');
+    assert.ok(createSession.params[0]?.type.includes('User'), 'Param type should include User');
+
+    // Check non-async function
+    const validateToken = result.functions.find((f) => f.name === 'validateToken');
+    assert.ok(validateToken);
+    assert.strictEqual(validateToken.isAsync, false);
+    assert.strictEqual(validateToken.isExported, true);
+    assert.strictEqual(validateToken.returnType, 'boolean');
+
+    // Check private function
+    const generateToken = result.functions.find((f) => f.name === 'generateToken');
+    assert.ok(generateToken);
+    assert.strictEqual(generateToken.isExported, false);
+  });
+
+  it('extracts classes with methods (A6)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/user-service.ts');
+
+    assert.ok(Array.isArray(result.classes));
+    assert.strictEqual(result.classes.length, 1);
+
+    const userService = result.classes[0];
+    assert.ok(userService);
+    assert.strictEqual(userService.name, 'UserService');
+    assert.strictEqual(userService.isExported, true);
+    assert.ok(userService.methods.length >= 3); // createUser, getUser, deactivateUser
+  });
+
+  it('extracts interfaces with properties (A7)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/types.ts');
+
+    assert.ok(Array.isArray(result.interfaces));
+    assert.strictEqual(result.interfaces.length, 2); // User, Session
+
+    const user = result.interfaces.find((i) => i.name === 'User');
+    assert.ok(user);
+    assert.strictEqual(user.isExported, true);
+    assert.ok(user.properties.length >= 4); // id, name, email, createdAt, isActive?
+  });
+});
+
+describe('storeExtracted', () => {
+  let testDir: string;
+
+  after(async () => {
+    await closeDb();
+    if (testDir) {
+      await rm(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('stores extracted data in MangoDB', async () => {
+    testDir = await mkdtemp(join(tmpdir(), 'pith-test-'));
+    const db = await getDb(testDir);
+
+    const ctx = createProject(fixtureDir);
+    const extracted = extractFile(ctx, 'src/types.ts');
+
+    await storeExtracted(db, extracted);
+
+    // Verify data was stored
+    const collection = db.collection<ExtractedFile>('extracted');
+    const stored = await collection.findOne({ path: 'src/types.ts' });
+
+    assert.ok(stored);
+    assert.strictEqual(stored.path, 'src/types.ts');
+    assert.ok(stored.interfaces.length >= 2);
+  });
+});
