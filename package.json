@@ -25,7 +25,7 @@
   "author": "",
   "license": "MIT",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.6.0"
   },
   "dependencies": {
     "@jkershaw/mangodb": "^0.1.0",

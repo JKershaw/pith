@@ -20,7 +20,7 @@ export interface Import {
  */
 export interface Export {
   name: string;
-  kind: 'function' | 'class' | 'interface' | 'type' | 'const' | 'default';
+  kind: 'function' | 'class' | 'interface' | 'type' | 'const' | 'default' | 'star';
   isReExport: boolean;
 }
 
@@ -149,9 +149,17 @@ export function createProject(rootDir: string): ProjectContext {
  * @param ctx - The project context
  * @param relativePath - The relative path to the file
  * @returns Extracted file data
+ * @throws Error if file cannot be read or parsed
  */
 export function extractFile(ctx: ProjectContext, relativePath: string): ExtractedFile {
-  const sourceFile = ctx.project.addSourceFileAtPath(join(ctx.rootDir, relativePath));
+  const fullPath = join(ctx.rootDir, relativePath);
+  let sourceFile;
+  try {
+    sourceFile = ctx.project.addSourceFileAtPath(fullPath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse "${relativePath}": ${message}`);
+  }
 
   // Extract imports
   const imports: Import[] = sourceFile.getImportDeclarations().map((decl) => {
@@ -237,7 +245,7 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     if (exportDecl.isNamespaceExport() && moduleSpecifier) {
       exports.push({
         name: '*',
-        kind: 'const', // Star exports re-export everything
+        kind: 'star',
         isReExport: true,
       });
       continue;
