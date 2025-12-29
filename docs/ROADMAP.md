@@ -17,10 +17,29 @@ Complete these before any extraction work:
 | 1.0.1 | - | Initialize TypeScript project with ESM, strict mode |
 | 1.0.2 | - | Add dependencies: ts-morph, simple-git, commander, @jkershaw/mangodb |
 | 1.0.3 | `node --test` runs | Configure Node test runner |
-| 1.0.4 | - | Create `test/fixtures/simple-project/` with sample .ts files |
-| 1.0.5 | - | Initialize fixture as git repo with sample commits |
-| 1.0.6 | CLI shows help | Scaffold CLI with `pith extract <path>` command |
-| 1.0.7 | Can connect/query | Set up MangoDB connection helper |
+| 1.0.4 | `npm run lint` passes | Set up ESLint + Prettier |
+| 1.0.5 | CI passes on push | Set up GitHub Actions workflow |
+| 1.0.6 | - | Create `test/fixtures/simple-project/` with sample .ts files |
+| 1.0.7 | - | Initialize fixture as git repo with sample commits |
+| 1.0.8 | CLI shows help | Scaffold CLI with `pith extract <path>` command |
+| 1.0.9 | Can connect/query | Set up MangoDB connection helper |
+
+**GitHub Actions workflow** (`.github/workflows/ci.yml`):
+```yaml
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+```
 
 ### 1.1 AST Extraction
 

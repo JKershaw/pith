@@ -147,6 +147,55 @@ const node = await nodes.findOne({ path: 'src/auth/login.ts' });
 
 ---
 
+## Linting: ESLint + Prettier
+
+**Decision**: Use ESLint for code quality and Prettier for formatting.
+
+**Rationale**:
+- ESLint catches bugs and enforces consistent patterns
+- Prettier eliminates formatting debates (tabs vs spaces, etc.)
+- Both integrate with editors for real-time feedback
+- Standard choice for TypeScript projects
+
+**Configuration**:
+- ESLint: `@typescript-eslint/recommended` rules
+- Prettier: Default settings (minimal config)
+- Scripts: `npm run lint` and `npm run format`
+
+**What ESLint catches**:
+- Unused variables
+- Missing return types (if enabled)
+- Inconsistent naming
+- Potential bugs (unreachable code, etc.)
+
+**Alternatives considered**:
+- Biome: Faster, but less mature ecosystem
+- TSLint: Deprecated
+- No linting: Leads to inconsistent code style
+
+---
+
+## CI/CD: GitHub Actions
+
+**Decision**: Use GitHub Actions for continuous integration.
+
+**Rationale**:
+- Integrated with GitHub (no separate service)
+- Free for public repos
+- Simple YAML configuration
+- Runs on every push/PR
+
+**What CI runs**:
+1. `npm ci` — Install dependencies
+2. `npm run lint` — Check code quality
+3. `npm test` — Run all tests
+
+**When CI fails**:
+- PRs cannot be merged
+- Forces issues to be fixed before code lands
+
+---
+
 ## Node Granularity: Files as Atoms
 
 **Decision**: Files are the smallest guaranteed node type.
