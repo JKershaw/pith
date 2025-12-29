@@ -3,6 +3,7 @@ import type { MangoDb } from '@jkershaw/mangodb';
 import type { ExtractedFile, Import, Export, Function } from '../extractor/ast.ts';
 import type { Commit } from '../extractor/git.ts';
 import type { JSDoc } from '../extractor/docs.ts';
+import type { ProseData } from '../generator/index.ts';
 
 // Re-export types for testing
 export type { Function };
@@ -45,6 +46,7 @@ export interface WikiNode {
     recentCommits?: Commit[];
     readme?: string;
   };
+  prose?: ProseData;  // Generated prose from LLM
 }
 
 /**
