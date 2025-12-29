@@ -1,5 +1,12 @@
 import type { WikiNode } from '../builder/index.ts';
 import type { MangoDb } from '@jkershaw/mangodb';
+import { ProxyAgent, setGlobalDispatcher } from 'undici';
+
+// Configure global proxy if HTTPS_PROXY is set
+const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+if (proxyUrl) {
+  setGlobalDispatcher(new ProxyAgent(proxyUrl));
+}
 
 /**
  * Generated prose for a node

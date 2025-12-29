@@ -25,6 +25,7 @@ import {
   updateNodeWithProse,
   type GeneratorConfig,
 } from '../generator/index.ts';
+import { createApp } from '../api/index.ts';
 
 const program = new Command();
 
@@ -365,9 +366,37 @@ program
   .command('serve')
   .description('Start the API server')
   .option('-p, --port <port>', 'Port to listen on', '3000')
-  .action((options: { port: string }) => {
-    console.log(`Starting server on port ${options.port}...`);
-    // TODO: Implement server
+  .action(async (options: { port: string }) => {
+    const port = parseInt(options.port, 10);
+    const dataDir = process.env.PITH_DATA_DIR || './data';
+
+    try {
+      const db = await getDb(dataDir);
+      const nodesCollection = db.collection<WikiNode>('nodes');
+
+      // Verify nodes exist
+      const nodeCount = await nodesCollection.countDocuments({});
+      if (nodeCount === 0) {
+        console.error('Error: No nodes found. Run `pith extract` and `pith build` first.');
+        await closeDb();
+        process.exit(1);
+      }
+
+      const app = createApp(db);
+
+      app.listen(port, () => {
+        console.log(`Pith API server running on http://localhost:${port}`);
+        console.log(`\nEndpoints:`);
+        console.log(`  GET  /node/:path      - Fetch a single node`);
+        console.log(`  GET  /context?files=  - Bundled context for files`);
+        console.log(`  POST /refresh         - Re-extract and rebuild`);
+        console.log(`\nServing ${nodeCount} nodes.`);
+      });
+    } catch (error) {
+      console.error(`Error: ${(error as Error).message}`);
+      await closeDb();
+      process.exit(1);
+    }
   });
 
 program.parse();
