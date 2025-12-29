@@ -86,6 +86,16 @@ One data point at a time. Each row = one test + one implementation.
 - [ ] Can query: `db.collection('extracted').find({ 'functions.name': 'login' })`
 - [ ] Fixture project fully extracted with all data points
 
+### Phase 1 Manual Validation
+
+Run extraction on a real public TypeScript repo and review:
+
+- [ ] Are all .ts files discovered?
+- [ ] Are imports correctly parsed (named, default, type-only)?
+- [ ] Is git history complete (check a file with known commit count)?
+- [ ] Are JSDoc comments captured accurately?
+- [ ] Any parse failures? Why?
+
 ---
 
 ## Phase 2: Node Graph
@@ -168,6 +178,15 @@ One data point at a time. Each row = one test + one implementation.
 - [ ] Can traverse: module → files → functions
 - [ ] Can query by fan-in: `nodes.find({ 'metadata.fanIn': { $gt: 5 } })`
 
+### Phase 2 Manual Validation
+
+Run build on the same real repo and review:
+
+- [ ] Do module boundaries match intuition? (e.g., src/auth/ is one module)
+- [ ] Are high fan-in files actually important? (utilities, shared types)
+- [ ] Are edges correct? (spot-check a few import relationships)
+- [ ] Do function nodes exist for the right functions?
+
 ---
 
 ## Phase 3: Prose Generation
@@ -202,11 +221,21 @@ One data point at a time. Each row = one test + one implementation.
    - Flag stale prose
    - Support `--force` to regenerate all
 
-### Exit Criteria
+### Phase 3 Exit Criteria
 
-- All generator tests pass (with mocked LLM for unit tests)
-- Running `pith generate` updates nodes in MangoDB with prose
-- Each node has summary, purpose, and gotchas
+- [ ] All generator tests pass (with mocked LLM for unit tests)
+- [ ] Running `pith generate` updates nodes in MangoDB with prose
+- [ ] Each node has summary, purpose, and gotchas
+
+### Phase 3 Manual Validation
+
+Generate prose for the real repo and review quality:
+
+- [ ] Are summaries accurate and concise?
+- [ ] Does "purpose" explain *why*, not just *what*?
+- [ ] Are gotchas actionable? (Not generic warnings)
+- [ ] Do module summaries coherently describe their children?
+- [ ] Is anything misleading or wrong?
 
 ---
 
@@ -239,11 +268,20 @@ One data point at a time. Each row = one test + one implementation.
    - Rebuild node graph
    - Mark affected prose as stale
 
-### Exit Criteria
+### Phase 4 Exit Criteria
 
-- All API tests pass
-- Can fetch node data via HTTP
-- Context endpoint returns useful bundled information
+- [ ] All API tests pass
+- [ ] Can fetch node data via HTTP
+- [ ] Context endpoint returns useful bundled information
+
+### Phase 4 Manual Validation
+
+Use the API in a real LLM workflow:
+
+- [ ] Inject `/context` output into Claude Code task description
+- [ ] Does the context actually help the LLM understand the code?
+- [ ] Is the bundled context the right size? (Not too much, not too little)
+- [ ] Is the markdown format readable?
 
 ---
 
@@ -331,6 +369,45 @@ node --test                              # Run all tests
 node --test src/extractor/ast.test.ts    # Run specific test
 node --test --experimental-test-coverage # With coverage
 ```
+
+---
+
+## Manual Validation
+
+Unit tests verify correctness. Manual validation verifies usefulness.
+
+### Why Manual Validation?
+
+- Unit tests can't judge "Is this summary helpful?"
+- Real codebases have edge cases fixtures don't cover
+- Only human review catches misleading or useless output
+- Validates that the whole system works together
+
+### Validation Repo
+
+Choose a real public TypeScript repository for validation:
+
+**Criteria**:
+- 20-50 source files (enough complexity, not overwhelming)
+- Active git history (multiple authors, meaningful commits)
+- Has JSDoc comments and README files
+- Well-structured (clear module boundaries)
+
+**Good candidates**:
+- A small CLI tool
+- A focused library
+- A simple Express/Fastify app
+
+Use the **same repo** across all phases to track improvement.
+
+### Validation Process
+
+After each phase:
+1. Run Pith commands on the validation repo
+2. Manually inspect output (extracted data, nodes, prose, API responses)
+3. Check items in the phase's validation checklist
+4. Note any issues or surprises
+5. Fix critical issues before moving to next phase
 
 ---
 
