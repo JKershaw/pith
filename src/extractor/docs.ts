@@ -1,4 +1,6 @@
 import type { FunctionDeclaration, MethodDeclaration, ClassDeclaration } from 'ts-morph';
+import { join } from 'node:path';
+import type { ProjectContext } from './ast.ts';
 
 /**
  * JSDoc parameter information.
@@ -20,6 +22,15 @@ export interface JSDoc {
   examples?: string[];
   deprecated?: string;
   see?: string[];
+}
+
+/**
+ * Inline comment information.
+ */
+export interface InlineComment {
+  text: string;
+  line: number;
+  nearFunction?: string;
 }
 
 /**
@@ -155,4 +166,61 @@ export function extractJSDoc(
     deprecated,
     see: see.length > 0 ? see : undefined,
   };
+}
+
+/**
+ * Extract inline comments from a TypeScript file.
+ * @param ctx - The project context
+ * @param relativePath - The relative path to the file
+ * @returns Array of inline comments with their locations
+ */
+export function extractInlineComments(ctx: ProjectContext, relativePath: string): InlineComment[] {
+  const fullPath = join(ctx.rootDir, relativePath);
+  const sourceFile = ctx.project.addSourceFileAtPath(fullPath);
+  const comments: InlineComment[] = [];
+
+  // Get the full text to parse comments
+  const fullText = sourceFile.getFullText();
+  const lines = fullText.split('\n');
+
+  // Get all functions in the file for nearFunction detection
+  const functions = sourceFile.getFunctions();
+  const functionRanges = functions.map((func) => ({
+    name: func.getName() || 'anonymous',
+    startLine: func.getStartLineNumber(),
+    endLine: func.getEndLineNumber(),
+  }));
+
+  // Parse each line for single-line comments
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+
+    // Match single-line comments (// ...)
+    // Avoid matching URLs (http://, https://)
+    const commentMatch = line.match(/(?<!:)\/\/\s*(.+)/);
+    if (commentMatch) {
+      const commentText = commentMatch[1]?.trim();
+      if (!commentText) continue;
+
+      const lineNumber = i + 1; // Line numbers are 1-indexed
+
+      // Find which function this comment is in
+      let nearFunction: string | undefined;
+      for (const func of functionRanges) {
+        if (lineNumber >= func.startLine && lineNumber <= func.endLine) {
+          nearFunction = func.name;
+          break;
+        }
+      }
+
+      comments.push({
+        text: commentText,
+        line: lineNumber,
+        nearFunction,
+      });
+    }
+  }
+
+  return comments;
 }
