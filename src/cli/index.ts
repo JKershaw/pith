@@ -27,6 +27,7 @@ import {
   type GeneratorConfig,
 } from '../generator/index.ts';
 import { createApp } from '../api/index.ts';
+import { loadConfig } from '../config/index.ts';
 
 const program = new Command();
 
@@ -57,11 +58,17 @@ program
 
       console.log(`Extracting from: ${absolutePath}`);
 
-      // Get data directory from environment or use default
-      const dataDir = process.env.PITH_DATA_DIR || './data';
+      // Load configuration
+      const config = await loadConfig(absolutePath);
 
-      // Find all TypeScript files
-      const files = await findFiles(absolutePath);
+      // Get data directory from environment, config, or use default
+      const dataDir = process.env.PITH_DATA_DIR || config.output.dataDir;
+
+      // Find all TypeScript files using config patterns
+      const files = await findFiles(absolutePath, {
+        include: config.extraction.include,
+        exclude: config.extraction.exclude,
+      });
       console.log(`Found ${files.length} TypeScript files`);
 
       // Create ts-morph project
@@ -127,8 +134,11 @@ program
     try {
       console.log('Building node graph...');
 
-      // Get data directory from environment or use default
-      const dataDir = process.env.PITH_DATA_DIR || './data';
+      // Load configuration
+      const config = await loadConfig();
+
+      // Get data directory from environment, config, or use default
+      const dataDir = process.env.PITH_DATA_DIR || config.output.dataDir;
 
       // Get database connection
       const db = await getDb(dataDir);
@@ -268,9 +278,12 @@ program
   .option('--node <nodeId>', 'Generate for specific node only')
   .option('--force', 'Regenerate prose even if already exists')
   .action(async (options: { model?: string; node?: string; force?: boolean }) => {
-    const dataDir = process.env.PITH_DATA_DIR || './data';
+    // Load configuration
+    const config = await loadConfig();
+
+    const dataDir = process.env.PITH_DATA_DIR || config.output.dataDir;
     const apiKey = process.env.OPENROUTER_API_KEY;
-    const model = options.model || process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4';
+    const model = options.model || process.env.OPENROUTER_MODEL || config.llm?.model || 'anthropic/claude-sonnet-4';
 
     if (!apiKey) {
       console.error('Error: OPENROUTER_API_KEY is required');
@@ -278,7 +291,7 @@ program
       process.exit(1);
     }
 
-    const config: GeneratorConfig = {
+    const generatorConfig: GeneratorConfig = {
       provider: 'openrouter',
       model,
       apiKey,
@@ -343,7 +356,7 @@ program
             );
           }
 
-          const prose = await generateProse(node, config, { childSummaries });
+          const prose = await generateProse(node, generatorConfig, { childSummaries });
           await updateNodeWithProse(db, node.id, prose);
 
           generated++;
@@ -369,8 +382,11 @@ program
   .description('Start the API server')
   .option('-p, --port <port>', 'Port to listen on', '3000')
   .action(async (options: { port: string }) => {
+    // Load configuration
+    const config = await loadConfig();
+
     const port = parseInt(options.port, 10);
-    const dataDir = process.env.PITH_DATA_DIR || './data';
+    const dataDir = process.env.PITH_DATA_DIR || config.output.dataDir;
 
     try {
       const db = await getDb(dataDir);

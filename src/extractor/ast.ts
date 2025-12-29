@@ -1,6 +1,7 @@
 import { readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { Project } from 'ts-morph';
+import { minimatch } from 'minimatch';
 import type { MangoDb } from '@jkershaw/mangodb';
 import type { GitInfo } from './git.ts';
 import type { DocsInfo } from './docs.ts';
@@ -95,12 +96,23 @@ export interface ExtractedFile {
 }
 
 /**
+ * Options for finding files.
+ */
+export interface FindFilesOptions {
+  include?: string[];
+  exclude?: string[];
+}
+
+/**
  * Find all TypeScript files in a directory.
  * @param rootDir - The root directory to search
+ * @param options - Optional include/exclude patterns
  * @returns Array of relative file paths
  */
-export async function findFiles(rootDir: string): Promise<string[]> {
+export async function findFiles(rootDir: string, options?: FindFilesOptions): Promise<string[]> {
   const files: string[] = [];
+  const include = options?.include || ['**/*.ts'];
+  const exclude = options?.exclude || ['node_modules/**', '**/*.d.ts'];
 
   async function scanDir(dir: string): Promise<void> {
     const entries = await readdir(dir);
@@ -114,8 +126,18 @@ export async function findFiles(rootDir: string): Promise<string[]> {
         if (!entry.startsWith('.') && entry !== 'node_modules') {
           await scanDir(fullPath);
         }
-      } else if (entry.endsWith('.ts') && !entry.endsWith('.d.ts')) {
-        files.push(relative(rootDir, fullPath));
+      } else if (entry.endsWith('.ts')) {
+        const relativePath = relative(rootDir, fullPath);
+
+        // Check if file matches include patterns
+        const isIncluded = include.some(pattern => minimatch(relativePath, pattern));
+
+        // Check if file matches exclude patterns
+        const isExcluded = exclude.some(pattern => minimatch(relativePath, pattern));
+
+        if (isIncluded && !isExcluded) {
+          files.push(relativePath);
+        }
       }
     }
   }
