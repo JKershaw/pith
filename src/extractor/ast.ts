@@ -215,9 +215,35 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     }
   }
 
-  // Export declarations (export { x } or export { x } from './y')
+  // Exported variable statements (export const x = ...)
+  for (const varStmt of sourceFile.getVariableStatements()) {
+    if (varStmt.isExported()) {
+      for (const decl of varStmt.getDeclarations()) {
+        exports.push({
+          name: decl.getName(),
+          kind: 'const',
+          isReExport: false,
+        });
+      }
+    }
+  }
+
+  // Export declarations (export { x } or export { x } from './y' or export * from './y')
   for (const exportDecl of sourceFile.getExportDeclarations()) {
     const isReExport = !!exportDecl.getModuleSpecifier();
+    const moduleSpecifier = exportDecl.getModuleSpecifierValue();
+
+    // Handle star exports (export * from './module')
+    if (exportDecl.isNamespaceExport() && moduleSpecifier) {
+      exports.push({
+        name: '*',
+        kind: 'const', // Star exports re-export everything
+        isReExport: true,
+      });
+      continue;
+    }
+
+    // Handle named exports
     for (const namedExport of exportDecl.getNamedExports()) {
       // Try to find what kind of thing is being exported
       const name = namedExport.getName();
