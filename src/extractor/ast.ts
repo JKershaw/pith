@@ -3,6 +3,7 @@ import { join, relative } from 'node:path';
 import { Project } from 'ts-morph';
 import type { MangoDb } from '@jkershaw/mangodb';
 import type { GitInfo } from './git.ts';
+import type { DocsInfo } from './docs.ts';
 
 /**
  * Import declaration data.
@@ -90,6 +91,7 @@ export interface ExtractedFile {
   classes: Class[];
   interfaces: Interface[];
   git?: GitInfo;
+  docs?: DocsInfo;
 }
 
 /**
