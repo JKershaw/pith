@@ -30,13 +30,17 @@ export async function bundleContext(
   const nodeMap = new Map<string, WikiNode>();
   const errors: string[] = [];
 
-  // Fetch requested nodes
-  for (const path of paths) {
-    const node = await nodesCollection.findOne({ id: path });
+  // Fetch requested nodes in parallel
+  const requestedNodes = await Promise.all(
+    paths.map(path => nodesCollection.findOne({ id: path }))
+  );
+
+  for (let i = 0; i < paths.length; i++) {
+    const node = requestedNodes[i];
     if (node) {
       nodeMap.set(node.id, node);
     } else {
-      errors.push(`Node not found: ${path}`);
+      errors.push(`Node not found: ${paths[i]}`);
     }
   }
 
@@ -44,25 +48,33 @@ export async function bundleContext(
   if (maxDepth >= 1) {
     const initialNodes = [...nodeMap.values()];
 
+    // Collect all targets to fetch (imports + parents)
+    const targetsToFetch = new Set<string>();
+
     for (const node of initialNodes) {
-      // Add imported nodes
+      // Collect import targets
       const importEdges = node.edges.filter(e => e.type === 'imports');
       for (const edge of importEdges) {
         if (!nodeMap.has(edge.target)) {
-          const importedNode = await nodesCollection.findOne({ id: edge.target });
-          if (importedNode) {
-            nodeMap.set(importedNode.id, importedNode);
-          }
+          targetsToFetch.add(edge.target);
         }
       }
 
-      // Add parent module
+      // Collect parent target
       const parentEdge = node.edges.find(e => e.type === 'parent');
       if (parentEdge && !nodeMap.has(parentEdge.target)) {
-        const parentNode = await nodesCollection.findOne({ id: parentEdge.target });
-        if (parentNode) {
-          nodeMap.set(parentNode.id, parentNode);
-        }
+        targetsToFetch.add(parentEdge.target);
+      }
+    }
+
+    // Fetch all related nodes in parallel
+    const relatedNodes = await Promise.all(
+      [...targetsToFetch].map(target => nodesCollection.findOne({ id: target }))
+    );
+
+    for (const node of relatedNodes) {
+      if (node) {
+        nodeMap.set(node.id, node);
       }
     }
   }

@@ -2,13 +2,31 @@ import type { WikiNode } from '../builder/index.ts';
 import type { MangoDb } from '@jkershaw/mangodb';
 import { ProxyAgent, setGlobalDispatcher } from 'undici';
 
+/**
+ * Redact credentials from a URL for safe logging.
+ * Replaces username:password with [redacted] if present.
+ */
+function redactUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.username || parsed.password) {
+      parsed.username = '[redacted]';
+      parsed.password = '';
+    }
+    return parsed.toString();
+  } catch {
+    // If URL parsing fails, return a generic message
+    return '[invalid URL]';
+  }
+}
+
 // Configure global proxy if HTTPS_PROXY is set
 const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 if (proxyUrl) {
   try {
     setGlobalDispatcher(new ProxyAgent(proxyUrl));
   } catch (error) {
-    console.warn(`Warning: Failed to configure proxy from ${proxyUrl}: ${(error as Error).message}`);
+    console.warn(`Warning: Failed to configure proxy from ${redactUrl(proxyUrl)}: ${(error as Error).message}`);
   }
 }
 
