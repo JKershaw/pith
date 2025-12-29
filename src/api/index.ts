@@ -122,6 +122,12 @@ export function formatContextAsMarkdown(context: BundledContext): string {
     lines.push('');
     lines.push(`**Type:** ${node.type}`);
 
+    // Phase 6.3.3: Warning for high fan-in files
+    if (node.metadata.fanIn !== undefined && node.metadata.fanIn > 5) {
+      lines.push('');
+      lines.push(`> **Warning:** Widely used (${node.metadata.fanIn} files depend on this)`);
+    }
+
     // Prose summary and purpose
     if (node.prose) {
       lines.push('');
@@ -166,6 +172,16 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       lines.push('');
       lines.push('**Imports (resolved):**');
       for (const edge of importEdges) {
+        lines.push(`- ${edge.target}`);
+      }
+    }
+
+    // Phase 6.3.2: Dependents (importedBy edges)
+    const dependentEdges = node.edges.filter(e => e.type === 'importedBy');
+    if (dependentEdges.length > 0) {
+      lines.push('');
+      lines.push('**Dependents:**');
+      for (const edge of dependentEdges) {
         lines.push(`- ${edge.target}`);
       }
     }

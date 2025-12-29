@@ -296,6 +296,155 @@ describe('API', () => {
 
       assert.ok(markdown.includes('src/db/users.ts'), 'Should show import target');
     });
+
+    it('includes dependents section - Phase 6.3.2', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a file with importedBy edges
+      const utilNode: WikiNode = {
+        id: 'src/utils/shared.ts',
+        type: 'file',
+        path: 'src/utils/shared.ts',
+        name: 'shared.ts',
+        metadata: {
+          lines: 30,
+          commits: 2,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/auth/login.ts' },
+          { type: 'importedBy', target: 'src/auth/signup.ts' },
+        ],
+        raw: {
+          signature: ['function shared(): void'],
+          exports: [{ name: 'shared', kind: 'function' }],
+        },
+      };
+
+      await nodes.insertOne(utilNode);
+
+      const context = await bundleContext(db, ['src/utils/shared.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      assert.ok(markdown.includes('Dependents'), 'Should have Dependents section');
+      assert.ok(markdown.includes('src/auth/login.ts'), 'Should list first dependent');
+      assert.ok(markdown.includes('src/auth/signup.ts'), 'Should list second dependent');
+    });
+
+    it('does not show dependents section when no dependents - Phase 6.3.2', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a file with no dependents
+      const isolatedNode: WikiNode = {
+        id: 'src/isolated.ts',
+        type: 'file',
+        path: 'src/isolated.ts',
+        name: 'isolated.ts',
+        metadata: {
+          lines: 10,
+          commits: 1,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+      };
+
+      await nodes.insertOne(isolatedNode);
+
+      const context = await bundleContext(db, ['src/isolated.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should not have a Dependents section since there are no importedBy edges
+      const dependentsIndex = markdown.indexOf('Dependents');
+      const isolatedIndex = markdown.indexOf('src/isolated.ts');
+
+      // Either no Dependents section at all, or if it exists, it's not for the isolated file
+      if (dependentsIndex !== -1 && isolatedIndex !== -1) {
+        // Make sure Dependents section doesn't come after the isolated.ts heading
+        assert.ok(dependentsIndex < isolatedIndex || dependentsIndex > isolatedIndex + 100);
+      }
+    });
+
+    it('shows warning for high fan-in files - Phase 6.3.3', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a file with high fan-in
+      const widelyUsedNode: WikiNode = {
+        id: 'src/config.ts',
+        type: 'file',
+        path: 'src/config.ts',
+        name: 'config.ts',
+        metadata: {
+          lines: 20,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 8,  // High fan-in
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/auth/login.ts' },
+          { type: 'importedBy', target: 'src/auth/signup.ts' },
+          { type: 'importedBy', target: 'src/api/server.ts' },
+          { type: 'importedBy', target: 'src/api/routes.ts' },
+          { type: 'importedBy', target: 'src/db/connect.ts' },
+          { type: 'importedBy', target: 'src/utils/logger.ts' },
+          { type: 'importedBy', target: 'src/utils/validator.ts' },
+          { type: 'importedBy', target: 'src/cli/index.ts' },
+        ],
+        raw: {
+          signature: ['export const config = {}'],
+        },
+      };
+
+      await nodes.insertOne(widelyUsedNode);
+
+      const context = await bundleContext(db, ['src/config.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      assert.ok(markdown.includes('Widely used'), 'Should show widely used warning');
+      assert.ok(markdown.includes('8 files depend'), 'Should show count of dependents');
+    });
+
+    it('does not show warning for low fan-in files - Phase 6.3.3', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a file with low fan-in
+      const normalNode: WikiNode = {
+        id: 'src/normal.ts',
+        type: 'file',
+        path: 'src/normal.ts',
+        name: 'normal.ts',
+        metadata: {
+          lines: 30,
+          commits: 3,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 2,  // Low fan-in
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/auth/login.ts' },
+          { type: 'importedBy', target: 'src/auth/signup.ts' },
+        ],
+        raw: {},
+      };
+
+      await nodes.insertOne(normalNode);
+
+      const context = await bundleContext(db, ['src/normal.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      assert.ok(!markdown.includes('Widely used'), 'Should not show warning for low fan-in');
+    });
   });
 
   describe('createApp', () => {

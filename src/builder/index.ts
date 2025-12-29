@@ -12,7 +12,7 @@ export type { Function };
  * Edge between wiki nodes.
  */
 export interface Edge {
-  type: 'contains' | 'imports' | 'calls' | 'co-changes' | 'parent' | 'testFile';
+  type: 'contains' | 'imports' | 'calls' | 'co-changes' | 'parent' | 'testFile' | 'importedBy';
   target: string;
   weight?: number;
 }
@@ -546,6 +546,43 @@ export function buildTestFileEdges(fileNodes: WikiNode[]): Array<Edge & { source
         target: testPattern4,
         sourceId: node.id,
       });
+    }
+  }
+
+  return edges;
+}
+
+/**
+ * Build importedBy edges (reverse of imports) to show which files depend on a given file.
+ * Step 6.3.1: Create edges from files to their dependents (files that import them).
+ * @param fileNodes - Array of all file nodes
+ * @returns Array of importedBy edges with source node ID
+ */
+export function buildDependentEdges(fileNodes: WikiNode[]): Array<Edge & { sourceId: string }> {
+  const edges: Array<Edge & { sourceId: string }> = [];
+
+  // For each file that is imported by others
+  for (const importedNode of fileNodes) {
+    // Find all files that import this one
+    for (const importingNode of fileNodes) {
+      // Skip self-references
+      if (importingNode.id === importedNode.id) {
+        continue;
+      }
+
+      // Check if importingNode imports importedNode
+      const hasImportEdge = importingNode.edges.some(
+        edge => edge.type === 'imports' && edge.target === importedNode.id
+      );
+
+      if (hasImportEdge) {
+        // Create reverse edge: importedNode → importingNode (with type 'importedBy')
+        edges.push({
+          type: 'importedBy',
+          target: importingNode.id,
+          sourceId: importedNode.id,
+        });
+      }
     }
   }
 

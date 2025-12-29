@@ -19,6 +19,7 @@ import {
   computeMetadata,
   isTestFile,
   buildTestFileEdges,
+  buildDependentEdges,
   type WikiNode,
   type Function,
 } from './index.ts';
@@ -1359,6 +1360,143 @@ describe('Test File Mapping - Phase 6.2.2', () => {
     assert.strictEqual(edges.length, 2);
     assert.ok(edges.some(e => e.target === 'src/auth/login.test.ts'));
     assert.ok(edges.some(e => e.target === 'src/auth/logout.spec.ts'));
+  });
+});
+
+describe('Dependent Edges - Phase 6.3.1', () => {
+  it('creates importedBy edges for files that are imported', () => {
+    const fileNodes: WikiNode[] = [
+      {
+        id: 'src/utils/helper.ts',
+        type: 'file',
+        path: 'src/utils/helper.ts',
+        name: 'helper.ts',
+        metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/auth/login.ts',
+        type: 'file',
+        path: 'src/auth/login.ts',
+        name: 'login.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [
+          { type: 'imports', target: 'src/utils/helper.ts' },
+        ],
+        raw: {},
+      },
+      {
+        id: 'src/auth/signup.ts',
+        type: 'file',
+        path: 'src/auth/signup.ts',
+        name: 'signup.ts',
+        metadata: { lines: 80, commits: 3, lastModified: new Date(), authors: [] },
+        edges: [
+          { type: 'imports', target: 'src/utils/helper.ts' },
+        ],
+        raw: {},
+      },
+    ];
+
+    const edges = buildDependentEdges(fileNodes);
+
+    assert.strictEqual(edges.length, 2);
+    assert.ok(edges.some(e => e.sourceId === 'src/utils/helper.ts' && e.target === 'src/auth/login.ts'));
+    assert.ok(edges.some(e => e.sourceId === 'src/utils/helper.ts' && e.target === 'src/auth/signup.ts'));
+    assert.ok(edges.every(e => e.type === 'importedBy'));
+  });
+
+  it('returns empty array when no files are imported', () => {
+    const fileNodes: WikiNode[] = [
+      {
+        id: 'src/isolated.ts',
+        type: 'file',
+        path: 'src/isolated.ts',
+        name: 'isolated.ts',
+        metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    const edges = buildDependentEdges(fileNodes);
+
+    assert.strictEqual(edges.length, 0);
+  });
+
+  it('handles files with no importers', () => {
+    const fileNodes: WikiNode[] = [
+      {
+        id: 'src/utils/helper.ts',
+        type: 'file',
+        path: 'src/utils/helper.ts',
+        name: 'helper.ts',
+        metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/auth/login.ts',
+        type: 'file',
+        path: 'src/auth/login.ts',
+        name: 'login.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    const edges = buildDependentEdges(fileNodes);
+
+    assert.strictEqual(edges.length, 0);
+  });
+
+  it('creates multiple importedBy edges for widely used files', () => {
+    const fileNodes: WikiNode[] = [
+      {
+        id: 'src/config.ts',
+        type: 'file',
+        path: 'src/config.ts',
+        name: 'config.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/auth/login.ts',
+        type: 'file',
+        path: 'src/auth/login.ts',
+        name: 'login.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [{ type: 'imports', target: 'src/config.ts' }],
+        raw: {},
+      },
+      {
+        id: 'src/auth/signup.ts',
+        type: 'file',
+        path: 'src/auth/signup.ts',
+        name: 'signup.ts',
+        metadata: { lines: 80, commits: 3, lastModified: new Date(), authors: [] },
+        edges: [{ type: 'imports', target: 'src/config.ts' }],
+        raw: {},
+      },
+      {
+        id: 'src/api/server.ts',
+        type: 'file',
+        path: 'src/api/server.ts',
+        name: 'server.ts',
+        metadata: { lines: 150, commits: 8, lastModified: new Date(), authors: [] },
+        edges: [{ type: 'imports', target: 'src/config.ts' }],
+        raw: {},
+      },
+    ];
+
+    const edges = buildDependentEdges(fileNodes);
+
+    assert.strictEqual(edges.length, 3);
+    const configEdges = edges.filter(e => e.sourceId === 'src/config.ts');
+    assert.strictEqual(configEdges.length, 3);
   });
 });
 

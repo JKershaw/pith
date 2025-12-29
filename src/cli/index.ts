@@ -26,6 +26,7 @@ import {
   buildImportEdges,
   buildParentEdge,
   buildTestFileEdges,
+  buildDependentEdges,
   computeMetadata,
   type WikiNode,
 } from '../builder/index.ts';
@@ -402,6 +403,15 @@ program
       // Add test file edges: source → test file (Phase 6.2.2)
       const testFileEdges = buildTestFileEdges(fileNodes);
       for (const { sourceId, type, target, weight } of testFileEdges) {
+        const sourceNode = fileNodes.find(n => n.id === sourceId);
+        if (sourceNode) {
+          sourceNode.edges.push({ type, target, weight });
+        }
+      }
+
+      // Add importedBy edges: file → dependents (Phase 6.3.1)
+      const dependentEdges = buildDependentEdges(fileNodes);
+      for (const { sourceId, type, target, weight } of dependentEdges) {
         const sourceNode = fileNodes.find(n => n.id === sourceId);
         if (sourceNode) {
           sourceNode.edges.push({ type, target, weight });
