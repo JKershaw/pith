@@ -386,13 +386,23 @@ program
 
       const app = createApp(db);
 
-      app.listen(port, () => {
+      const server = app.listen(port, () => {
         console.log(`Pith API server running on http://localhost:${port}`);
         console.log(`\nEndpoints:`);
         console.log(`  GET  /node/:path      - Fetch a single node`);
         console.log(`  GET  /context?files=  - Bundled context for files`);
         console.log(`  POST /refresh         - Re-extract and rebuild`);
         console.log(`\nServing ${nodeCount} nodes.`);
+      });
+
+      server.on('error', async (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          console.error(`Error: Port ${port} is already in use`);
+        } else {
+          console.error(`Server error: ${err.message}`);
+        }
+        await closeDb();
+        process.exit(1);
       });
     } catch (error) {
       console.error(`Error: ${(error as Error).message}`);

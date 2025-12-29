@@ -244,7 +244,7 @@ describe('API', () => {
   });
 
   describe('createApp', () => {
-    it('GET /node/:path returns node data', async () => {
+    it('GET /node/:path returns node data', { timeout: 5000 }, async () => {
       const db = client.db('pith');
       const app = createApp(db);
 
@@ -265,7 +265,7 @@ describe('API', () => {
       }
     });
 
-    it('GET /node/:path returns 404 for missing node', async () => {
+    it('GET /node/:path returns 404 for missing node', { timeout: 5000 }, async () => {
       const db = client.db('pith');
       const app = createApp(db);
 
@@ -283,7 +283,7 @@ describe('API', () => {
       }
     });
 
-    it('GET /context returns bundled context as markdown', async () => {
+    it('GET /context returns bundled context as markdown', { timeout: 5000 }, async () => {
       const db = client.db('pith');
       const app = createApp(db);
 
@@ -303,7 +303,7 @@ describe('API', () => {
       }
     });
 
-    it('GET /context supports multiple files', async () => {
+    it('GET /context supports multiple files', { timeout: 5000 }, async () => {
       const db = client.db('pith');
       const app = createApp(db);
 
@@ -322,7 +322,7 @@ describe('API', () => {
       }
     });
 
-    it('GET /context?format=json returns JSON', async () => {
+    it('GET /context?format=json returns JSON', { timeout: 5000 }, async () => {
       const db = client.db('pith');
       const app = createApp(db);
 
@@ -341,7 +341,7 @@ describe('API', () => {
       }
     });
 
-    it('GET /context returns 400 when no files specified', async () => {
+    it('GET /context returns 400 when no files specified', { timeout: 5000 }, async () => {
       const db = client.db('pith');
       const app = createApp(db);
 
@@ -359,7 +359,7 @@ describe('API', () => {
       }
     });
 
-    it('POST /refresh requires projectPath in body', async () => {
+    it('POST /refresh requires projectPath in body', { timeout: 5000 }, async () => {
       const db = client.db('pith');
       const app = createApp(db);
 
@@ -382,7 +382,7 @@ describe('API', () => {
       }
     });
 
-    it('POST /refresh returns error for invalid path', async () => {
+    it('POST /refresh returns error for invalid path', { timeout: 5000 }, async () => {
       const db = client.db('pith');
       const app = createApp(db);
 

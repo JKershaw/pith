@@ -1,7 +1,7 @@
 import type { MangoDb } from '@jkershaw/mangodb';
 import type { WikiNode } from '../builder/index.ts';
 import express, { type Express, type Request, type Response } from 'express';
-import { existsSync, statSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 
 /**
  * Bundled context for LLM consumption
@@ -198,94 +198,117 @@ export function createApp(db: MangoDb): Express {
   // Uses wildcard (*path) to capture paths with slashes like src/auth/login.ts
   // Express 5 returns wildcards as arrays, so we join them back into a path string
   app.get('/node/*path', async (req: Request, res: Response) => {
-    const pathParts = req.params.path as unknown as string[];
-    const nodePath = pathParts.join('/'); // Join array back into path string
+    try {
+      const pathParts = req.params.path as unknown as string[];
+      const nodePath = pathParts.join('/'); // Join array back into path string
 
-    const nodes = db.collection<WikiNode>('nodes');
-    const node = await nodes.findOne({ id: nodePath });
+      const nodes = db.collection<WikiNode>('nodes');
+      const node = await nodes.findOne({ id: nodePath });
 
-    if (!node) {
-      res.status(404).json({
-        error: 'NOT_FOUND',
-        message: `Node not found: ${nodePath}`,
+      if (!node) {
+        res.status(404).json({
+          error: 'NOT_FOUND',
+          message: `Node not found: ${nodePath}`,
+        });
+        return;
+      }
+
+      res.json(node);
+    } catch (error) {
+      res.status(500).json({
+        error: 'INTERNAL_ERROR',
+        message: (error as Error).message,
       });
-      return;
     }
-
-    res.json(node);
   });
 
   // GET /context?files=a,b,c - Get bundled context for multiple files
   app.get('/context', async (req: Request, res: Response) => {
-    const files = req.query.files as string | undefined;
-    const format = req.query.format as string | undefined;
+    try {
+      const files = req.query.files as string | undefined;
+      const format = req.query.format as string | undefined;
 
-    if (!files) {
-      res.status(400).json({
-        error: 'INVALID_REQUEST',
-        message: 'Missing required query parameter: files',
+      if (!files) {
+        res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'Missing required query parameter: files',
+        });
+        return;
+      }
+
+      const filePaths = files.split(',').map(f => f.trim()).filter(f => f.length > 0);
+
+      if (filePaths.length === 0) {
+        res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'No valid file paths provided',
+        });
+        return;
+      }
+
+      const context = await bundleContext(db, filePaths);
+
+      if (format === 'json') {
+        res.json(context);
+      } else {
+        // Default to markdown
+        const markdown = formatContextAsMarkdown(context);
+        res.type('text/markdown').send(markdown);
+      }
+    } catch (error) {
+      res.status(500).json({
+        error: 'INTERNAL_ERROR',
+        message: (error as Error).message,
       });
-      return;
-    }
-
-    const filePaths = files.split(',').map(f => f.trim()).filter(f => f.length > 0);
-
-    if (filePaths.length === 0) {
-      res.status(400).json({
-        error: 'INVALID_REQUEST',
-        message: 'No valid file paths provided',
-      });
-      return;
-    }
-
-    const context = await bundleContext(db, filePaths);
-
-    if (format === 'json') {
-      res.json(context);
-    } else {
-      // Default to markdown
-      const markdown = formatContextAsMarkdown(context);
-      res.type('text/markdown').send(markdown);
     }
   });
 
   // POST /refresh - Re-run extract + build for a project
   app.post('/refresh', async (req: Request, res: Response) => {
-    const { projectPath } = req.body as { projectPath?: string };
+    try {
+      const { projectPath } = req.body as { projectPath?: string };
 
-    if (!projectPath) {
-      res.status(400).json({
-        error: 'INVALID_REQUEST',
-        message: 'Missing required field: projectPath',
+      if (!projectPath) {
+        res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'Missing required field: projectPath',
+        });
+        return;
+      }
+
+      // Validate the path exists and is a directory (using async stat)
+      let stats;
+      try {
+        stats = await stat(projectPath);
+      } catch {
+        res.status(400).json({
+          error: 'INVALID_PATH',
+          message: `Path does not exist: ${projectPath}`,
+        });
+        return;
+      }
+
+      if (!stats.isDirectory()) {
+        res.status(400).json({
+          error: 'INVALID_PATH',
+          message: `Path is not a directory: ${projectPath}`,
+        });
+        return;
+      }
+
+      // TODO: Implement actual refresh logic by calling extract + build
+      // For now, return success with placeholder message
+      res.json({
+        status: 'success',
+        message: `Refresh triggered for ${projectPath}`,
+        projectPath,
       });
-      return;
-    }
-
-    // Validate the path exists and is a directory
-    if (!existsSync(projectPath)) {
-      res.status(400).json({
-        error: 'INVALID_PATH',
-        message: `Path does not exist: ${projectPath}`,
+    } catch (error) {
+      res.status(500).json({
+        error: 'INTERNAL_ERROR',
+        message: (error as Error).message,
       });
-      return;
     }
-
-    const stats = statSync(projectPath);
-    if (!stats.isDirectory()) {
-      res.status(400).json({
-        error: 'INVALID_PATH',
-        message: `Path is not a directory: ${projectPath}`,
-      });
-      return;
-    }
-
-    // TODO: Implement actual refresh logic by calling extract + build
-    // For now, return success with placeholder message
-    res.json({
-      status: 'success',
-      message: `Refresh triggered for ${projectPath}`,
-      projectPath,
-    });
   });
 
   return app;

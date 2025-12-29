@@ -5,7 +5,11 @@ import { ProxyAgent, setGlobalDispatcher } from 'undici';
 // Configure global proxy if HTTPS_PROXY is set
 const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 if (proxyUrl) {
-  setGlobalDispatcher(new ProxyAgent(proxyUrl));
+  try {
+    setGlobalDispatcher(new ProxyAgent(proxyUrl));
+  } catch (error) {
+    console.warn(`Warning: Failed to configure proxy from ${proxyUrl}: ${(error as Error).message}`);
+  }
 }
 
 /**

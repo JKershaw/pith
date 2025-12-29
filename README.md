@@ -56,7 +56,7 @@ OPENROUTER_MODEL=qwen/qwen-turbo
 PITH_DATA_DIR=./data
 ```
 
-Get your OpenRouter API key at https://openrouter.ai/keys
+Get your OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys)
 
 ## API
 
