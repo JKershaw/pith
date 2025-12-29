@@ -2,6 +2,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { Project } from 'ts-morph';
 import type { MangoDb } from '@jkershaw/mangodb';
+import type { GitInfo } from './git.ts';
 
 /**
  * Import declaration data.
@@ -88,6 +89,7 @@ export interface ExtractedFile {
   functions: Function[];
   classes: Class[];
   interfaces: Interface[];
+  git?: GitInfo;
 }
 
 /**

@@ -2,11 +2,11 @@
 
 Tracks completed steps and notes from implementation.
 
-## Current Phase: 1.2 Git Extraction
+## Current Phase: 1.3 Documentation Extraction
 
 ### Status
-- **Last completed step**: 1.1.12 - Store AST data in MangoDB
-- **Next step**: 1.2.1 - Commit count
+- **Last completed step**: 1.2.7 - Store git data in MangoDB
+- **Next step**: 1.3.1 - JSDoc extraction
 
 ---
 
@@ -42,6 +42,18 @@ Tracks completed steps and notes from implementation.
 | 1.1.10 | Extracts return types (A9) | Done |
 | 1.1.11 | Identifies async functions (A10) | Done |
 | 1.1.12 | Stores AST data in MangoDB | Done |
+
+### Phase 1.2 - Git Extraction (COMPLETE)
+
+| Step | Description | Status |
+|------|-------------|--------|
+| 1.2.1 | Returns commit count (G1) | Done |
+| 1.2.2 | Returns last modified date (G2) | Done |
+| 1.2.3 | Returns created date (G3) | Done |
+| 1.2.4 | Returns unique authors (G4) | Done |
+| 1.2.5 | Returns recent commits (G5) | Done |
+| 1.2.6 | Returns primary author (G6) | Done |
+| 1.2.7 | Git data integrates with ExtractedFile | Done |
 
 ---
 
@@ -81,4 +93,18 @@ AST extraction is complete. Implementation details:
 Note: Type resolution in ts-morph produces fully-qualified type names (with import paths).
 This is acceptable for now and could be simplified in post-processing if needed.
 
-Ready to begin Git extraction in Phase 1.2.
+### 2025-12-29 - Phase 1.2 Complete
+
+Git extraction is complete. Implementation details:
+
+- Created `extractGitInfo()` using simple-git that returns:
+  - Commit count
+  - Last modified date
+  - Created date
+  - Unique authors list
+  - Primary author (most commits)
+  - Recent commits (last 5 with hash, message, author, date)
+- Added optional `git` field to ExtractedFile interface for integration
+- All 22 tests pass, linting passes
+
+Ready to begin Documentation extraction in Phase 1.3.
