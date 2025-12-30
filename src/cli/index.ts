@@ -29,6 +29,7 @@ import {
   buildTestFileEdges,
   buildDependentEdges,
   computeMetadata,
+  updateCrossFileCalls,
   type WikiNode,
 } from '../builder/index.ts';
 import {
@@ -423,6 +424,10 @@ program
       }
 
       log('Built edges', 'verbose');
+
+      // Update cross-file calls (Phase 6.6.7b.3)
+      updateCrossFileCalls(fileNodes);
+      log('Computed cross-file call graph', 'verbose');
 
       // Compute metadata (fan-in, fan-out, age, recency)
       computeMetadata(allNodes);

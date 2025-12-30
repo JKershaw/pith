@@ -5,6 +5,7 @@ import type { Commit } from '../extractor/git.js';
 import type { JSDoc } from '../extractor/docs.js';
 import type { ProseData } from '../generator/index.js';
 import type { ErrorPath } from '../extractor/errors.js';
+import { buildCrossFileCallGraph, getCrossFileCallsForFunction } from './cross-file-calls.ts';
 
 // Re-export types for testing
 export type { FunctionData };
@@ -64,6 +65,8 @@ export interface FunctionDetails {
   keyStatements: KeyStatement[];  // Important statements extracted via AST (Phase 6.6.1.3)
   calls: string[];  // Names of functions called within this function (Phase 6.6.7a.3)
   calledBy: string[];  // Names of functions that call this function (Phase 6.6.7a.4)
+  crossFileCalls: string[];  // Cross-file calls (file:function format) (Phase 6.6.7b.3)
+  crossFileCalledBy: string[];  // Cross-file callers (file:function format) (Phase 6.6.7b.3)
   errorPaths: ErrorPath[];  // Error handling paths (Phase 6.6.8)
 }
 
@@ -137,6 +140,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
 
   // Step 6.6.1: Extract function details with line numbers, code snippets, and key statements
   // Step 6.6.7a: Add calls and compute calledBy
+  // Step 6.6.7b: Add cross-file calls (computed later in build process)
   // Step 6.6.8: Add error paths
   const functions: FunctionDetails[] = extracted.functions.map((f) => ({
     name: f.name,
@@ -149,6 +153,8 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
     keyStatements: f.keyStatements,
     calls: f.calls,  // Phase 6.6.7a.3
     calledBy: [],  // Will be computed below
+    crossFileCalls: [],  // Phase 6.6.7b.3 (computed later)
+    crossFileCalledBy: [],  // Phase 6.6.7b.3 (computed later)
     errorPaths: f.errorPaths,  // Phase 6.6.8
   }));
 
@@ -861,4 +867,30 @@ export function getTestFilesForImpact(
   }
 
   return testFiles;
+}
+
+/**
+ * Update cross-file calls on all file nodes.
+ * Step 6.6.7b.3: Build cross-file call graph and update function details.
+ * Must be called after all file nodes are created.
+ * @param fileNodes - Array of all file nodes
+ */
+export function updateCrossFileCalls(fileNodes: WikiNode[]): void {
+  // Build the cross-file call graph
+  const callGraph = buildCrossFileCallGraph(fileNodes);
+
+  // Update each file node's function details with cross-file calls
+  for (const fileNode of fileNodes) {
+    if (!fileNode.raw.functions || fileNode.raw.functions.length === 0) {
+      continue;
+    }
+
+    for (const func of fileNode.raw.functions) {
+      const functionId = `${fileNode.path}:${func.name}`;
+      const { calls, calledBy } = getCrossFileCallsForFunction(functionId, callGraph);
+
+      func.crossFileCalls = calls;
+      func.crossFileCalledBy = calledBy;
+    }
+  }
 }

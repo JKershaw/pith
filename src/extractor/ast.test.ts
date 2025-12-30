@@ -15,13 +15,16 @@ describe('findFiles', () => {
     const files = await findFiles(fixtureDir);
 
     assert.ok(Array.isArray(files));
-    assert.strictEqual(files.length, 4);
+    assert.strictEqual(files.length, 7);
 
     // Should include all TypeScript files
     assert.ok(files.some((f) => f.endsWith('types.ts')));
     assert.ok(files.some((f) => f.endsWith('auth.ts')));
     assert.ok(files.some((f) => f.endsWith('user-service.ts')));
     assert.ok(files.some((f) => f.endsWith('index.ts')));
+    assert.ok(files.some((f) => f.endsWith('utils.ts')));
+    assert.ok(files.some((f) => f.endsWith('service.ts')));
+    assert.ok(files.some((f) => f.endsWith('controller.ts')));
   });
 
   it('returns relative paths from project root', async () => {
