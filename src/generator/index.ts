@@ -1,4 +1,5 @@
 import type { WikiNode, FunctionDetails } from '../builder/index.ts';
+import type { KeyStatement } from '../extractor/ast.ts';
 import type { MangoDb } from '@jkershaw/mangodb';
 import { ProxyAgent } from 'undici';
 
@@ -67,13 +68,36 @@ export function buildPrompt(node: WikiNode, childSummaries?: Map<string, string>
 }
 
 /**
- * Format a function for the prompt with line numbers and code snippet.
+ * Format key statements for display in the prompt.
+ * @param keyStatements - Array of key statements from AST analysis
+ * @returns Formatted string showing key statements by category
+ */
+function formatKeyStatements(keyStatements: KeyStatement[]): string {
+  if (!keyStatements || keyStatements.length === 0) {
+    return '';
+  }
+
+  const lines: string[] = ['**Key statements:**'];
+  for (const stmt of keyStatements) {
+    lines.push(`  - [${stmt.category}] line ${stmt.line}: \`${stmt.text}\``);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Format a function for the prompt with line numbers, code snippet, and key statements.
  * @param func - Function details
- * @returns Formatted string with name, lines, and code snippet
+ * @returns Formatted string with name, lines, code snippet, and key statements
  */
 function formatFunctionForPrompt(func: FunctionDetails): string {
   const header = `### ${func.name} (lines ${func.startLine}-${func.endLine})`;
-  return `${header}\n\`\`\`typescript\n${func.codeSnippet}\n\`\`\``;
+  const codeBlock = `\`\`\`typescript\n${func.codeSnippet}\n\`\`\``;
+  const keyStmts = formatKeyStatements(func.keyStatements);
+
+  if (keyStmts) {
+    return `${header}\n${codeBlock}\n${keyStmts}`;
+  }
+  return `${header}\n${codeBlock}`;
 }
 
 /**

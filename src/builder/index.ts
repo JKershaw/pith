@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import type { MangoDb } from '@jkershaw/mangodb';
-import type { ExtractedFile, Import, Export, Function } from '../extractor/ast.ts';
+import type { ExtractedFile, Import, Export, Function, KeyStatement } from '../extractor/ast.ts';
 import type { Commit } from '../extractor/git.ts';
 import type { JSDoc } from '../extractor/docs.ts';
 import type { ProseData } from '../generator/index.ts';
@@ -28,6 +28,7 @@ export interface FunctionDetails {
   isAsync: boolean;
   isExported: boolean;
   codeSnippet: string;  // First N lines of function source (Phase 6.6.1.2)
+  keyStatements: KeyStatement[];  // Important statements extracted via AST (Phase 6.6.1.3)
 }
 
 /**
@@ -97,7 +98,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
   // Step 2.1.8: Extract function signatures
   const signature = extracted.functions.map((f) => f.signature);
 
-  // Step 6.6.1: Extract function details with line numbers and code snippets
+  // Step 6.6.1: Extract function details with line numbers, code snippets, and key statements
   const functions: FunctionDetails[] = extracted.functions.map((f) => ({
     name: f.name,
     signature: f.signature,
@@ -106,6 +107,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
     isAsync: f.isAsync,
     isExported: f.isExported,
     codeSnippet: f.codeSnippet,
+    keyStatements: f.keyStatements,
   }));
 
   // Step 2.1.9: Copy JSDoc
