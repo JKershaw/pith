@@ -180,6 +180,16 @@ function buildFilePrompt(node: WikiNode): string {
     ? `\n\nKEY VALUES FOUND (reference significant ones in gotchasDetailed):\n${allKeyStatements.map(s => `  - ${s}`).join('\n')}`
     : '';
 
+  // Phase 6.6.6: Build detected patterns section
+  let patternsSection = '';
+  if (node.raw.patterns && node.raw.patterns.length > 0) {
+    const patternLines = node.raw.patterns.map(p => {
+      const evidenceStr = p.evidence.join(', ');
+      return `  - ${p.name.toUpperCase()} pattern at ${p.location} (confidence: ${p.confidence})\n    Evidence: ${evidenceStr}`;
+    });
+    patternsSection = `\n\nDETECTED PATTERNS (confirm and refine these in your response):\n${patternLines.join('\n')}`;
+  }
+
   return `You are documenting a TypeScript file for a developer-focused codebase wiki.
 
 ## CRITICAL RULES - Read these first:
@@ -228,7 +238,7 @@ FUNCTIONS:
 ${functionsSection}
 GIT: ${gitSection}
 JSDOC:
-${jsdocSection}${keyStatementsEmphasis}
+${jsdocSection}${keyStatementsEmphasis}${patternsSection}
 
 ---
 
@@ -243,7 +253,7 @@ Generate JSON with these fields:
     {"warning": "Description", "location": "functionName line X", "evidence": "actual code/value"}
   ],
   "keyExports": ["Most important exports"],
-  "patterns": ["Usage patterns with function names"],
+  "patterns": ["Design patterns detected (confirm and refine the detected patterns if any, or describe usage patterns)"],
   "similarFiles": ["Paths to files with similar patterns"],
   "debugging": {
     "errorPatterns": ["For error X, check functionName at line Y"],
@@ -251,7 +261,9 @@ Generate JSON with these fields:
   }
 }
 
-Remember: Focus on key statements that could surprise developers or cause issues. Include specific values and line numbers.`;
+Remember:
+- Focus on key statements that could surprise developers or cause issues. Include specific values and line numbers.
+- If design patterns were detected, confirm them and add details about how they're implemented.`;
 }
 
 /**

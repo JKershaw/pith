@@ -8,6 +8,7 @@ import { stat } from 'node:fs/promises';
 import { findFiles, createProject, extractFile, storeExtracted, type ExtractedFile } from '../extractor/ast.ts';
 import { extractGitInfo } from '../extractor/git.ts';
 import { extractDocs } from '../extractor/docs.ts';
+import { addPatternsToExtractedFile } from '../extractor/patterns.ts';
 import {
   loadExtractionCache,
   saveExtractionCache,
@@ -188,6 +189,9 @@ program
               // Combine all data
               extracted.git = git;
               extracted.docs = docs;
+
+              // Phase 6.6.6: Detect design patterns
+              addPatternsToExtractedFile(extracted);
 
               // Compute hash for cache
               const fullPath = join(absolutePath, relativePath);

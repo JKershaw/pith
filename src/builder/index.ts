@@ -99,6 +99,7 @@ export interface WikiNode {
     recentCommits?: Commit[];
     readme?: string;
     functions?: FunctionDetails[];  // Phase 6.6.1 - function details with line numbers
+    patterns?: import('../extractor/patterns.ts').DetectedPattern[];  // Phase 6.6.6 - detected design patterns
   };
   prose?: ProseData;  // Generated prose from LLM
 }
@@ -169,6 +170,9 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
   // Step 2.1.12: Copy recent commits
   const recentCommits = extracted.git?.recentCommits;
 
+  // Phase 6.6.6: Copy detected patterns
+  const patterns = extracted.patterns;
+
   return {
     id,
     type: 'file',
@@ -183,6 +187,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
       imports: imports.length > 0 ? imports : undefined,
       exports: exports.length > 0 ? exports : undefined,
       recentCommits,
+      patterns,  // Phase 6.6.6
     },
   };
 }

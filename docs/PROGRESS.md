@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.6.7a (Intra-File Call Graph)
-**Current step**: Phase 6.6.6 - Pattern Recognition (next)
+**Last completed phase**: Phase 6.6.6 (Design Pattern Recognition)
+**Current step**: Phase 6.6.5 - Change Impact Analysis (next in priority)
 **Date**: 2025-12-30
 
 ---
@@ -174,6 +174,73 @@ npm test -- src/utils/helper.test.ts
 - Phase 6.6.6: Design Pattern Recognition (detect retry patterns, caching, etc.)
 - Phase 6.6.8: Error Path Analysis (trace error propagation through call chains)
 - Phase 6.6.7b: Cross-File Call Graph (extend to track calls across files)
+
+---
+
+### 6.6.6 Design Pattern Recognition - COMPLETE ✅
+
+| Step | What | Status |
+|------|------|--------|
+| 6.6.6.1 | Detect Retry pattern | **Done** |
+| 6.6.6.2 | Detect Cache pattern | **Done** |
+| 6.6.6.3 | Detect Builder pattern | **Done** |
+| 6.6.6.4 | Detect Singleton pattern | **Done** |
+| 6.6.6.5 | Validate detected patterns | **Done** |
+| 6.6.6.6 | Add "Patterns" section to prose prompt | **Done** |
+
+**Implementation Summary (2025-12-30)**:
+
+**New files**:
+- `src/extractor/patterns.ts` - Pattern detection functions
+- `src/extractor/patterns.test.ts` - 11 tests for pattern detection
+
+**Pattern detectors** (`src/extractor/patterns.ts`):
+- `detectRetryPattern()`: Finds loops with try/catch + exponential backoff (Math.pow)
+  - Uses keyStatements to find retry variables, error handling, backoff formulas
+  - Detects retry patterns even when loop is outside code snippet
+  - **High confidence**: Verified in `callLLM` function
+- `detectCachePattern()`: Finds modules with cache-like structures
+  - Detects cache types (interfaces with "cache" in name)
+  - Finds cache operations (load, save, get, set, has)
+  - **High confidence**: Verified in `cache.ts`
+- `detectBuilderPattern()`: Finds classes with chainable methods
+  - Detects methods returning `this` for chaining
+  - **Medium confidence**: Requires 2+ chainable methods
+- `detectSingletonPattern()`: Finds module-level instance management
+  - Detects getInstance patterns and instance checks
+  - **Medium confidence**: Requires instance variable + getter
+
+**Data structure**:
+```typescript
+interface DetectedPattern {
+  name: 'retry' | 'cache' | 'builder' | 'singleton';
+  confidence: 'high' | 'medium' | 'low';
+  evidence: string[];  // Line numbers and code snippets
+  location: string;    // file:function or file path
+}
+```
+
+**Integration**:
+- Added `patterns` field to `ExtractedFile` interface
+- Added `patterns` to `WikiNode.raw` interface
+- Pattern detection runs during extraction via `addPatternsToExtractedFile()`
+- Patterns included in LLM prompts with evidence
+
+**Prose prompt changes** (`src/generator/index.ts`):
+- Added "DETECTED PATTERNS" section showing found patterns with evidence
+- Updated output format instructions to confirm/refine detected patterns
+- LLM now sees pattern hints and can elaborate with implementation details
+
+**Tests**: 328 total (11 new for Phase 6.6.6)
+
+**Patterns detected in Pith itself**:
+- `src/generator/index.ts:callLLM` - RETRY pattern (maxRetries=3, exponential backoff)
+- `src/extractor/cache.ts` - CACHE pattern (ExtractionCache interface + load/save/get operations)
+
+**What this enables**:
+- Benchmark A3 (Design Patterns): Expected improvement from 13/25 to 18+/25
+- Provides concrete evidence for pattern usage in gotchas and documentation
+- Foundation for 6.6.6b (advanced patterns requiring cross-file analysis)
 
 ---
 
@@ -676,15 +743,15 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2025-12-30 (Phase 6.6.7a Complete):
-- **Total tests**: 317
+As of 2025-12-30 (Phase 6.6.6 Complete):
+- **Total tests**: 328
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 81
+- **Test suites**: 86
 
 Commands:
 ```bash
-npm test      # 317 tests pass
+npm test      # 328 tests pass
 npm run lint  # No errors
 ```
 

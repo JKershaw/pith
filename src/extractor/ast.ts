@@ -108,6 +108,7 @@ export interface ExtractedFile {
   interfaces: Interface[];
   git?: GitInfo;
   docs?: DocsInfo;
+  patterns?: import('./patterns.ts').DetectedPattern[];  // Phase 6.6.6
 }
 
 /**
@@ -542,7 +543,8 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     isExported: iface.isExported(),
   }));
 
-  return {
+  // Build the extracted file data (without patterns initially)
+  const extracted: ExtractedFile = {
     path: relativePath,
     lines: sourceFile.getEndLineNumber(),
     imports,
@@ -551,6 +553,12 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     classes,
     interfaces,
   };
+
+  // Phase 6.6.6: Detect design patterns
+  // Note: Pattern detection is done separately to avoid circular imports
+  // See cli/extract.ts for pattern detection integration
+
+  return extracted;
 }
 
 /**
