@@ -415,6 +415,8 @@ describe('shouldCreateFunctionNode', () => {
       isExported: true,
       startLine: 10,
       endLine: 15,
+      codeSnippet: 'export function authenticate(user: string): boolean {\n  return true;\n}',
+      keyStatements: [],
     };
 
     const result = shouldCreateFunctionNode(func);
@@ -432,6 +434,8 @@ describe('shouldCreateFunctionNode', () => {
       isExported: false,
       startLine: 20,
       endLine: 22,
+      codeSnippet: 'function helper(): void {\n  // helper\n}',
+      keyStatements: [],
     };
 
     const result = shouldCreateFunctionNode(func);
@@ -470,6 +474,8 @@ describe('buildFunctionNode', () => {
       isExported: true,
       startLine: 10,
       endLine: 15,
+      codeSnippet: 'export function authenticate(user: string): boolean {\n  return true;\n}',
+      keyStatements: [],
     };
 
     const node = buildFunctionNode(extracted, func);
@@ -505,6 +511,8 @@ describe('buildFunctionNode', () => {
       isExported: true,
       startLine: 10,
       endLine: 15,
+      codeSnippet: 'export function authenticate(user: string): boolean {\n  return true;\n}',
+      keyStatements: [],
     };
 
     const node = buildFunctionNode(extracted, func);
@@ -536,6 +544,8 @@ describe('buildFunctionNode', () => {
       isExported: true,
       startLine: 5,
       endLine: 7,
+      codeSnippet: 'export function add(a: number, b: number): number {\n  return a + b;\n}',
+      keyStatements: [],
     };
 
     const node = buildFunctionNode(extracted, func);
@@ -578,6 +588,8 @@ describe('buildFunctionNode', () => {
       isExported: true,
       startLine: 10,
       endLine: 15,
+      codeSnippet: 'export function myFunction(user: string): boolean {\n  return true;\n}',
+      keyStatements: [],
     };
 
     const node = buildFunctionNode(extracted, func);
@@ -607,6 +619,8 @@ describe('buildFunctionNode', () => {
       isExported: true,
       startLine: 10,
       endLine: 15,
+      codeSnippet: 'export function authenticate(user: string): boolean {\n  return true;\n}',
+      keyStatements: [],
     };
 
     const node = buildFunctionNode(extracted, func);
@@ -642,6 +656,8 @@ describe('buildFunctionNode', () => {
       isExported: true,
       startLine: 10,
       endLine: 15,
+      codeSnippet: 'export function authenticate(user: string): boolean {\n  return true;\n}',
+      keyStatements: [],
     };
 
     const node = buildFunctionNode(extracted, func);
@@ -689,6 +705,8 @@ describe('storeFunctionNodes', () => {
       isExported: true,
       startLine: 10,
       endLine: 15,
+      codeSnippet: 'export function authenticate(user: string): boolean {\n  return true;\n}',
+      keyStatements: [],
     };
 
     const node = buildFunctionNode(extracted, func);
