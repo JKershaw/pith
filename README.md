@@ -124,4 +124,4 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the build plan.
 - [Roadmap](docs/ROADMAP.md) — Build phases and milestones
 - [Progress](docs/PROGRESS.md) — Current implementation status
 - [Technical Decisions](docs/TECHNICAL_DECISIONS.md) — Key choices and rationale
-- [Benchmarking](docs/benchmarking-plan.md) — Quality evaluation methodology
+- [Benchmarking](docs/BENCHMARKING.md) — Quality evaluation methodology

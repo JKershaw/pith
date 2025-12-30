@@ -111,7 +111,7 @@ Send both contexts to the judge with the scoring rubric.
 After all tasks are judged, compile an information gap analysis comparing what each approach provided. This is critical for identifying specific improvements to Pith.
 
 **Judge Prompt**:
-```
+```text
 You are evaluating context quality for an LLM coding task.
 
 TASK: {task_description}
@@ -153,6 +153,7 @@ REASONING: <2-3 sentences explaining the key differences>
 ## Scoring Criteria Detail
 
 ### Relevance (1-5)
+
 | Score | Description |
 |-------|-------------|
 | 5 | Every piece of context directly addresses the task |
@@ -162,6 +163,7 @@ REASONING: <2-3 sentences explaining the key differences>
 | 1 | Context doesn't address the task |
 
 ### Completeness (1-5)
+
 | Score | Description |
 |-------|-------------|
 | 5 | All information needed to complete the task |
@@ -171,6 +173,7 @@ REASONING: <2-3 sentences explaining the key differences>
 | 1 | Critical information missing |
 
 ### Accuracy (1-5)
+
 | Score | Description |
 |-------|-------------|
 | 5 | All facts verifiable and correct |
@@ -180,6 +183,7 @@ REASONING: <2-3 sentences explaining the key differences>
 | 1 | Factually incorrect or misleading |
 
 ### Efficiency (1-5)
+
 | Score | Description |
 |-------|-------------|
 | 5 | Minimal tokens, maximum signal |
@@ -189,6 +193,7 @@ REASONING: <2-3 sentences explaining the key differences>
 | 1 | Mostly noise, buried signal |
 
 ### Actionability (1-5)
+
 | Score | Description |
 |-------|-------------|
 | 5 | Agent could start coding immediately |

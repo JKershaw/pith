@@ -440,7 +440,7 @@ Cross-check LLM claims against code to reduce hallucinations.
 - Missing implementation details like retry counts, timeout values (High)
 - Vague gotchas without specifics (High)
 
-See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for full analysis.
+See `docs/benchmark-results/2025-12-30-self-test.md` for benchmark results and `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for technical analysis.
 
 **Principle**: Extract facts with code, synthesize with LLM.
 

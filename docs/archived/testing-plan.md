@@ -1,4 +1,4 @@
-> **⚠️ ARCHIVED**: This document has been superseded by [benchmarking-plan.md](../benchmarking-plan.md), which provides a more structured and repeatable methodology for evaluating Pith's context quality. The findings from this original testing plan informed the creation of the new benchmarking approach.
+> **⚠️ ARCHIVED**: This document has been superseded by [BENCHMARKING.md](../BENCHMARKING.md), which provides a more structured and repeatable methodology for evaluating Pith's context quality. The findings from this original testing plan informed the creation of the new benchmarking approach.
 >
 > Archived: 2025-12-30
 
@@ -548,4 +548,4 @@ After all phases complete, compile findings into:
 | 2025-12-29 | 2 | Completed Phase 2 test on Zod library | Claude |
 | 2025-12-29 | 5 | Completed partial Phase 5 incremental testing | Claude |
 | 2025-12-29 | - | Added Final Report section | Claude |
-| 2025-12-30 | - | Archived: Superseded by benchmarking-plan.md | Claude |
+| 2025-12-30 | - | Archived: Superseded by BENCHMARKING.md | Claude |

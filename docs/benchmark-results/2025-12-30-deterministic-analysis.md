@@ -214,7 +214,7 @@ function extractConfigValues(func: FunctionDeclaration): ConfigValue[] {
 ## Example: What Task 2 Should Have Produced
 
 ### Current Pith Output (prose only)
-```
+```json
 "gotchas": [
   "The 'callLLM' function has retry logic but may still fail on persistent network issues"
 ]
@@ -300,7 +300,7 @@ After implementing deterministic extraction, re-run benchmark and measure:
 
 1. **Completeness score** should increase (currently 1.8/5)
 2. **Actionability score** should increase (currently 1.8/5)
-3. **Specific details** in concrete examples should be present
+3. **Details** in concrete examples should be present
 
 Target: Pith should match Control on factual content, with LLM adding the synthesis layer.
 

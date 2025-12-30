@@ -21,6 +21,7 @@ See `docs/benchmark-results/2025-12-30-self-test.md` for full results.
 See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for analysis.
 
 ### 6.6.1 Surface Existing Data (P0)
+
 | Step | What | Status | Benchmark |
 |------|------|--------|-----------|
 | 6.6.1.1 | Line numbers for functions | Pending | |
@@ -29,6 +30,7 @@ See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for analysis.
 | 6.6.1.4 | Explicit return types | Pending | |
 
 ### 6.6.2 Pattern Detection (P1)
+
 | Step | Pattern | Status | Benchmark |
 |------|---------|--------|-----------|
 | 6.6.2.1 | Retry logic detection | Pending | |
@@ -37,6 +39,7 @@ See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for analysis.
 | 6.6.2.4 | Config value extraction | Pending | |
 
 ### 6.6.3 Enhanced Metadata (P2)
+
 | Step | Metric | Status |
 |------|--------|--------|
 | 6.6.3.1 | Cyclomatic complexity | Pending |
@@ -44,6 +47,7 @@ See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for analysis.
 | 6.6.3.3 | Intra-file call graph | Pending |
 
 ### 6.6.4 Feed Facts to LLM
+
 | Step | Change | Status |
 |------|--------|--------|
 | 6.6.4.1 | Include patterns in prompt | Pending |
@@ -52,6 +56,7 @@ See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for analysis.
 | 6.6.4.4 | Update prompt to synthesize not discover | Pending |
 
 ### Success Criteria
+
 | Metric | Before | Target | Current |
 |--------|--------|--------|---------|
 | Completeness | 1.8/5 | ≥4/5 | - |
