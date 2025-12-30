@@ -90,11 +90,13 @@ Ran Pith on itself and verified `/context` output for `src/generator/index.ts`:
 
 | Metric | Before | After P0 | Target | Gap |
 |--------|--------|----------|--------|-----|
+| Relevance | 2.4/5 | 3.0/5 | ≥4/5 | -1.0 |
 | Completeness | 1.8/5 | 1.8/5 | ≥4/5 | -2.2 |
+| Accuracy | 3.6/5 | 4.0/5 | ≥4.5/5 | -0.5 |
 | Actionability | 1.8/5 | 1.8/5 | ≥4/5 | -2.2 |
 | Overall | 12.6/25 | 15.5/25 | ≥20/25 | -4.5 |
 
-**Finding**: P0 improved score by +2.9 points but didn't close Completeness/Actionability gaps as expected.
+**Finding**: P0 improved Relevance (+0.6) and Accuracy (+0.4) via line numbers and code snippets. Completeness/Actionability require deeper capabilities (6.6.5-6.6.8).
 
 ### 6.6.5 - 6.6.9 Gap Analysis (NEW)
 

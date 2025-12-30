@@ -608,13 +608,17 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 
 | Metric | Baseline | After P0 | Target | Gap |
 |--------|----------|----------|--------|-----|
+| Relevance | 2.4/5 | 3.0/5 | ≥4/5 | -1.0 |
 | Completeness | 1.8/5 | 1.8/5 | ≥4/5 | -2.2 |
+| Accuracy | 3.6/5 | 4.0/5 | ≥4.5/5 | -0.5 |
 | Actionability | 1.8/5 | 1.8/5 | ≥4/5 | -2.2 |
 | Overall score | 12.6/25 | 15.5/25 | ≥20/25 | -4.5 |
 
+**P0 Impact Analysis**: Line numbers and code snippets improved Relevance (+0.6) and Accuracy (+0.4), but Completeness/Actionability require capabilities delivered by 6.6.5-6.6.8 (change impact, pattern recognition, cross-file tracing, error paths).
+
 **Execution Order** (accounting for dependencies):
 
-```
+```text
 6.6.5 Change Impact ─────────────────────────────────► Independent, start first
 
 6.6.7a Intra-File Call Graph ──┬──► 6.6.6 Pattern Recognition
