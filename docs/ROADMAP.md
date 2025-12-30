@@ -412,6 +412,81 @@ Cross-check LLM claims against code to reduce hallucinations.
 | 6.5.3 | Flag unverifiable claims with low confidence |
 | 6.5.4 | Re-prompt if critical claims don't validate |
 
+---
+
+### Phase 6.6: Enhanced Deterministic Extraction ⬅️ NEXT
+
+**Goal**: Close information gaps identified in benchmarking by extracting more facts deterministically, reducing LLM's role to synthesis only.
+
+**Context**: Benchmark run (2025-12-30) showed Pith scoring 12.6/25 vs Control's 24.2/25. Key gaps:
+- Missing line numbers (Critical)
+- Missing code snippets (Critical)
+- Missing implementation details like retry counts, timeout values (High)
+- Vague gotchas without specifics (High)
+
+See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for full analysis.
+
+**Principle**: Extract facts with code, synthesize with LLM.
+
+#### 6.6.1 Surface Existing Data (P0)
+
+Data already in ts-morph but not included in output.
+
+| Step | What | Implementation | Benchmark After |
+|------|------|----------------|-----------------|
+| 6.6.1.1 | Line numbers | Add `startLine`, `endLine` to function/class nodes | ✓ |
+| 6.6.1.2 | Code snippets | Add `sourceCode` field (first 20 lines) to nodes | ✓ |
+| 6.6.1.3 | Default param values | Extract from `param.getInitializer()` | |
+| 6.6.1.4 | Return types | Add explicit return type to signatures | |
+
+**Benchmark checkpoint**: Re-run benchmark, expect Completeness to improve.
+
+#### 6.6.2 Pattern Detection (P1)
+
+Detect common patterns via AST analysis.
+
+| Step | Pattern | Detection Method | Output |
+|------|---------|------------------|--------|
+| 6.6.2.1 | Retry logic | Find loops containing try/catch + sleep | `{ maxRetries, backoffType, backoffFormula }` |
+| 6.6.2.2 | Error handling | Parse catch clauses, find status checks | `{ catches, throws, statusCodes }` |
+| 6.6.2.3 | Timeout config | Find AbortController, setTimeout patterns | `{ timeout, configurable }` |
+| 6.6.2.4 | Config values | Find const declarations with numeric literals | `{ name, value, line }` |
+
+**Benchmark checkpoint**: Re-run Task 2 (error handling), expect score to improve significantly.
+
+#### 6.6.3 Enhanced Metadata (P2)
+
+Additional computed metrics.
+
+| Step | Metric | Implementation |
+|------|--------|----------------|
+| 6.6.3.1 | Cyclomatic complexity | Count branches, loops, conditionals |
+| 6.6.3.2 | Lines of code per function | From AST line numbers |
+| 6.6.3.3 | Call graph (intra-file) | Track function calls within file |
+
+#### 6.6.4 Feed Facts to LLM
+
+Update prose prompts to include deterministic facts, so LLM synthesizes rather than discovers.
+
+| Step | Change |
+|------|--------|
+| 6.6.4.1 | Include detected patterns in prompt |
+| 6.6.4.2 | Include line numbers for key functions |
+| 6.6.4.3 | Include config values found |
+| 6.6.4.4 | Ask LLM to explain/synthesize, not discover |
+
+**Final benchmark**: Full 5-task benchmark, target Pith score ≥20/25.
+
+#### Phase 6.6 Success Criteria
+
+| Metric | Before | Target |
+|--------|--------|--------|
+| Completeness | 1.8/5 | ≥4/5 |
+| Actionability | 1.8/5 | ≥4/5 |
+| Overall score | 12.6/25 | ≥20/25 |
+
+---
+
 ### Phase 7: Advanced Relationships
 
 **Lower priority** - nice to have but not critical for task context.

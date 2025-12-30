@@ -2,9 +2,63 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6 - On-Demand Generation & Task-Oriented Context
-**Current step**: Phase 7 (future) - Advanced Relationships
+**Last completed phase**: Phase 6.5 - Gotcha Validation
+**Current step**: Phase 6.6 - Enhanced Deterministic Extraction
 **Date**: 2025-12-30
+
+---
+
+## Phase 6.6: Enhanced Deterministic Extraction - IN PROGRESS
+
+**Goal**: Close information gaps by extracting facts deterministically, reducing LLM to synthesis only.
+
+**Benchmark baseline** (2025-12-30):
+- Pith score: 12.6/25
+- Control score: 24.2/25
+- Key gaps: Line numbers, code snippets, implementation details
+
+See `docs/benchmark-results/2025-12-30-self-test.md` for full results.
+See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for analysis.
+
+### 6.6.1 Surface Existing Data (P0)
+| Step | What | Status | Benchmark |
+|------|------|--------|-----------|
+| 6.6.1.1 | Line numbers for functions | Pending | |
+| 6.6.1.2 | Code snippets (first 20 lines) | Pending | |
+| 6.6.1.3 | Default parameter values | Pending | |
+| 6.6.1.4 | Explicit return types | Pending | |
+
+### 6.6.2 Pattern Detection (P1)
+| Step | Pattern | Status | Benchmark |
+|------|---------|--------|-----------|
+| 6.6.2.1 | Retry logic detection | Pending | |
+| 6.6.2.2 | Error handling summary | Pending | |
+| 6.6.2.3 | Timeout configuration | Pending | |
+| 6.6.2.4 | Config value extraction | Pending | |
+
+### 6.6.3 Enhanced Metadata (P2)
+| Step | Metric | Status |
+|------|--------|--------|
+| 6.6.3.1 | Cyclomatic complexity | Pending |
+| 6.6.3.2 | Lines per function | Pending |
+| 6.6.3.3 | Intra-file call graph | Pending |
+
+### 6.6.4 Feed Facts to LLM
+| Step | Change | Status |
+|------|--------|--------|
+| 6.6.4.1 | Include patterns in prompt | Pending |
+| 6.6.4.2 | Include line numbers | Pending |
+| 6.6.4.3 | Include config values | Pending |
+| 6.6.4.4 | Update prompt to synthesize not discover | Pending |
+
+### Success Criteria
+| Metric | Before | Target | Current |
+|--------|--------|--------|---------|
+| Completeness | 1.8/5 | ≥4/5 | - |
+| Actionability | 1.8/5 | ≥4/5 | - |
+| Overall | 12.6/25 | ≥20/25 | - |
+
+---
 
 ### Phase 6 - On-Demand Generation & Task-Oriented Context - COMPLETE ✅
 
