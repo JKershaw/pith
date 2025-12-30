@@ -18,9 +18,9 @@ data/
 .DS_Store
 Thumbs.db
 
-# Test artifacts
-coverage/
-
-# Environment
+# Environment variables (API keys)
 .env
 .env.local
+
+# Test artifacts
+coverage/

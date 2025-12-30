@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { Project } from 'ts-morph';
+import { Project, SyntaxKind, type FunctionDeclaration, type MethodDeclaration } from 'ts-morph';
 import { minimatch } from 'minimatch';
 import type { MangoDb } from '@jkershaw/mangodb';
 import type { GitInfo } from './git.ts';
@@ -37,9 +37,20 @@ export interface Param {
 }
 
 /**
- * Function data.
+ * Key statement extracted from a function via AST analysis.
+ * These are the "important" lines that capture config, formulas, conditions.
  */
-export interface Function {
+export interface KeyStatement {
+  line: number;
+  text: string;
+  category: 'config' | 'url' | 'math' | 'condition' | 'error';
+}
+
+/**
+ * Function data extracted from AST.
+ * Named FunctionData to avoid shadowing global Function constructor.
+ */
+export interface FunctionData {
   name: string;
   signature: string;
   params: Param[];
@@ -48,6 +59,8 @@ export interface Function {
   isExported: boolean;
   startLine: number;
   endLine: number;
+  codeSnippet: string;  // First N lines of function source
+  keyStatements: KeyStatement[];  // Important statements extracted via AST
 }
 
 /**
@@ -64,7 +77,7 @@ export interface Property {
  */
 export interface Class {
   name: string;
-  methods: Function[];
+  methods: FunctionData[];
   properties: Property[];
   isExported: boolean;
   extends?: string;
@@ -88,7 +101,7 @@ export interface ExtractedFile {
   lines: number;
   imports: Import[];
   exports: Export[];
-  functions: Function[];
+  functions: FunctionData[];
   classes: Class[];
   interfaces: Interface[];
   git?: GitInfo;
@@ -101,6 +114,120 @@ export interface ExtractedFile {
 export interface FindFilesOptions {
   include?: string[];
   exclude?: string[];
+}
+
+/**
+ * Maximum lines to include in code snippets.
+ */
+const SNIPPET_MAX_LINES = 15;
+
+/**
+ * Extract a code snippet from a function or method.
+ * Returns the first N lines with a truncation indicator if needed.
+ * @param getText - Function that returns the full source text
+ * @param maxLines - Maximum lines to include (default: 15)
+ * @returns The code snippet string
+ */
+function getCodeSnippet(getText: () => string, maxLines = SNIPPET_MAX_LINES): string {
+  const fullText = getText();
+  const lines = fullText.split('\n');
+
+  if (lines.length <= maxLines) {
+    return fullText;
+  }
+
+  const remainingLines = lines.length - maxLines;
+  return lines.slice(0, maxLines).join('\n') + `\n  // ... (${remainingLines} more lines)`;
+}
+
+/**
+ * Extract key statements from a function using AST analysis.
+ * Finds config values, URLs, math expressions, conditions, and error handling.
+ * @param func - The function or method declaration to analyze
+ * @returns Array of key statements with line numbers and categories
+ */
+function extractKeyStatements(func: FunctionDeclaration | MethodDeclaration): KeyStatement[] {
+  const statements: KeyStatement[] = [];
+
+  // 1. Find variable declarations with numeric literals or nullish coalescing defaults
+  for (const decl of func.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = decl.getInitializer();
+    if (!init) continue;
+
+    const initText = init.getText();
+    const declText = decl.getText();
+    const line = decl.getStartLineNumber();
+
+    // Config: numeric literals or ?? with numeric fallback
+    if (init.getKind() === SyntaxKind.NumericLiteral ||
+        initText.match(/\?\?\s*\d+/) ||
+        initText.match(/\|\|\s*\d+/)) {
+      statements.push({ line, text: declText, category: 'config' });
+      continue;
+    }
+
+    // URL: string literals that look like URLs
+    if (init.getKind() === SyntaxKind.StringLiteral &&
+        initText.match(/https?:\/\/|wss?:\/\//)) {
+      statements.push({ line, text: declText, category: 'url' });
+      continue;
+    }
+
+    // Math: expressions with Math.pow, **, or exponential patterns
+    if (initText.includes('Math.pow') || initText.includes('**')) {
+      statements.push({ line, text: declText, category: 'math' });
+      continue;
+    }
+  }
+
+  // 2. Find Math.pow or ** in any expression (not just variable declarations)
+  for (const call of func.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callText = call.getText();
+    if (callText.includes('Math.pow')) {
+      // Get the containing statement
+      const stmt = call.getFirstAncestorByKind(SyntaxKind.VariableStatement) ||
+                   call.getFirstAncestorByKind(SyntaxKind.ExpressionStatement);
+      if (stmt) {
+        const line = stmt.getStartLineNumber();
+        // Avoid duplicates
+        if (!statements.some(s => s.line === line)) {
+          statements.push({ line, text: stmt.getText().trim(), category: 'math' });
+        }
+      }
+    }
+  }
+
+  // 3. Find status code conditionals (if status === 429, status >= 500, etc.)
+  for (const ifStmt of func.getDescendantsOfKind(SyntaxKind.IfStatement)) {
+    const condition = ifStmt.getExpression().getText();
+    // Match status code patterns
+    if (condition.match(/status\s*(===|==|>=|<=|>|<)\s*\d{3}/) ||
+        condition.match(/\d{3}\s*(===|==|>=|<=|>|<)\s*status/)) {
+      const line = ifStmt.getStartLineNumber();
+      // Get just the condition part, not the body
+      const conditionOnly = `if (${condition})`;
+      statements.push({ line, text: conditionOnly, category: 'condition' });
+    }
+  }
+
+  // 4. Find catch clauses (error handling)
+  for (const catchClause of func.getDescendantsOfKind(SyntaxKind.CatchClause)) {
+    const line = catchClause.getStartLineNumber();
+    const param = catchClause.getVariableDeclaration();
+    const paramText = param ? param.getText() : 'error';
+    statements.push({ line, text: `catch (${paramText})`, category: 'error' });
+  }
+
+  // Sort by line number and deduplicate
+  statements.sort((a, b) => a.line - b.line);
+
+  // Remove duplicates (same line)
+  const seen = new Set<number>();
+  return statements.filter(s => {
+    if (seen.has(s.line)) return false;
+    seen.add(s.line);
+    return true;
+  });
 }
 
 /**
@@ -305,7 +432,7 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
   }
 
   // Extract functions
-  const functions: Function[] = sourceFile.getFunctions().map((func) => ({
+  const functions: FunctionData[] = sourceFile.getFunctions().map((func) => ({
     name: func.getName() || 'anonymous',
     signature: func.getSignature().getDeclaration().getText(),
     params: func.getParameters().map((p) => ({
@@ -319,6 +446,8 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     isExported: func.isExported(),
     startLine: func.getStartLineNumber(),
     endLine: func.getEndLineNumber(),
+    codeSnippet: getCodeSnippet(() => func.getText()),
+    keyStatements: extractKeyStatements(func),
   }));
 
   // Extract classes
@@ -338,6 +467,8 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
       isExported: false, // Methods aren't directly exported
       startLine: method.getStartLineNumber(),
       endLine: method.getEndLineNumber(),
+      codeSnippet: getCodeSnippet(() => method.getText()),
+      keyStatements: extractKeyStatements(method),
     })),
     properties: cls.getProperties().map((prop) => ({
       name: prop.getName(),
