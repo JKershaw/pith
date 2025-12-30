@@ -1,8 +1,24 @@
 import type { WikiNode } from '../builder/index.ts';
 import type { MangoDb } from '@jkershaw/mangodb';
+import { ProxyAgent } from 'undici';
 
-// Note: Global proxy configuration was removed to avoid conflicts with localhost connections in tests
-// If proxy support is needed for OpenRouter API calls, it should be configured per-request in callLLM
+/**
+ * Get proxy agent for external URLs.
+ * Only applies proxy for non-localhost URLs to avoid conflicts with tests.
+ */
+function getProxyDispatcher(url: string): ProxyAgent | undefined {
+  // Don't use proxy for localhost connections (tests)
+  if (url.includes('localhost') || url.includes('127.0.0.1')) {
+    return undefined;
+  }
+
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY ||
+                   process.env.https_proxy || process.env.http_proxy;
+  if (proxyUrl) {
+    return new ProxyAgent(proxyUrl);
+  }
+  return undefined;
+}
 
 /**
  * Generated prose for a node
@@ -441,6 +457,9 @@ export async function callLLM(
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
       try {
+        // Get proxy dispatcher for external URLs (won't apply for localhost/tests)
+        const dispatcher = getProxyDispatcher(url);
+
         const response = await fetchFn(url, {
           method: 'POST',
           headers: {
@@ -451,6 +470,8 @@ export async function callLLM(
           },
           body: JSON.stringify(body),
           signal: controller.signal,
+          // @ts-expect-error - dispatcher is a valid undici option but not in standard fetch types
+          dispatcher,
         });
 
         if (!response.ok) {
