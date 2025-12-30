@@ -106,6 +106,10 @@ Record:
 
 Send both contexts to the judge with the scoring rubric.
 
+#### Step 4: Information Gap Analysis
+
+After all tasks are judged, compile an information gap analysis comparing what each approach provided. This is critical for identifying specific improvements to Pith.
+
 **Judge Prompt**:
 ```
 You are evaluating context quality for an LLM coding task.
@@ -253,6 +257,55 @@ Copy this template for each benchmark run:
 
 ### Issues Found
 1. [Issue description]
+
+---
+
+## Information Gap Analysis
+
+This section identifies specific information types that each approach provides.
+
+### Information Type Comparison
+
+| Information Type | Pith | Control | Gap Severity |
+|------------------|:----:|:-------:|:------------:|
+| Module/file names | | | |
+| One-line summary | | | |
+| Purpose description | | | |
+| Gotchas/warnings | | | |
+| Key exports list | | | |
+| Import relationships | | | |
+| Fan-in/fan-out metrics | | | |
+| Git metadata | | | |
+| Line numbers | | | |
+| Code snippets | | | |
+| Function signatures | | | |
+| Specific variable/config values | | | |
+| Implementation details | | | |
+| Error handling logic | | | |
+| Data flow explanation | | | |
+| Priority/criticality ranking | | | |
+| Test file locations | | | |
+| Suggested changes | | | |
+
+**Legend**: ✅ = Provided, ⚠️ = Partial, ❌ = Missing
+**Gap Severity**: None, Minor, Medium, High, Critical
+
+### Concrete Examples
+
+For 1-2 tasks, provide specific before/after comparisons:
+
+#### Example: [Task Name]
+| Detail | Pith Said | Control Said | Gap |
+|--------|-----------|--------------|-----|
+| [specific detail] | [what Pith provided] | [what Control provided] | [gap description] |
+
+### Priority Improvements
+
+Based on the gap analysis, list specific improvements for Pith:
+
+1. **Critical**: [gaps that must be addressed]
+2. **High**: [gaps that significantly impact usefulness]
+3. **Medium**: [gaps that would improve experience]
 ```
 
 ---
@@ -312,3 +365,4 @@ EXTRACT_TIME=$(($(date +%s) - START))
 | Date | Change | Author |
 |------|--------|--------|
 | 2025-12-30 | Initial benchmarking plan created | Claude |
+| 2025-12-30 | Added Information Gap Analysis section to template | Claude |
