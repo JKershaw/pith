@@ -4,7 +4,7 @@
 
 **Last completed phase**: Phase 6 - On-Demand Generation & Task-Oriented Context
 **Current step**: Phase 7 (future) - Advanced Relationships
-**Date**: 2025-12-29
+**Date**: 2025-12-30
 
 ### Phase 6 - On-Demand Generation & Task-Oriented Context - COMPLETE ✅
 
@@ -17,6 +17,49 @@ All Phase 6 priorities implemented:
 | 3 | Modification impact in context | **DONE** |
 | 4 | Pattern examples | **DONE** |
 | 5 | Gotcha validation | **DONE** |
+
+---
+
+## Phase 6 Manual Validation - COMPLETE
+
+### Validation Performed (2025-12-30)
+
+**Test Environment**: Ran Pith on itself (dogfooding)
+
+**Extraction Results**:
+- Default config: 17 TypeScript files (test files excluded)
+- With test files: 29 files extracted
+- All files processed successfully
+
+**Build Results**:
+- 29 file nodes, 57 function nodes, 10 module nodes
+- Edges correctly established (imports, contains, parent, testFile, importedBy)
+
+**Phase 6.2 - Test File Mapping** ✅ VERIFIED:
+- `testFile` edges created when test files are included in extraction
+- Example: `src/api/index.ts` → `src/api/index.test.ts`
+- Context bundling automatically includes test files
+- Note: Test files excluded by default in config; include with custom `exclude` pattern
+
+**Phase 6.3 - Modification Impact** ✅ VERIFIED:
+- `importedBy` edges correctly created for all imports
+- Example: `src/extractor/ast.ts` has 7 dependents
+- Fan-in warning displays: `> **Warning:** Widely used (7 files depend on this)`
+- "Dependents" section shows in markdown output:
+  ```
+  **Dependents:**
+  - src/builder/index.ts
+  - src/cli/index.ts
+  - src/extractor/docs.ts
+  ...
+  ```
+
+**API Validation**:
+- `GET /node/:path` returns complete node data with all edge types
+- `GET /context?files=...` bundles requested files, imports, parents, and test files
+- Markdown format clean and readable with fan-in warnings
+
+**Issues Found**: None blocking
 
 ---
 
