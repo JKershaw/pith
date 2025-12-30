@@ -475,10 +475,17 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
   }
 
   // Extract functions
-  // Phase 6.6.7a.1: First, collect all function names in the file
-  const allFunctionNames = new Set<string>(
-    sourceFile.getFunctions().map((f) => f.getName() || 'anonymous')
-  );
+  // Phase 6.6.7a.1: Build global set of all callable names (functions + all class methods)
+  // This allows detecting intra-file calls between top-level functions and class methods
+  const allCallableNames = new Set<string>();
+  for (const func of sourceFile.getFunctions()) {
+    allCallableNames.add(func.getName() || 'anonymous');
+  }
+  for (const cls of sourceFile.getClasses()) {
+    for (const method of cls.getMethods()) {
+      allCallableNames.add(method.getName());
+    }
+  }
 
   const functions: FunctionData[] = sourceFile.getFunctions().map((func) => ({
     name: func.getName() || 'anonymous',
@@ -497,49 +504,44 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     endLine: func.getEndLineNumber(),
     codeSnippet: getCodeSnippet(() => func.getText()),
     keyStatements: extractKeyStatements(func),
-    calls: extractFunctionCalls(func, allFunctionNames),  // Phase 6.6.7a.1
+    calls: extractFunctionCalls(func, allCallableNames),  // Phase 6.6.7a.1
     calledBy: [],  // Phase 6.6.7a.4: Computed later in builder
     errorPaths: extractErrorPaths(func),  // Phase 6.6.8
   }));
 
   // Extract classes
-  const classes: Class[] = sourceFile.getClasses().map((cls) => {
-    // Phase 6.6.7a.1: Collect all method names for this class
-    const allMethodNames = new Set<string>(cls.getMethods().map((m) => m.getName()));
-
-    return {
-      name: cls.getName() || 'anonymous',
-      methods: cls.getMethods().map((method) => ({
-        name: method.getName(),
-        signature: method.getSignature().getDeclaration().getText(),
-        params: method.getParameters().map((p) => ({
-          name: p.getName(),
-          type: p.getType().getText(),
-          isOptional: p.isOptional(),
-          defaultValue: p.getInitializer()?.getText(),
-        })),
-        returnType: method.getReturnType().getText(),
-        isAsync: method.isAsync(),
-        isExported: false, // Methods aren't directly exported
-        isDefaultExport: false, // Methods aren't default exported
-        startLine: method.getStartLineNumber(),
-        endLine: method.getEndLineNumber(),
-        codeSnippet: getCodeSnippet(() => method.getText()),
-        keyStatements: extractKeyStatements(method),
-        calls: extractFunctionCalls(method, allMethodNames),  // Phase 6.6.7a.1
-        calledBy: [],  // Phase 6.6.7a.4: Computed later in builder
-        errorPaths: extractErrorPaths(method),  // Phase 6.6.8
+  const classes: Class[] = sourceFile.getClasses().map((cls) => ({
+    name: cls.getName() || 'anonymous',
+    methods: cls.getMethods().map((method) => ({
+      name: method.getName(),
+      signature: method.getSignature().getDeclaration().getText(),
+      params: method.getParameters().map((p) => ({
+        name: p.getName(),
+        type: p.getType().getText(),
+        isOptional: p.isOptional(),
+        defaultValue: p.getInitializer()?.getText(),
       })),
-      properties: cls.getProperties().map((prop) => ({
-        name: prop.getName(),
-        type: prop.getType().getText(),
-        isOptional: prop.hasQuestionToken(),
-      })),
-      isExported: cls.isExported(),
-      extends: cls.getExtends()?.getText(),
-      implements: cls.getImplements().map((i) => i.getText()),
-    };
-  });
+      returnType: method.getReturnType().getText(),
+      isAsync: method.isAsync(),
+      isExported: false, // Methods aren't directly exported
+      isDefaultExport: false, // Methods aren't default exported
+      startLine: method.getStartLineNumber(),
+      endLine: method.getEndLineNumber(),
+      codeSnippet: getCodeSnippet(() => method.getText()),
+      keyStatements: extractKeyStatements(method),
+      calls: extractFunctionCalls(method, allCallableNames),  // Phase 6.6.7a.1: Use global callable set
+      calledBy: [],  // Phase 6.6.7a.4: Computed later in builder
+      errorPaths: extractErrorPaths(method),  // Phase 6.6.8
+    })),
+    properties: cls.getProperties().map((prop) => ({
+      name: prop.getName(),
+      type: prop.getType().getText(),
+      isOptional: prop.hasQuestionToken(),
+    })),
+    isExported: cls.isExported(),
+    extends: cls.getExtends()?.getText(),
+    implements: cls.getImplements().map((i) => i.getText()),
+  }));
 
   // Extract interfaces
   const interfaces: Interface[] = sourceFile.getInterfaces().map((iface) => ({
