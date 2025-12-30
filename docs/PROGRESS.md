@@ -36,22 +36,37 @@ See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for analysis.
 - `formatContextAsMarkdown()` now displays full function details in API output
 - See `docs/benchmark-results/2025-12-30-p0-implementation.md` for full results
 
-### 6.6.2 Pattern Detection (P1)
+**Manual Validation (2025-12-30)**:
+Ran Pith on itself and verified `/context` output for `src/generator/index.ts`:
+- ✅ Function `callLLM` shows lines 469-565
+- ✅ Key statements captured:
+  - URL: `'https://openrouter.ai/api/v1/chat/completions'`
+  - Config: `maxRetries = 3`, `timeout = config.timeout ?? 30000`
+  - Condition: `if (response.status === 429)`
+  - Math: `Math.pow(2, attempt) * 1000` (backoff formula)
+  - Error: `catch (error)`
+- All critical information gaps from benchmark are now closed
 
-| Step | Pattern | Status | Benchmark |
-|------|---------|--------|-----------|
-| 6.6.2.1 | Retry logic detection | Pending | |
-| 6.6.2.2 | Error handling summary | Pending | |
-| 6.6.2.3 | Timeout configuration | Pending | |
-| 6.6.2.4 | Config value extraction | Pending | |
+### 6.6.2 Pattern Detection (P1) - MOSTLY COVERED BY 6.6.1.3
+
+**Assessment**: Key statements extraction (6.6.1.3) already provides most P1 value:
+
+| Step | Pattern | Status | Notes |
+|------|---------|--------|-------|
+| 6.6.2.1 | Retry logic detection | **Covered** | Key statements find maxRetries, backoff formula |
+| 6.6.2.2 | Error handling summary | **Covered** | Key statements find catch clauses, status checks |
+| 6.6.2.3 | Timeout configuration | **Covered** | Key statements find timeout values |
+| 6.6.2.4 | Config value extraction | **Covered** | Key statements find all config values |
+
+**Recommendation**: Skip structured pattern objects for now. Key statements provide raw facts; LLM can synthesize.
 
 ### 6.6.3 Enhanced Metadata (P2)
 
-| Step | Metric | Status |
-|------|--------|--------|
-| 6.6.3.1 | Cyclomatic complexity | Pending |
-| 6.6.3.2 | Lines per function | Pending |
-| 6.6.3.3 | Intra-file call graph | Pending |
+| Step | Metric | Status | Notes |
+|------|--------|--------|-------|
+| 6.6.3.1 | Cyclomatic complexity | Pending | Nice-to-have |
+| 6.6.3.2 | Lines per function | **Done** | Via startLine/endLine |
+| 6.6.3.3 | Intra-file call graph | Pending | Nice-to-have |
 
 ### 6.6.4 Feed Facts to LLM
 
