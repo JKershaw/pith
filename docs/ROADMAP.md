@@ -520,16 +520,22 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 - Control found: Pipeline, Singleton, Factory, Strategy, Builder, Retry+Backoff, Cache, etc.
 - Pith mentioned no patterns by name
 
-| Step | What | Detection Method |
-|------|------|------------------|
-| 6.6.6.1 | Detect Pipeline pattern | Sequential function calls with output→input chaining |
-| 6.6.6.2 | Detect Singleton pattern | Module-level instance with getter function |
-| 6.6.6.3 | Detect Factory pattern | Functions returning new instances based on input type |
-| 6.6.6.4 | Detect Retry pattern | Loop containing try/catch with delay |
-| 6.6.6.5 | Detect Command pattern | Functions matching `*Command` or CLI handler structure |
-| 6.6.6.6 | Add "Patterns" section to prose prompt | LLM confirms/refines detected patterns |
+**Depends on**: 6.6.7a (intra-file call graph) for accurate pattern detection
 
-**Benchmark checkpoint**: Re-run A3 task, expect Completeness to improve 1→4.
+**Approach**: Start conservatively with high-confidence patterns, add validation to reduce false positives.
+
+| Step | What | Detection Method | Confidence |
+|------|------|------------------|------------|
+| 6.6.6.1 | Detect Retry pattern | Loop containing try/catch + exponential delay (Math.pow) | High |
+| 6.6.6.2 | Detect Cache pattern | Module with Map/Object + get/set/has functions | High |
+| 6.6.6.3 | Detect Builder pattern | Class/functions with chained methods returning `this` | Medium |
+| 6.6.6.4 | Detect Singleton pattern | Module-level `let x = null` + getter checking null | Medium |
+| 6.6.6.5 | Validate detected patterns | Cross-check with AST evidence before reporting | Required |
+| 6.6.6.6 | Add "Patterns" section to prose prompt | LLM confirms/refines detected patterns with evidence | - |
+
+**Note**: Pipeline, Factory, Strategy, Command patterns require call graph (6.6.7) - defer to 6.6.6b.
+
+**Benchmark checkpoint**: Re-run A3 task, expect Completeness to improve 1→3 (conservative start).
 
 ##### 6.6.7 Cross-File Tracing
 
@@ -539,14 +545,31 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 - B2 (buildPrompt): Control traced dispatcher→buildFilePrompt→formatFunctionForPrompt→formatKeyStatements
 - Pith only listed function names without showing flow
 
+**Complexity note**: Full cross-file tracing requires symbol resolution, handling re-exports, and dynamic calls. Decompose into phases.
+
+###### 6.6.7a Intra-File Call Graph (Simpler)
+
 | Step | What | Output |
 |------|------|--------|
-| 6.6.7.1 | Build cross-file call graph during extraction | Map: `file:function → [file:function, ...]` |
-| 6.6.7.2 | For API endpoints, trace from route → handler → dependencies | Call chain with file:line references |
-| 6.6.7.3 | For key functions, identify callers across all files | "Called by" section in context |
-| 6.6.7.4 | Add "Call Flow" section for functions with >3 calls | Show traced path for complex functions |
+| 6.6.7a.1 | Track function calls within same file | Map: `function → [called functions]` |
+| 6.6.7a.2 | Identify call chains (A→B→C) within file | Ordered call sequences |
+| 6.6.7a.3 | Add "Calls" field to function nodes | List of functions called |
+| 6.6.7a.4 | Add "Called by" field to function nodes | Reverse lookup within file |
 
-**Benchmark checkpoint**: Re-run B1, B2 tasks, expect Completeness to improve 2→4.
+**Enables**: 6.6.6 (pattern detection), 6.6.8 (error path tracing)
+
+###### 6.6.7b Cross-File Call Graph (Complex)
+
+**Depends on**: 6.6.7a complete
+
+| Step | What | Output |
+|------|------|--------|
+| 6.6.7b.1 | Resolve imported symbols to source files | Map: `import X from './y'` → `y.ts:X` |
+| 6.6.7b.2 | Handle re-exports (`export { X } from './y'`) | Follow re-export chains |
+| 6.6.7b.3 | Build cross-file call graph | Map: `file:function → [file:function, ...]` |
+| 6.6.7b.4 | Add "Call Flow" section for functions with >3 cross-file calls | Show traced path |
+
+**Benchmark checkpoint**: After 6.6.7a, re-run B1 task, expect partial improvement. After 6.6.7b, expect Completeness 2→4.
 
 ##### 6.6.8 Error Path Analysis
 
@@ -556,11 +579,13 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 - D3 (404 debugging): Control found 13 distinct causes with line numbers
 - Pith was generic: "API module handles requests"
 
+**Depends on**: 6.6.7a (intra-file call graph) to trace error propagation through function calls
+
 | Step | What | Output |
 |------|------|--------|
-| 6.6.8.1 | Trace error propagation in catch blocks | Which errors are caught, re-thrown, transformed |
-| 6.6.8.2 | Find all `return` statements with error conditions | Map: error type → return location |
-| 6.6.8.3 | Identify validation/guard conditions that cause early exit | List conditions that reject input |
+| 6.6.8.1 | Find all early return/throw statements | Map: condition → exit location |
+| 6.6.8.2 | Trace error propagation in catch blocks | Which errors are caught, re-thrown, transformed |
+| 6.6.8.3 | Identify validation guards (if checks before main logic) | List conditions that reject input |
 | 6.6.8.4 | Add "Error Paths" section for functions with try/catch | Show caught errors and their handling |
 
 **Benchmark checkpoint**: Re-run D3 task, expect Actionability to improve 1→4.
@@ -587,12 +612,28 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 | Actionability | 1.8/5 | 1.8/5 | ≥4/5 | -2.2 |
 | Overall score | 12.6/25 | 15.5/25 | ≥20/25 | -4.5 |
 
-**Priority Order** (based on benchmark impact):
-1. **6.6.5 Change Impact** - Closes modification task gap (-11 points)
-2. **6.6.6 Pattern Recognition** - Closes architecture gap (-11 points in A3)
-3. **6.6.7 Cross-File Tracing** - Closes behavior task gap (-8 points)
-4. **6.6.8 Error Paths** - Closes debugging task gap (-8.5 points)
-5. 6.6.9 Implementation Hints - Deferred (requires above work first)
+**Execution Order** (accounting for dependencies):
+
+```
+6.6.5 Change Impact ─────────────────────────────────► Independent, start first
+
+6.6.7a Intra-File Call Graph ──┬──► 6.6.6 Pattern Recognition
+                               │
+                               ├──► 6.6.8 Error Path Analysis
+                               │
+                               └──► 6.6.7b Cross-File Call Graph ──► 6.6.6b Advanced Patterns
+```
+
+| Phase | Task | Depends On | Benchmark Target |
+|-------|------|------------|------------------|
+| 1 | 6.6.5 Change Impact | None | M1-M3: 13→18 |
+| 2 | 6.6.7a Intra-File Calls | None | Enables 3-5 |
+| 3 | 6.6.6 Pattern Recognition | 6.6.7a | A3: 13→18 |
+| 4 | 6.6.8 Error Paths | 6.6.7a | D1-D3: 15→20 |
+| 5 | 6.6.7b Cross-File Calls | 6.6.7a | B1-B3: 16→20 |
+| 6 | 6.6.9 Implementation Hints | 6.6.5, 6.6.6 | M2-M3: 13→18 |
+
+**Note**: Gaps overlap across tasks. Closing these 4-5 capabilities should move overall score from 15.5→20+.
 
 ---
 

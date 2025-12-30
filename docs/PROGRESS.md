@@ -100,15 +100,19 @@ Ran Pith on itself and verified `/context` output for `src/generator/index.ts`:
 
 Based on comprehensive 15-task benchmark, remaining gaps require new capabilities:
 
-| Gap | Task Evidence | Score Impact | Priority |
-|-----|---------------|--------------|----------|
-| Design pattern identification | A3: 13/25 (Control found 18 patterns, Pith found 0) | -11 | P1 |
-| Cross-file tracing | B1, B2, R2: avg 16/25 (Control traces complete chains) | -8 | P1 |
-| Error path analysis | D1, D3: avg 15/25 (Control found 13 causes for 404) | -8.5 | P1 |
-| Change impact analysis | M1-M3: avg 13/25 (Control maps all affected files) | -11 | P0 |
-| Implementation hints | M2, M3: 13/25 (Control provides step-by-step guides) | -11 | P2 |
+| Gap | Task Evidence | Task Score | Priority |
+|-----|---------------|------------|----------|
+| Change impact analysis | M1-M3: avg 13/25 (Control maps all affected files) | 13/25 | P0 |
+| Design pattern identification | A3: 13/25 (Control found 18 patterns, Pith found 0) | 13/25 | P1 |
+| Cross-file tracing | B1, B2, R2: avg 16/25 (Control traces complete chains) | 16/25 | P1 |
+| Error path analysis | D1, D3: avg 15/25 (Control found 13 causes for 404) | 15/25 | P1 |
+| Implementation hints | M2, M3: 13/25 (Control provides step-by-step guides) | 13/25 | P2 |
 
-**Note**: P0-P1 priorities remain; P2 (complexity, call graph) deferred as nice-to-have.
+**Note**: Gaps overlap - fixing one capability may improve multiple task categories. The 8.4-point overall gap (15.5→23.9) requires addressing several capabilities, not all independently.
+
+**Dependencies**:
+- 6.6.7 (Cross-file tracing) enables 6.6.6 (Pattern detection) and 6.6.8 (Error paths)
+- 6.6.5 (Change impact) is independent and highest priority
 
 ---
 
