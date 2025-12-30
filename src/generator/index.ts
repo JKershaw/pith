@@ -8,7 +8,7 @@ import { ProxyAgent } from 'undici';
  */
 function getProxyDispatcher(url: string): ProxyAgent | undefined {
   // Don't use proxy for localhost connections (tests)
-  if (url.includes('localhost') || url.includes('127.0.0.1')) {
+  if (url.includes('localhost') || url.includes('127.0.0.1') || url.includes('[::1]')) {
     return undefined;
   }
 
@@ -339,8 +339,8 @@ export function validateGotcha(gotcha: string, node: WikiNode): ValidatedGotcha 
   // Add function names from signatures
   if (node.raw.signature) {
     for (const sig of node.raw.signature) {
-      // Extract function name from signature (e.g., "login(..." -> "login")
-      const match = sig.match(/^(\w+)\(/);
+      // Extract function name from signature (e.g., "login(..." or "function login(..." or "async function login(...)")
+      const match = sig.match(/(?:async\s+)?(?:function\s+)?(\w+)\s*\(/);
       if (match) {
         knownNames.add(match[1]);
       }
