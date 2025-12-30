@@ -5,9 +5,51 @@
 
 ---
 
-## Task 2 Comparison: Error Handling
+## Actual Benchmark Results
 
+### Task 2: Error Handling
 **Question**: "How does the prose generator handle errors and retries when the LLM API fails?"
+
+| Criterion | Baseline | P0 (Pith) | Control |
+|-----------|:--------:|:---------:|:-------:|
+| Relevance | 2 | **5** | 5 |
+| Completeness | 2 | **3** | 5 |
+| Accuracy | 4 | **5** | 5 |
+| Efficiency | 4 | **3** | 5 |
+| Actionability | 2 | **2** | 5 |
+| **Total** | **14/25** | **18/25** | **25/25** |
+
+**Improvement**: +4 points (14 → 18)
+
+### Judge Reasoning
+> "Context B provides comprehensive, actionable information including the complete retry mechanism with exponential backoff formula (2^attempt seconds), specific delay examples, and clear categorization of error types. Context A shows actual code but is heavily truncated ("... (82 more lines)"), omitting the critical retry loop implementation and backoff calculation."
+
+---
+
+## Analysis
+
+### What Improved (+4 points)
+- **Relevance**: 2→5 - Code snippets directly show the relevant functions
+- **Accuracy**: 4→5 - Actual code is authoritative
+
+### What Didn't Improve
+- **Completeness**: 2→3 - Still missing backoff formula (deeper in function)
+- **Actionability**: 2→2 - Truncated snippets still require exploration
+
+### Root Cause
+The 15-line snippet captures:
+- ✅ `maxRetries = 3`
+- ✅ `timeout = config.timeout ?? 30000`
+- ✅ Error conditions in `isRetryableError`
+
+But misses (line 82+ of `callLLM`):
+- ❌ Backoff formula: `Math.pow(2, attempt) * 1000`
+- ❌ Retry loop structure
+- ❌ How errors trigger the backoff
+
+---
+
+## Before vs After Detail
 
 ### Before (Baseline 2025-12-30)
 
@@ -102,14 +144,26 @@ function isRetryableError(error: Error, status?: number): boolean {
 
 ## Summary
 
-The P0 implementation (line numbers + code snippets) closes **5 Critical/High gaps** from the original benchmark:
+### Actual Results
+| Metric | Baseline | After P0 | Control |
+|--------|:--------:|:--------:|:-------:|
+| Task 2 Score | 14/25 | **18/25** | 25/25 |
+| Improvement | - | **+4 pts** | - |
 
+### What P0 Achieved
 1. ✅ **Line numbers** - Every function shows exact location
 2. ✅ **Code snippets** - First 15 lines of each function visible
-3. ✅ **Specific values** - `maxRetries = 3`, `timeout = 30000` now visible
+3. ✅ **Config values** - `maxRetries = 3`, `timeout = 30000` now visible
 4. ✅ **Error conditions** - `isRetryableError` function fully shown
-5. ✅ **Implementation details** - Actual code patterns visible
+5. ✅ **Relevance** - 2→5 (code directly addresses questions)
 
-**Expected overall score improvement**: 12.6/25 → ~18-20/25
+### Remaining Gap (7 points)
+The 15-line snippet limit means implementation details deeper in functions are still hidden:
+- Backoff formula (`Math.pow(2, attempt) * 1000`) at line ~82
+- Retry loop structure
+- Error-to-backoff flow
 
-The remaining gap to Control (24.2/25) requires P1 pattern detection to explicitly extract backoff formulas and synthesize retry narratives.
+### Next Steps for Further Improvement
+1. **P1: Pattern Detection** - Explicitly extract retry/backoff patterns
+2. **Increase snippet length** for long functions (or smart truncation)
+3. **Synthesize narratives** from detected patterns
