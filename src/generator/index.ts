@@ -177,29 +177,33 @@ function buildFilePrompt(node: WikiNode): string {
     }
   }
   const keyStatementsEmphasis = allKeyStatements.length > 0
-    ? `\n\nKEY VALUES FOUND (you MUST reference these in gotchasDetailed):\n${allKeyStatements.map(s => `  - ${s}`).join('\n')}`
+    ? `\n\nKEY VALUES FOUND (reference significant ones in gotchasDetailed):\n${allKeyStatements.map(s => `  - ${s}`).join('\n')}`
     : '';
 
   return `You are documenting a TypeScript file for a developer-focused codebase wiki.
 
 ## CRITICAL RULES - Read these first:
 
-1. TRANSFORM KEY STATEMENTS → GOTCHAS: Every [config] or [error] key statement below MUST become a gotchasDetailed entry with its exact value and line number.
+1. TRANSFORM SIGNIFICANT KEY STATEMENTS → GOTCHAS: Key statements that could surprise developers or cause issues should become gotchasDetailed entries. Prioritize:
+   - ✓ Timeouts, retry counts, rate limits (e.g., maxRetries = 3, timeout = 30000)
+   - ✓ Error conditions and thresholds (e.g., if (status === 429), MAX_SIZE = 10MB)
+   - ✗ Skip mundane defaults (e.g., indent = 2, encoding = 'utf8', port = 3000)
 
-2. BE SPECIFIC, NOT VAGUE: Include actual values, line numbers, and function names.
+2. BE SPECIFIC, NOT VAGUE: When you do include something, use actual values, line numbers, and function names.
 
 3. EXAMPLE - How to transform input to output:
 
 INPUT (Key statements from code):
-  [config] callLLM line 47: maxRetries = 3
-  [config] callLLM line 48: timeout = 30000
-  [condition] callLLM line 85: if (response.status === 429)
+  [config] callLLM line 47: maxRetries = 3       ← Important: affects error recovery
+  [config] callLLM line 48: timeout = 30000      ← Important: could cause hangs
+  [config] callLLM line 49: indent = 2           ← Skip: mundane formatting default
+  [condition] callLLM line 85: if (response.status === 429)  ← Important: error handling
 
 WRONG OUTPUT (too vague - DO NOT do this):
   "gotchas": ["Has retry logic", "Handles rate limiting"]
   "gotchasDetailed": [{"warning": "May timeout", "location": "callLLM"}]
 
-CORRECT OUTPUT (specific and actionable):
+CORRECT OUTPUT (specific and actionable, skips mundane config):
   "gotchas": ["Retries 3 times with 30s timeout", "429 responses trigger retry"]
   "gotchasDetailed": [
     {"warning": "API calls retry up to 3 times before failing", "location": "callLLM line 47", "evidence": "maxRetries = 3"},
@@ -247,7 +251,7 @@ Generate JSON with these fields:
   }
 }
 
-Remember: Every key statement with [config], [error], or [condition] category should appear in your output with its specific value.`;
+Remember: Focus on key statements that could surprise developers or cause issues. Include specific values and line numbers.`;
 }
 
 /**
