@@ -67,14 +67,13 @@ export function buildPrompt(node: WikiNode, childSummaries?: Map<string, string>
 }
 
 /**
- * Format a function for the prompt with line numbers.
+ * Format a function for the prompt with line numbers and code snippet.
  * @param func - Function details
- * @returns Formatted string with name, lines, and signature
+ * @returns Formatted string with name, lines, and code snippet
  */
 function formatFunctionForPrompt(func: FunctionDetails): string {
-  // Get just the first line of the signature for brevity
-  const signatureFirstLine = func.signature.split('\n')[0].trim();
-  return `  - ${func.name} (lines ${func.startLine}-${func.endLine}): ${signatureFirstLine}`;
+  const header = `### ${func.name} (lines ${func.startLine}-${func.endLine})`;
+  return `${header}\n\`\`\`typescript\n${func.codeSnippet}\n\`\`\``;
 }
 
 /**

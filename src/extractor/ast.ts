@@ -48,6 +48,7 @@ export interface Function {
   isExported: boolean;
   startLine: number;
   endLine: number;
+  codeSnippet: string;  // First N lines of function source
 }
 
 /**
@@ -101,6 +102,30 @@ export interface ExtractedFile {
 export interface FindFilesOptions {
   include?: string[];
   exclude?: string[];
+}
+
+/**
+ * Maximum lines to include in code snippets.
+ */
+const SNIPPET_MAX_LINES = 15;
+
+/**
+ * Extract a code snippet from a function or method.
+ * Returns the first N lines with a truncation indicator if needed.
+ * @param getText - Function that returns the full source text
+ * @param maxLines - Maximum lines to include (default: 15)
+ * @returns The code snippet string
+ */
+function getCodeSnippet(getText: () => string, maxLines = SNIPPET_MAX_LINES): string {
+  const fullText = getText();
+  const lines = fullText.split('\n');
+
+  if (lines.length <= maxLines) {
+    return fullText;
+  }
+
+  const remainingLines = lines.length - maxLines;
+  return lines.slice(0, maxLines).join('\n') + `\n  // ... (${remainingLines} more lines)`;
 }
 
 /**
@@ -319,6 +344,7 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     isExported: func.isExported(),
     startLine: func.getStartLineNumber(),
     endLine: func.getEndLineNumber(),
+    codeSnippet: getCodeSnippet(() => func.getText()),
   }));
 
   // Extract classes
@@ -338,6 +364,7 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
       isExported: false, // Methods aren't directly exported
       startLine: method.getStartLineNumber(),
       endLine: method.getEndLineNumber(),
+      codeSnippet: getCodeSnippet(() => method.getText()),
     })),
     properties: cls.getProperties().map((prop) => ({
       name: prop.getName(),

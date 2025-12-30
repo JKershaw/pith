@@ -27,6 +27,7 @@ export interface FunctionDetails {
   endLine: number;
   isAsync: boolean;
   isExported: boolean;
+  codeSnippet: string;  // First N lines of function source (Phase 6.6.1.2)
 }
 
 /**
@@ -96,7 +97,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
   // Step 2.1.8: Extract function signatures
   const signature = extracted.functions.map((f) => f.signature);
 
-  // Step 6.6.1: Extract function details with line numbers
+  // Step 6.6.1: Extract function details with line numbers and code snippets
   const functions: FunctionDetails[] = extracted.functions.map((f) => ({
     name: f.name,
     signature: f.signature,
@@ -104,6 +105,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
     endLine: f.endLine,
     isAsync: f.isAsync,
     isExported: f.isExported,
+    codeSnippet: f.codeSnippet,
   }));
 
   // Step 2.1.9: Copy JSDoc
