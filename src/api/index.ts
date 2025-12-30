@@ -1,5 +1,13 @@
 import type { MangoDb } from '@jkershaw/mangodb';
 import type { WikiNode } from '../builder/index.ts';
+import {
+  buildImpactTree,
+  findAffectedFunctions,
+  getTestFilesForImpact,
+  type ImpactTree,
+  type AffectedFunction,
+  type TestFileImpact,
+} from '../builder/index.ts';
 import type { GeneratorConfig } from '../generator/index.ts';
 import { generateProseForNode } from '../generator/index.ts';
 import express, { type Express, type Request, type Response } from 'express';
@@ -309,6 +317,135 @@ export function formatContextAsMarkdown(context: BundledContext): string {
 }
 
 /**
+ * Change impact analysis result.
+ * Phase 6.6.5: Exposes impact tree with affected functions and test files.
+ */
+export interface ChangeImpactResult extends ImpactTree {
+  affectedFunctions: Record<string, AffectedFunction[]>;
+  testFiles: TestFileImpact[];
+}
+
+/**
+ * Format change impact analysis as markdown.
+ * Phase 6.6.5.3: Add "Change Impact" section to output.
+ *
+ * @param sourceFileId - The file being changed
+ * @param allNodes - All file nodes in the project
+ * @param changedExports - Optional list of export names that changed
+ * @returns Markdown string with impact analysis
+ */
+export function formatChangeImpactAsMarkdown(
+  sourceFileId: string,
+  allNodes: WikiNode[],
+  changedExports?: string[]
+): string {
+  const lines: string[] = [];
+  const nodeMap = new Map<string, WikiNode>();
+  for (const node of allNodes) {
+    nodeMap.set(node.id, node);
+  }
+
+  // Build the impact tree
+  const impact = buildImpactTree(sourceFileId, allNodes);
+
+  lines.push('# Change Impact Analysis');
+  lines.push('');
+  lines.push(`**Source file:** \`${sourceFileId}\``);
+  lines.push('');
+
+  // Summary
+  if (impact.totalAffectedFiles === 0) {
+    lines.push('> No files depend on this file. Changes are isolated.');
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  lines.push(`**Total affected files:** ${impact.totalAffectedFiles}`);
+  lines.push('');
+
+  // Direct dependents
+  if (impact.directDependents.length > 0) {
+    lines.push('## Direct Dependents');
+    lines.push('');
+    lines.push('Files that directly import this file:');
+    lines.push('');
+
+    for (const depId of impact.directDependents) {
+      const depNode = nodeMap.get(depId);
+      lines.push(`### ${depId}`);
+
+      // Show affected functions if changedExports provided
+      if (changedExports && changedExports.length > 0 && depNode) {
+        const affected = findAffectedFunctions(depNode, changedExports);
+        if (affected.length > 0) {
+          lines.push('');
+          lines.push('**Affected functions:**');
+          for (const func of affected) {
+            lines.push(`- \`${func.name}\` (lines ${func.startLine}-${func.endLine})`);
+            lines.push(`  - Uses: ${func.usedSymbols.join(', ')}`);
+          }
+        }
+      }
+      lines.push('');
+    }
+  }
+
+  // Transitive dependents
+  if (impact.transitiveDependents.length > 0) {
+    lines.push('## Transitive Dependents');
+    lines.push('');
+    lines.push('Files that indirectly depend on this file:');
+    lines.push('');
+
+    // Group by depth
+    for (const [depth, deps] of Object.entries(impact.dependentsByDepth)) {
+      if (parseInt(depth) > 1) {
+        lines.push(`**Depth ${depth}:**`);
+        for (const depId of deps) {
+          lines.push(`- ${depId}`);
+        }
+        lines.push('');
+      }
+    }
+  }
+
+  // Test files to run
+  const allAffectedFiles = [sourceFileId, ...impact.directDependents, ...impact.transitiveDependents];
+  const testFiles = getTestFilesForImpact(allAffectedFiles, allNodes);
+
+  if (testFiles.length > 0) {
+    lines.push('## Test Files to Run');
+    lines.push('');
+    lines.push('Run these tests to verify changes:');
+    lines.push('');
+    lines.push('```bash');
+    for (const test of testFiles) {
+      if (test.testCommand) {
+        lines.push(test.testCommand);
+      } else {
+        lines.push(`npm test -- ${test.path}`);
+      }
+    }
+    lines.push('```');
+    lines.push('');
+
+    // Also list the test files
+    lines.push('**Test files:**');
+    for (const test of testFiles) {
+      lines.push(`- ${test.path}`);
+    }
+    lines.push('');
+  } else {
+    lines.push('## Test Files to Run');
+    lines.push('');
+    lines.push('> No test files found for affected code.');
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * Create Express application with API routes.
  *
  * @param db - MangoDB database instance
@@ -400,6 +537,75 @@ export function createApp(
         // Default to markdown
         const markdown = formatContextAsMarkdown(context);
         res.type('text/markdown').send(markdown);
+      }
+    } catch (error) {
+      res.status(500).json({
+        error: 'INTERNAL_ERROR',
+        message: (error as Error).message,
+      });
+    }
+  });
+
+  // GET /impact/:path - Get change impact analysis for a file
+  // Phase 6.6.5: Shows what files are affected by changes to this file
+  app.get('/impact/*path', async (req: Request, res: Response) => {
+    try {
+      const pathParts = req.params.path as unknown as string[];
+      const nodePath = pathParts.join('/');
+      const format = req.query.format as string | undefined;
+      const exportsParam = req.query.exports as string | undefined;
+
+      const nodesCollection = db.collection<WikiNode>('nodes');
+
+      // Check if the source file exists
+      const sourceNode = await nodesCollection.findOne({ id: nodePath });
+      if (!sourceNode) {
+        res.status(404).json({
+          error: 'NOT_FOUND',
+          message: `Node not found: ${nodePath}`,
+        });
+        return;
+      }
+
+      // Get all file nodes for impact analysis
+      const allNodes = await nodesCollection.find({ type: 'file' }).toArray();
+
+      // Build impact tree
+      const impact = buildImpactTree(nodePath, allNodes);
+
+      // Get changed exports if provided
+      const changedExports = exportsParam ? exportsParam.split(',').map(e => e.trim()) : undefined;
+
+      // Find affected functions for each dependent
+      const affectedFunctions: Record<string, AffectedFunction[]> = {};
+      if (changedExports && changedExports.length > 0) {
+        for (const depId of [...impact.directDependents, ...impact.transitiveDependents]) {
+          const depNode = allNodes.find(n => n.id === depId);
+          if (depNode) {
+            const affected = findAffectedFunctions(depNode, changedExports);
+            if (affected.length > 0) {
+              affectedFunctions[depId] = affected;
+            }
+          }
+        }
+      }
+
+      // Get test files
+      const allAffectedFiles = [nodePath, ...impact.directDependents, ...impact.transitiveDependents];
+      const testFiles = getTestFilesForImpact(allAffectedFiles, allNodes);
+
+      // Build result
+      const result: ChangeImpactResult = {
+        ...impact,
+        affectedFunctions,
+        testFiles,
+      };
+
+      if (format === 'markdown') {
+        const markdown = formatChangeImpactAsMarkdown(nodePath, allNodes, changedExports);
+        res.type('text/markdown').send(markdown);
+      } else {
+        res.json(result);
       }
     } catch (error) {
       res.status(500).json({

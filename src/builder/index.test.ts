@@ -20,6 +20,9 @@ import {
   isTestFile,
   buildTestFileEdges,
   buildDependentEdges,
+  buildImpactTree,
+  findAffectedFunctions,
+  getTestFilesForImpact,
   type WikiNode,
   type FunctionData,
 } from './index.ts';
@@ -1892,6 +1895,440 @@ describe('Computed Metadata - Phase 2.5', () => {
       // Should modify the same object
       assert.strictEqual(nodes[0], originalNode);
       assert.ok(typeof nodes[0].metadata.fanIn === 'number');
+    });
+  });
+});
+
+describe('Impact Tree - Phase 6.6.5', () => {
+  describe('buildImpactTree', () => {
+    it('returns direct dependents for a file', () => {
+      const fileNodes: WikiNode[] = [
+        {
+          id: 'src/utils/helper.ts',
+          type: 'file',
+          path: 'src/utils/helper.ts',
+          name: 'helper.ts',
+          metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [] },
+          edges: [
+            { type: 'importedBy', target: 'src/auth/login.ts' },
+            { type: 'importedBy', target: 'src/auth/signup.ts' },
+          ],
+          raw: {},
+        },
+        {
+          id: 'src/auth/login.ts',
+          type: 'file',
+          path: 'src/auth/login.ts',
+          name: 'login.ts',
+          metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+          edges: [],
+          raw: {},
+        },
+        {
+          id: 'src/auth/signup.ts',
+          type: 'file',
+          path: 'src/auth/signup.ts',
+          name: 'signup.ts',
+          metadata: { lines: 80, commits: 3, lastModified: new Date(), authors: [] },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      const impact = buildImpactTree('src/utils/helper.ts', fileNodes);
+
+      assert.strictEqual(impact.sourceFile, 'src/utils/helper.ts');
+      assert.strictEqual(impact.directDependents.length, 2);
+      assert.ok(impact.directDependents.includes('src/auth/login.ts'));
+      assert.ok(impact.directDependents.includes('src/auth/signup.ts'));
+      assert.strictEqual(impact.totalAffectedFiles, 2);
+    });
+
+    it('returns transitive dependents recursively', () => {
+      // A → B → C (A imports B, B imports C)
+      // Change to C affects B and A transitively
+      const fileNodes: WikiNode[] = [
+        {
+          id: 'src/core/types.ts',
+          type: 'file',
+          path: 'src/core/types.ts',
+          name: 'types.ts',
+          metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+          edges: [{ type: 'importedBy', target: 'src/utils/helper.ts' }],
+          raw: {},
+        },
+        {
+          id: 'src/utils/helper.ts',
+          type: 'file',
+          path: 'src/utils/helper.ts',
+          name: 'helper.ts',
+          metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [] },
+          edges: [
+            { type: 'imports', target: 'src/core/types.ts' },
+            { type: 'importedBy', target: 'src/auth/login.ts' },
+          ],
+          raw: {},
+        },
+        {
+          id: 'src/auth/login.ts',
+          type: 'file',
+          path: 'src/auth/login.ts',
+          name: 'login.ts',
+          metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+          edges: [{ type: 'imports', target: 'src/utils/helper.ts' }],
+          raw: {},
+        },
+      ];
+
+      const impact = buildImpactTree('src/core/types.ts', fileNodes);
+
+      assert.strictEqual(impact.sourceFile, 'src/core/types.ts');
+      assert.strictEqual(impact.directDependents.length, 1);
+      assert.ok(impact.directDependents.includes('src/utils/helper.ts'));
+      assert.strictEqual(impact.transitiveDependents.length, 1);
+      assert.ok(impact.transitiveDependents.includes('src/auth/login.ts'));
+      assert.strictEqual(impact.totalAffectedFiles, 2);
+    });
+
+    it('handles diamond dependencies without duplication', () => {
+      // Diamond: A → B, A → C, B → D, C → D
+      // Change to D affects B, C, and A (but A only once)
+      const fileNodes: WikiNode[] = [
+        {
+          id: 'src/base.ts',
+          type: 'file',
+          path: 'src/base.ts',
+          name: 'base.ts',
+          metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+          edges: [
+            { type: 'importedBy', target: 'src/left.ts' },
+            { type: 'importedBy', target: 'src/right.ts' },
+          ],
+          raw: {},
+        },
+        {
+          id: 'src/left.ts',
+          type: 'file',
+          path: 'src/left.ts',
+          name: 'left.ts',
+          metadata: { lines: 30, commits: 2, lastModified: new Date(), authors: [] },
+          edges: [{ type: 'importedBy', target: 'src/top.ts' }],
+          raw: {},
+        },
+        {
+          id: 'src/right.ts',
+          type: 'file',
+          path: 'src/right.ts',
+          name: 'right.ts',
+          metadata: { lines: 30, commits: 2, lastModified: new Date(), authors: [] },
+          edges: [{ type: 'importedBy', target: 'src/top.ts' }],
+          raw: {},
+        },
+        {
+          id: 'src/top.ts',
+          type: 'file',
+          path: 'src/top.ts',
+          name: 'top.ts',
+          metadata: { lines: 50, commits: 3, lastModified: new Date(), authors: [] },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      const impact = buildImpactTree('src/base.ts', fileNodes);
+
+      // Direct: left.ts, right.ts
+      // Transitive: top.ts (only counted once despite two paths)
+      assert.strictEqual(impact.directDependents.length, 2);
+      assert.strictEqual(impact.transitiveDependents.length, 1);
+      assert.strictEqual(impact.totalAffectedFiles, 3);
+    });
+
+    it('handles circular dependencies gracefully', () => {
+      // A → B → C → A (circular)
+      const fileNodes: WikiNode[] = [
+        {
+          id: 'src/a.ts',
+          type: 'file',
+          path: 'src/a.ts',
+          name: 'a.ts',
+          metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+          edges: [{ type: 'importedBy', target: 'src/c.ts' }],
+          raw: {},
+        },
+        {
+          id: 'src/b.ts',
+          type: 'file',
+          path: 'src/b.ts',
+          name: 'b.ts',
+          metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+          edges: [{ type: 'importedBy', target: 'src/a.ts' }],
+          raw: {},
+        },
+        {
+          id: 'src/c.ts',
+          type: 'file',
+          path: 'src/c.ts',
+          name: 'c.ts',
+          metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+          edges: [{ type: 'importedBy', target: 'src/b.ts' }],
+          raw: {},
+        },
+      ];
+
+      const impact = buildImpactTree('src/a.ts', fileNodes);
+
+      // Should not infinite loop, should find all files in cycle
+      assert.strictEqual(impact.totalAffectedFiles, 2); // c and b (not a itself)
+    });
+
+    it('returns empty when no dependents', () => {
+      const fileNodes: WikiNode[] = [
+        {
+          id: 'src/isolated.ts',
+          type: 'file',
+          path: 'src/isolated.ts',
+          name: 'isolated.ts',
+          metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      const impact = buildImpactTree('src/isolated.ts', fileNodes);
+
+      assert.strictEqual(impact.directDependents.length, 0);
+      assert.strictEqual(impact.transitiveDependents.length, 0);
+      assert.strictEqual(impact.totalAffectedFiles, 0);
+    });
+
+    it('includes depth information for each dependent', () => {
+      const fileNodes: WikiNode[] = [
+        {
+          id: 'src/base.ts',
+          type: 'file',
+          path: 'src/base.ts',
+          name: 'base.ts',
+          metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+          edges: [{ type: 'importedBy', target: 'src/level1.ts' }],
+          raw: {},
+        },
+        {
+          id: 'src/level1.ts',
+          type: 'file',
+          path: 'src/level1.ts',
+          name: 'level1.ts',
+          metadata: { lines: 20, commits: 2, lastModified: new Date(), authors: [] },
+          edges: [{ type: 'importedBy', target: 'src/level2.ts' }],
+          raw: {},
+        },
+        {
+          id: 'src/level2.ts',
+          type: 'file',
+          path: 'src/level2.ts',
+          name: 'level2.ts',
+          metadata: { lines: 30, commits: 3, lastModified: new Date(), authors: [] },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      const impact = buildImpactTree('src/base.ts', fileNodes);
+
+      // Check dependentsByDepth structure
+      assert.ok(impact.dependentsByDepth);
+      assert.ok(impact.dependentsByDepth[1]?.includes('src/level1.ts'));
+      assert.ok(impact.dependentsByDepth[2]?.includes('src/level2.ts'));
+    });
+  });
+
+  describe('findAffectedFunctions', () => {
+    it('finds functions that use an import from the changed file', () => {
+      const dependentNode: WikiNode = {
+        id: 'src/auth/login.ts',
+        type: 'file',
+        path: 'src/auth/login.ts',
+        name: 'login.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [{ type: 'imports', target: 'src/utils/helper.ts' }],
+        raw: {
+          imports: [{ from: './utils/helper', names: ['validateInput', 'formatError'] }],
+          functions: [
+            {
+              name: 'login',
+              signature: 'async function login(user: string, pass: string): Promise<boolean>',
+              startLine: 10,
+              endLine: 30,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: 'const valid = validateInput(user, pass);\nif (!valid) { return formatError(); }',
+              keyStatements: [],
+            },
+            {
+              name: 'logout',
+              signature: 'function logout(): void',
+              startLine: 35,
+              endLine: 40,
+              isAsync: false,
+              isExported: true,
+              codeSnippet: 'session.clear();',
+              keyStatements: [],
+            },
+          ],
+        },
+      };
+
+      const changedExports = ['validateInput', 'formatError'];
+      const affected = findAffectedFunctions(dependentNode, changedExports);
+
+      assert.strictEqual(affected.length, 1);
+      assert.strictEqual(affected[0].name, 'login');
+      assert.ok(affected[0].usedSymbols.includes('validateInput'));
+      assert.ok(affected[0].usedSymbols.includes('formatError'));
+    });
+
+    it('returns empty when no functions use the changed exports', () => {
+      const dependentNode: WikiNode = {
+        id: 'src/auth/login.ts',
+        type: 'file',
+        path: 'src/auth/login.ts',
+        name: 'login.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          functions: [
+            {
+              name: 'login',
+              signature: 'function login(): void',
+              startLine: 10,
+              endLine: 30,
+              isAsync: false,
+              isExported: true,
+              codeSnippet: 'console.log("login");',
+              keyStatements: [],
+            },
+          ],
+        },
+      };
+
+      const affected = findAffectedFunctions(dependentNode, ['unusedExport']);
+
+      assert.strictEqual(affected.length, 0);
+    });
+
+    it('handles file with no functions gracefully', () => {
+      const dependentNode: WikiNode = {
+        id: 'src/types.ts',
+        type: 'file',
+        path: 'src/types.ts',
+        name: 'types.ts',
+        metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      };
+
+      const affected = findAffectedFunctions(dependentNode, ['SomeType']);
+
+      assert.strictEqual(affected.length, 0);
+    });
+  });
+
+  describe('getTestFilesForImpact', () => {
+    it('identifies test files that cover affected files', () => {
+      const fileNodes: WikiNode[] = [
+        {
+          id: 'src/utils/helper.ts',
+          type: 'file',
+          path: 'src/utils/helper.ts',
+          name: 'helper.ts',
+          metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [] },
+          edges: [{ type: 'testFile', target: 'src/utils/helper.test.ts' }],
+          raw: {},
+        },
+        {
+          id: 'src/utils/helper.test.ts',
+          type: 'file',
+          path: 'src/utils/helper.test.ts',
+          name: 'helper.test.ts',
+          metadata: { lines: 100, commits: 3, lastModified: new Date(), authors: [], testCommand: 'npm test -- src/utils/helper.test.ts' },
+          edges: [],
+          raw: {},
+        },
+        {
+          id: 'src/auth/login.ts',
+          type: 'file',
+          path: 'src/auth/login.ts',
+          name: 'login.ts',
+          metadata: { lines: 80, commits: 4, lastModified: new Date(), authors: [] },
+          edges: [
+            { type: 'imports', target: 'src/utils/helper.ts' },
+            { type: 'testFile', target: 'src/auth/login.test.ts' },
+          ],
+          raw: {},
+        },
+        {
+          id: 'src/auth/login.test.ts',
+          type: 'file',
+          path: 'src/auth/login.test.ts',
+          name: 'login.test.ts',
+          metadata: { lines: 150, commits: 5, lastModified: new Date(), authors: [], testCommand: 'npm test -- src/auth/login.test.ts' },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      const affectedFiles = ['src/utils/helper.ts', 'src/auth/login.ts'];
+      const testFiles = getTestFilesForImpact(affectedFiles, fileNodes);
+
+      assert.strictEqual(testFiles.length, 2);
+      assert.ok(testFiles.some(t => t.path === 'src/utils/helper.test.ts'));
+      assert.ok(testFiles.some(t => t.path === 'src/auth/login.test.ts'));
+    });
+
+    it('returns empty when no test files exist', () => {
+      const fileNodes: WikiNode[] = [
+        {
+          id: 'src/utils/helper.ts',
+          type: 'file',
+          path: 'src/utils/helper.ts',
+          name: 'helper.ts',
+          metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [] },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      const testFiles = getTestFilesForImpact(['src/utils/helper.ts'], fileNodes);
+
+      assert.strictEqual(testFiles.length, 0);
+    });
+
+    it('includes test command for each test file', () => {
+      const fileNodes: WikiNode[] = [
+        {
+          id: 'src/foo.ts',
+          type: 'file',
+          path: 'src/foo.ts',
+          name: 'foo.ts',
+          metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+          edges: [{ type: 'testFile', target: 'src/foo.test.ts' }],
+          raw: {},
+        },
+        {
+          id: 'src/foo.test.ts',
+          type: 'file',
+          path: 'src/foo.test.ts',
+          name: 'foo.test.ts',
+          metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [], testCommand: 'npm test -- src/foo.test.ts' },
+          edges: [],
+          raw: {},
+        },
+      ];
+
+      const testFiles = getTestFilesForImpact(['src/foo.ts'], fileNodes);
+
+      assert.strictEqual(testFiles.length, 1);
+      assert.strictEqual(testFiles[0].testCommand, 'npm test -- src/foo.test.ts');
     });
   });
 });

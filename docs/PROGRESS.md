@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.6.1-6.6.4 (P0 Deterministic Extraction)
-**Current step**: Phase 6.6.5+ - Addressing remaining gaps
+**Last completed phase**: Phase 6.6.5 (Change Impact Analysis)
+**Current step**: Phase 6.6.6+ - Pattern recognition, cross-file tracing
 **Date**: 2025-12-30
 
 ---
@@ -98,7 +98,55 @@ Ran Pith on itself and verified `/context` output for `src/generator/index.ts`:
 
 **Finding**: P0 improved Relevance (+0.6) and Accuracy (+0.4) via line numbers and code snippets. Completeness/Actionability require deeper capabilities (6.6.5-6.6.8).
 
-### 6.6.5 - 6.6.9 Gap Analysis (NEW)
+### 6.6.5 Change Impact Analysis - COMPLETE ✅
+
+| Step | What | Status |
+|------|------|--------|
+| 6.6.5.1 | Traverse importedBy edges recursively | **Done** |
+| 6.6.5.2 | Identify affected functions per dependent | **Done** |
+| 6.6.5.3 | Add "Change Impact" section to output | **Done** |
+| 6.6.5.4 | Include test file impact analysis | **Done** |
+
+**Implementation Summary (2025-12-30)**:
+
+**Builder additions** (`src/builder/index.ts`):
+- `ImpactTree` interface: sourceFile, directDependents, transitiveDependents, dependentsByDepth
+- `buildImpactTree()`: BFS traversal of importedBy edges with depth tracking, handles cycles/diamonds
+- `findAffectedFunctions()`: Scans function code snippets for usage of changed exports
+- `getTestFilesForImpact()`: Collects test files covering affected source files
+
+**API additions** (`src/api/index.ts`):
+- `GET /impact/:path`: Returns change impact analysis as JSON or markdown
+- `ChangeImpactResult` interface: Extends ImpactTree with affectedFunctions and testFiles
+- `formatChangeImpactAsMarkdown()`: Human-readable impact report with:
+  - Direct and transitive dependents by depth
+  - Affected functions with line numbers and used symbols
+  - Test commands to run
+
+**Tests**: 307 total (8 new for Phase 6.6.5)
+
+**Example output**:
+```markdown
+# Change Impact Analysis
+
+**Source file:** `src/types/index.ts`
+**Total affected files:** 5
+
+## Direct Dependents
+Files that directly import this file:
+### src/utils/helper.ts
+**Affected functions:**
+- `validateUser` (lines 10-25)
+  - Uses: User, Session
+
+## Test Files to Run
+```bash
+npm test -- src/types/index.test.ts
+npm test -- src/utils/helper.test.ts
+```
+```
+
+### 6.6.6 - 6.6.9 Gap Analysis (Remaining)
 
 Based on comprehensive 15-task benchmark, remaining gaps require new capabilities:
 
@@ -596,15 +644,15 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2025-12-29 (Phase 6 Complete):
-- **Total tests**: 286
+As of 2025-12-30 (Phase 6.6.5 Complete):
+- **Total tests**: 307
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 71
+- **Test suites**: 78
 
 Commands:
 ```bash
-npm test      # 286 tests pass
+npm test      # 307 tests pass
 npm run lint  # No errors
 ```
 
@@ -623,14 +671,16 @@ pith serve [--port <port>]
 ### API Endpoints
 - `GET /node/:path` - Fetch single node
 - `GET /context?files=a,b,c` - Bundled context for LLM injection
+- `GET /impact/:path` - Change impact analysis (Phase 6.6.5)
 - `POST /refresh` - Re-extract and rebuild
 
 ### Key Features
 - TypeScript AST extraction (functions, classes, interfaces, imports, exports)
 - Git history extraction (commits, authors, dates)
 - Documentation extraction (JSDoc, comments, TODOs, deprecations)
-- Node graph with edges (imports, contains, parent)
+- Node graph with edges (imports, contains, parent, importedBy, testFile)
 - Computed metadata (fan-in, fan-out, age, recency)
+- Change impact analysis with transitive dependents (Phase 6.6.5)
 - LLM prose generation with OpenRouter
 - Incremental extraction with file hashing
 - Parallel processing for performance
