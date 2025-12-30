@@ -328,8 +328,8 @@ export function buildCrossFileCallGraph(fileNodes: WikiNode[]): CrossFileCallGra
             // Find the target file
             const targetFile = fileNodes.find(n => n.path === resolved.sourceFile);
             if (targetFile && targetFile.raw.functions) {
-              // Find the default exported function
-              const defaultFunc = targetFile.raw.functions.find(f => f.isExported && f.name !== 'anonymous');
+              // Find the default exported function using explicit isDefaultExport field
+              const defaultFunc = targetFile.raw.functions.find(f => f.isDefaultExport);
               if (defaultFunc) {
                 crossFileCalls.push({
                   caller: functionId,

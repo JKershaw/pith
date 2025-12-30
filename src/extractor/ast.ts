@@ -60,6 +60,7 @@ export interface FunctionData {
   returnType: string;
   isAsync: boolean;
   isExported: boolean;
+  isDefaultExport: boolean;  // Phase 6.6: Explicit default export detection
   startLine: number;
   endLine: number;
   codeSnippet: string;  // First N lines of function source
@@ -491,6 +492,7 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     returnType: func.getReturnType().getText(),
     isAsync: func.isAsync(),
     isExported: func.isExported(),
+    isDefaultExport: func.isDefaultExport(),  // Phase 6.6: Explicit default export detection
     startLine: func.getStartLineNumber(),
     endLine: func.getEndLineNumber(),
     codeSnippet: getCodeSnippet(() => func.getText()),
@@ -519,6 +521,7 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
         returnType: method.getReturnType().getText(),
         isAsync: method.isAsync(),
         isExported: false, // Methods aren't directly exported
+        isDefaultExport: false, // Methods aren't default exported
         startLine: method.getStartLineNumber(),
         endLine: method.getEndLineNumber(),
         codeSnippet: getCodeSnippet(() => method.getText()),
