@@ -1,4 +1,3 @@
-import { SyntaxKind, type SourceFile } from 'ts-morph';
 import type { ExtractedFile } from './ast.ts';
 
 /**
@@ -34,7 +33,6 @@ export function detectRetryPattern(extracted: ExtractedFile): DetectedPattern[] 
     let hasLoop = false;
     let hasTryCatch = false;
     let hasExponentialBackoff = false;
-    let hasSleep = false;
     let hasRetryVariable = false;
 
     // Check keyStatements for retry indicators (more reliable than code snippet)
@@ -73,7 +71,6 @@ export function detectRetryPattern(extracted: ExtractedFile): DetectedPattern[] 
     }
 
     if (func.codeSnippet.match(/\b(sleep|delay|wait|setTimeout)\s*\(/)) {
-      hasSleep = true;
       evidence.push('sleep/delay between retries');
     }
 
@@ -225,8 +222,7 @@ export function detectSingletonPattern(extracted: ExtractedFile): DetectedPatter
   const patterns: DetectedPattern[] = [];
   const evidence: string[] = [];
 
-  // Look for module-level instance variables
-  let hasInstanceVar = false;
+  // Look for singleton getter functions
   let hasGetterFunction = false;
 
   // Check functions for singleton getter pattern

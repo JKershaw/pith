@@ -8,7 +8,6 @@ import {
   detectBuilderPattern,
   detectSingletonPattern,
   detectPatterns,
-  type DetectedPattern,
 } from './patterns.ts';
 import { createProject, extractFile } from './ast.ts';
 
