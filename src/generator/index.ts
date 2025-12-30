@@ -125,7 +125,7 @@ Generate documentation in this exact JSON format:
   "summary": "One sentence describing what this file does",
   "purpose": "2-3 sentences explaining why this file exists and its role in the system",
   "gotchas": ["Array of warnings, edge cases, or non-obvious behavior"],
-  "keyExports": ["Most important exports with brief descriptions"],
+  "keyExports": ["List of most important export names"],
   "patterns": ["Common usage patterns or typical ways to use this file's exports"],
   "similarFiles": ["Paths to other files that follow similar patterns or serve related purposes"]
 }
@@ -269,7 +269,7 @@ export function extractIdentifiers(text: string): string[] {
     'during', 'into', 'over', 'through', 'under', 'against', 'along',
     'among', 'around', 'because', 'before', 'behind', 'below', 'beneath',
     'beside', 'besides', 'beyond', 'down', 'inside', 'outside', 'since',
-    'than', 'toward', 'upon', 'within', 'without', 'user'
+    'than', 'toward', 'upon', 'within', 'without'
   ]);
 
   return matches.filter(match => {
