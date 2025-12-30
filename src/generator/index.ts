@@ -1,33 +1,23 @@
 import type { WikiNode } from '../builder/index.ts';
 import type { MangoDb } from '@jkershaw/mangodb';
-import { ProxyAgent, setGlobalDispatcher } from 'undici';
+import { ProxyAgent } from 'undici';
 
 /**
- * Redact credentials from a URL for safe logging.
- * Replaces username:password with [redacted] if present.
+ * Get proxy agent for external URLs.
+ * Only applies proxy for non-localhost URLs to avoid conflicts with tests.
  */
-function redactUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    if (parsed.username || parsed.password) {
-      parsed.username = '[redacted]';
-      parsed.password = '';
-    }
-    return parsed.toString();
-  } catch {
-    // If URL parsing fails, return a generic message
-    return '[invalid URL]';
+function getProxyDispatcher(url: string): ProxyAgent | undefined {
+  // Don't use proxy for localhost connections (tests)
+  if (url.includes('localhost') || url.includes('127.0.0.1') || url.includes('[::1]')) {
+    return undefined;
   }
-}
 
-// Configure global proxy if HTTPS_PROXY is set
-const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-if (proxyUrl) {
-  try {
-    setGlobalDispatcher(new ProxyAgent(proxyUrl));
-  } catch (error) {
-    console.warn(`Warning: Failed to configure proxy from ${redactUrl(proxyUrl)}: ${(error as Error).message}`);
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY ||
+                   process.env.https_proxy || process.env.http_proxy;
+  if (proxyUrl) {
+    return new ProxyAgent(proxyUrl);
   }
+  return undefined;
 }
 
 /**
@@ -37,9 +27,13 @@ export interface ProseData {
   summary: string;           // One-line description
   purpose: string;           // 2-3 sentences explaining why this exists
   gotchas: string[];         // Array of warnings, edge cases, non-obvious behavior
+  gotchaConfidence?: ('high' | 'medium' | 'low')[]; // Confidence level for each gotcha (Phase 6.5)
   keyExports?: string[];     // Most important exports (for files)
   keyFiles?: string[];       // Most important files (for modules)
   publicApi?: string[];      // Exports that other modules should use (for modules)
+  quickStart?: string;       // Quick start example (for modules)
+  patterns?: string[];       // Usage patterns (for files)
+  similarFiles?: string[];   // Files with similar patterns (for files)
   generatedAt: Date;         // When prose was generated
   stale?: boolean;           // True if source changed after prose was generated
 }
@@ -131,10 +125,14 @@ Generate documentation in this exact JSON format:
   "summary": "One sentence describing what this file does",
   "purpose": "2-3 sentences explaining why this file exists and its role in the system",
   "gotchas": ["Array of warnings, edge cases, or non-obvious behavior"],
-  "keyExports": ["Most important exports with brief descriptions"]
+  "keyExports": ["List of most important export names"],
+  "patterns": ["Common usage patterns or typical ways to use this file's exports"],
+  "similarFiles": ["Paths to other files that follow similar patterns or serve related purposes"]
 }
 
-Focus on WHAT and WHY, not HOW. Be concise but complete.`;
+Focus on WHAT and WHY, not HOW. Be concise but complete.
+Include practical patterns that show how to use this file.
+List similar files to help developers find related code.`;
 }
 
 /**
@@ -175,10 +173,12 @@ Generate documentation in this exact JSON format:
   "summary": "One sentence describing what this module does",
   "purpose": "2-3 sentences explaining this module's role in the architecture",
   "keyFiles": ["Most important files with brief descriptions"],
-  "publicApi": ["Exports that other modules should use"]
+  "publicApi": ["Exports that other modules should use"],
+  "quickStart": "A brief code example showing how to use this module (2-3 lines)"
 }
 
-Focus on the module's responsibilities, not implementation details.`;
+Focus on the module's responsibilities, not implementation details.
+Include a practical quick start example to help developers get started quickly.`;
 }
 
 /**
@@ -225,8 +225,170 @@ export function parseLLMResponse(response: string): ProseData {
     keyExports: Array.isArray(parsed.keyExports) ? parsed.keyExports : undefined,
     keyFiles: Array.isArray(parsed.keyFiles) ? parsed.keyFiles : undefined,
     publicApi: Array.isArray(parsed.publicApi) ? parsed.publicApi : undefined,
+    quickStart: typeof parsed.quickStart === 'string' ? parsed.quickStart : undefined,
+    patterns: Array.isArray(parsed.patterns) ? parsed.patterns : undefined,
+    similarFiles: Array.isArray(parsed.similarFiles) ? parsed.similarFiles : undefined,
     generatedAt: new Date(),
   };
+}
+
+/**
+ * Result of validating a gotcha
+ */
+export interface ValidatedGotcha {
+  text: string;
+  confidence: 'high' | 'medium' | 'low';
+  verifiedNames: string[];
+}
+
+/**
+ * Extract code-like identifiers from text (camelCase, PascalCase, snake_case)
+ * @param text - The text to extract identifiers from
+ * @returns Array of extracted identifiers
+ */
+export function extractIdentifiers(text: string): string[] {
+  if (!text) return [];
+
+  // Match any identifier-like word (letters, numbers, underscores)
+  const identifierPattern = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
+
+  const matches = text.match(identifierPattern) || [];
+
+  // Filter out common English words and short words
+  const commonWords = new Set([
+    'the', 'is', 'at', 'which', 'on', 'a', 'an', 'as', 'are', 'was', 'were',
+    'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+    'will', 'would', 'should', 'could', 'may', 'might', 'must',
+    'can', 'to', 'of', 'in', 'for', 'with', 'this', 'that', 'from',
+    'by', 'or', 'and', 'but', 'not', 'it', 'if', 'then', 'else',
+    'function', 'requires', 'calls', 'returns', 'uses', 'needs',
+    'when', 'where', 'what', 'why', 'how', 'who', 'which',
+    'all', 'some', 'any', 'each', 'every', 'other', 'another',
+    'var', 'env', 'does', 'exist', 'intensive', 'return', 'null',
+    'their', 'about', 'after', 'also', 'before', 'between', 'both',
+    'during', 'into', 'over', 'through', 'under', 'against', 'along',
+    'among', 'around', 'because', 'before', 'behind', 'below', 'beneath',
+    'beside', 'besides', 'beyond', 'down', 'inside', 'outside', 'since',
+    'than', 'toward', 'upon', 'within', 'without'
+  ]);
+
+  return matches.filter(match => {
+    // Filter out single letters and common words
+    if (match.length <= 2 || commonWords.has(match.toLowerCase())) {
+      return false;
+    }
+
+    // Keep identifiers that have mixed case (likely code)
+    if (/[a-z].*[A-Z]|[A-Z].*[a-z]/.test(match)) {
+      return true;
+    }
+
+    // Keep identifiers with underscores (snake_case) but not all-caps with underscores (env vars)
+    if (match.includes('_')) {
+      // Exclude SCREAMING_SNAKE_CASE (likely environment variables)
+      if (match === match.toUpperCase()) {
+        return false;
+      }
+      return true;
+    }
+
+    // Exclude all-caps words (likely constants/env vars, not function names)
+    if (match === match.toUpperCase()) {
+      return false;
+    }
+
+    // For lowercase words, only keep them if they're longer and look like identifiers
+    // This catches things like "login", "logout", "session", etc.
+    if (match.length >= 4) {
+      return true;
+    }
+
+    return false;
+  });
+}
+
+/**
+ * Validate a single gotcha against node data
+ * @param gotcha - The gotcha text to validate
+ * @param node - The wiki node to validate against
+ * @returns Validation result with confidence level
+ */
+export function validateGotcha(gotcha: string, node: WikiNode): ValidatedGotcha {
+  // Extract identifiers from the gotcha text
+  const identifiers = extractIdentifiers(gotcha);
+
+  if (identifiers.length === 0) {
+    // No identifiers found - can't verify
+    return {
+      text: gotcha,
+      confidence: 'low',
+      verifiedNames: [],
+    };
+  }
+
+  // Build a set of all names in the node's raw data
+  const knownNames = new Set<string>();
+
+  // Add export names
+  if (node.raw.exports) {
+    for (const exp of node.raw.exports) {
+      knownNames.add(exp.name);
+    }
+  }
+
+  // Add function names from signatures
+  if (node.raw.signature) {
+    for (const sig of node.raw.signature) {
+      // Extract function name from signature (e.g., "login(..." or "function login(..." or "async function login(...)")
+      const match = sig.match(/(?:async\s+)?(?:function\s+)?(\w+)\s*\(/);
+      if (match) {
+        knownNames.add(match[1]);
+      }
+    }
+  }
+
+  // Add import names
+  if (node.raw.imports) {
+    for (const imp of node.raw.imports) {
+      if (imp.names) {
+        for (const name of imp.names) {
+          knownNames.add(name);
+        }
+      }
+    }
+  }
+
+  // Check which identifiers are verified
+  const verifiedNames = identifiers.filter(id => knownNames.has(id));
+
+  // Determine confidence level
+  let confidence: 'high' | 'medium' | 'low';
+  if (verifiedNames.length === identifiers.length) {
+    // All identifiers verified
+    confidence = 'high';
+  } else if (verifiedNames.length > 0) {
+    // Some identifiers verified
+    confidence = 'medium';
+  } else {
+    // No identifiers verified
+    confidence = 'low';
+  }
+
+  return {
+    text: gotcha,
+    confidence,
+    verifiedNames,
+  };
+}
+
+/**
+ * Validate multiple gotchas against node data
+ * @param gotchas - Array of gotcha texts to validate
+ * @param node - The wiki node to validate against
+ * @returns Array of validation results
+ */
+export function validateGotchas(gotchas: string[], node: WikiNode): ValidatedGotcha[] {
+  return gotchas.map(gotcha => validateGotcha(gotcha, node));
 }
 
 /**
@@ -295,6 +457,9 @@ export async function callLLM(
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
       try {
+        // Get proxy dispatcher for external URLs (won't apply for localhost/tests)
+        const dispatcher = getProxyDispatcher(url);
+
         const response = await fetchFn(url, {
           method: 'POST',
           headers: {
@@ -305,6 +470,8 @@ export async function callLLM(
           },
           body: JSON.stringify(body),
           signal: controller.signal,
+          // @ts-expect-error - dispatcher is a valid undici option but not in standard fetch types
+          dispatcher,
         });
 
         if (!response.ok) {
@@ -387,7 +554,15 @@ export async function generateProse(
   const response = await callLLM(prompt, config, fetchFn);
 
   // Parse the response into structured prose
-  return parseLLMResponse(response);
+  const prose = parseLLMResponse(response);
+
+  // Validate gotchas and add confidence levels (Phase 6.5)
+  if (prose.gotchas.length > 0) {
+    const validatedGotchas = validateGotchas(prose.gotchas, node);
+    prose.gotchaConfidence = validatedGotchas.map(v => v.confidence);
+  }
+
+  return prose;
 }
 
 /**
@@ -452,4 +627,57 @@ export async function markStaleNodes(db: MangoDb): Promise<number> {
   }
 
   return staleCount;
+}
+
+/**
+ * Generates prose for a node by ID and caches it to the database
+ * @param nodeId - ID of the node to generate prose for
+ * @param db - MangoDB database instance
+ * @param config - LLM provider configuration
+ * @param fetchFn - Optional fetch function for testing
+ * @returns Updated node with prose, or null if node not found
+ */
+export async function generateProseForNode(
+  nodeId: string,
+  db: MangoDb,
+  config: GeneratorConfig,
+  fetchFn?: typeof fetch
+): Promise<WikiNode | null> {
+  const nodes = db.collection<WikiNode>('nodes');
+
+  // Fetch the node from DB
+  const node = await nodes.findOne({ id: nodeId });
+  if (!node) {
+    return null;
+  }
+
+  // For module nodes, gather child summaries
+  let childSummaries: Map<string, string> | undefined;
+  if (node.type === 'module') {
+    const childIds = node.edges
+      .filter(e => e.type === 'contains')
+      .map(e => e.target);
+
+    const children = await nodes
+      .find({ id: { $in: childIds } })
+      .toArray();
+
+    childSummaries = new Map(
+      children
+        .filter(c => c.prose?.summary)
+        .map(c => [c.id, c.prose!.summary])
+    );
+  }
+
+  // Generate prose
+  const prose = await generateProse(node, config, { childSummaries, fetchFn });
+
+  // Cache to DB
+  await updateNodeWithProse(db, nodeId, prose);
+
+  // Return updated node
+  return {
+    ...node,
+    prose,
+  };
 }

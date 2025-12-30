@@ -37,14 +37,14 @@ export interface PithConfig {
 
 /**
  * Default configuration.
+ * Note: Test files (*.test.ts, *.spec.ts) are included by default to enable
+ * testFile edges and provide test context for LLM consumption.
  */
 export const DEFAULT_CONFIG: PithConfig = {
   extraction: {
     include: ['src/**/*.ts', 'lib/**/*.ts', '**/*.ts'],
     exclude: [
       'node_modules/**',
-      '**/*.test.ts',
-      '**/*.spec.ts',
       '**/*.d.ts',
       'dist/**',
       'build/**',

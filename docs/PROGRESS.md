@@ -2,21 +2,212 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 5 (Polish) - MVP COMPLETE
-**Current step**: Phase 6.1 - On-Demand Prose Generation
-**Date**: 2025-12-29
+**Last completed phase**: Phase 6 - On-Demand Generation & Task-Oriented Context
+**Current step**: Phase 7 (future) - Advanced Relationships
+**Date**: 2025-12-30
 
-### Next Up: Phase 6 - On-Demand Generation & Task-Oriented Context
+### Phase 6 - On-Demand Generation & Task-Oriented Context - COMPLETE ✅
 
-Based on testing validation (see `docs/testing-plan.md`), prioritized improvements:
+All Phase 6 priorities implemented:
 
 | Priority | Feature | Status |
 |----------|---------|--------|
-| 1 | On-demand prose generation | TODO |
-| 2 | Test file mapping | TODO |
-| 3 | Modification impact in context | TODO |
-| 4 | Pattern examples | TODO |
-| 5 | Gotcha validation | TODO |
+| 1 | On-demand prose generation | **DONE** |
+| 2 | Test file mapping | **DONE** |
+| 3 | Modification impact in context | **DONE** |
+| 4 | Pattern examples | **DONE** |
+| 5 | Gotcha validation | **DONE** |
+
+---
+
+## Phase 6 Manual Validation - COMPLETE
+
+### Validation Performed (2025-12-30)
+
+**Test Environment**: Ran Pith on itself (dogfooding)
+
+**Extraction Results**:
+- Default config: 17 TypeScript files (test files excluded)
+- With test files: 29 files extracted
+- All files processed successfully
+
+**Build Results**:
+- 29 file nodes, 57 function nodes, 10 module nodes
+- Edges correctly established (imports, contains, parent, testFile, importedBy)
+
+**Phase 6.2 - Test File Mapping** ✅ VERIFIED:
+- `testFile` edges created when test files are included in extraction
+- Example: `src/api/index.ts` → `src/api/index.test.ts`
+- Context bundling automatically includes test files
+- Note: Test files excluded by default in config; include with custom `exclude` pattern
+
+**Phase 6.3 - Modification Impact** ✅ VERIFIED:
+- `importedBy` edges correctly created for all imports
+- Example: `src/extractor/ast.ts` has 7 dependents
+- Fan-in warning displays: `> **Warning:** Widely used (7 files depend on this)`
+- "Dependents" section shows in markdown output:
+  ```
+  **Dependents:**
+  - src/builder/index.ts
+  - src/cli/index.ts
+  - src/extractor/docs.ts
+  ...
+  ```
+
+**API Validation**:
+- `GET /node/:path` returns complete node data with all edge types
+- `GET /context?files=...` bundles requested files, imports, parents, and test files
+- Markdown format clean and readable with fan-in warnings
+
+**Issues Found**: None blocking
+
+---
+
+## Phase 6.5: Gotcha Validation - COMPLETE
+
+### Implementation Summary
+| Step | Description | Status |
+|------|-------------|--------|
+| 6.5.1 | Validate gotchas after LLM generation | Done |
+| 6.5.2 | Check function/variable names exist | Done |
+| 6.5.3 | Flag unverifiable with confidence levels | Done |
+| 6.5.4 | Integration with generateProse() | Done |
+
+### Key Changes
+- **Generator**: `extractIdentifiers()` finds code identifiers in text
+- **Generator**: `validateGotcha()` checks against exports, signatures, imports
+- **Generator**: `validateGotchas()` for batch validation
+- **ProseData**: New `gotchaConfidence` array (high/medium/low)
+- **Tests**: 16 new tests added (286 total, all passing)
+
+### Confidence Levels
+- **High**: All mentioned identifiers verified in raw data
+- **Medium**: Some identifiers verified
+- **Low**: No identifiers could be verified (possible hallucination)
+
+---
+
+## Phase 6.4: Pattern Examples - COMPLETE
+
+### Implementation Summary
+| Step | Description | Status |
+|------|-------------|--------|
+| 6.4.1 | Quick Start section in module prose | Done |
+| 6.4.2 | LLM prompts request code patterns | Done |
+| 6.4.3 | Similar file references | Done |
+
+### Key Changes
+- **ProseData**: New fields `quickStart`, `patterns`, `similarFiles`
+- **File Prompt**: Requests usage patterns and similar files
+- **Module Prompt**: Requests Quick Start code example
+- **API**: Displays patterns and Quick Start in markdown output
+- **Tests**: 8 new tests added (270 total, all passing)
+
+### Example Output
+```markdown
+## src/auth
+
+**Type:** module
+
+**Quick Start:**
+\`\`\`typescript
+import { login, logout } from './auth';
+await login(username, password);
+\`\`\`
+```
+
+---
+
+## Phase 6.3: Modification Impact - COMPLETE
+
+### Implementation Summary
+| Step | Description | Status |
+|------|-------------|--------|
+| 6.3.1 | Add `importedBy` edges (reverse of imports) | Done |
+| 6.3.2 | Show dependents in context markdown | Done |
+| 6.3.3 | Add warning for high fan-in (> 5) | Done |
+
+### Key Changes
+- **Builder**: `buildDependentEdges()` creates 'importedBy' edges
+- **API**: `formatContextAsMarkdown()` shows "Dependents" section
+- **API**: Warning for widely-used files: "Widely used (N files depend on this)"
+- **CLI**: Build command creates importedBy edges
+- **Tests**: 8 new tests added (262 total, all passing)
+
+### Example Output
+```markdown
+## src/config.ts
+
+**Type:** file
+
+> **Warning:** Widely used (8 files depend on this)
+
+**Dependents:**
+- src/auth/login.ts
+- src/api/routes.ts
+```
+
+---
+
+## Phase 6.2: Test File Mapping - COMPLETE
+
+### Implementation Summary
+| Step | Description | Status |
+|------|-------------|--------|
+| 6.2.1 | Detect test files by pattern | Done |
+| 6.2.2 | Add `testFile` edge type | Done |
+| 6.2.3 | Include test file in /context bundle | Done |
+| 6.2.4 | Add `testCommand` to metadata | Done |
+
+### Key Changes
+- **Builder**: `isTestFile()` detects `*.test.ts`, `*.spec.ts`, `__tests__/` patterns
+- **Builder**: `buildTestFileEdges()` creates edges from source to test files
+- **API**: `bundleContext()` automatically includes test files
+- **Metadata**: Test files have `testCommand: "npm test -- <path>"`
+- **Tests**: 13 new tests added (254 total, all passing)
+
+### Usage
+```bash
+# Context now includes test files automatically
+curl http://localhost:3000/context?files=src/builder/index.ts
+# Returns: src/builder/index.ts + src/builder/index.test.ts
+```
+
+---
+
+## Phase 6.1: On-Demand Prose Generation - COMPLETE
+
+### Implementation Summary
+| Step | Description | Status |
+|------|-------------|--------|
+| 6.1.1 | Modify `/node/:path` to check for prose | Done |
+| 6.1.2 | Add `generateProseForNode()` function | Done |
+| 6.1.3 | Cache generated prose in DB | Done (existing) |
+| 6.1.4 | Add `--lazy` flag to `pith serve` | Done |
+| 6.1.5 | Keep `pith generate` for batch pre-generation | Done (unchanged) |
+| 6.1.6 | Add `?prose=false` query param | Done |
+
+### Key Changes
+- **Generator**: New `generateProseForNode()` function for single-node generation
+- **API**: `/node/:path` auto-generates prose when missing (unless `?prose=false`)
+- **CLI**: `pith serve --lazy` (default) enables on-demand generation
+- **Tests**: 7 new tests added (241 total, all passing)
+
+### Usage
+```bash
+# Start server with lazy generation (default)
+export OPENROUTER_API_KEY=your-key
+pith serve
+
+# Start server without lazy generation
+pith serve --no-lazy
+
+# Get node (auto-generates prose if missing)
+curl http://localhost:3000/node/src/auth/login.ts
+
+# Skip prose generation
+curl http://localhost:3000/node/src/auth/login.ts?prose=false
+```
 
 ---
 
@@ -293,15 +484,15 @@ Based on testing validation (see `docs/testing-plan.md`), prioritized improvemen
 
 ## Test Summary
 
-As of 2025-12-29:
-- **Total tests**: 234
+As of 2025-12-29 (Phase 6 Complete):
+- **Total tests**: 286
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 60
+- **Test suites**: 71
 
 Commands:
 ```bash
-npm test      # 234 tests pass
+npm test      # 286 tests pass
 npm run lint  # No errors
 ```
 

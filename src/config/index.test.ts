@@ -27,11 +27,11 @@ describe('config', () => {
     assert.ok(config.extraction.include.includes('lib/**/*.ts'));
     assert.ok(config.extraction.include.includes('**/*.ts'));
 
-    // Check default excludes
+    // Check default excludes (test files NOT excluded - they're included for testFile edges)
     assert.ok(config.extraction.exclude);
     assert.ok(config.extraction.exclude.includes('node_modules/**'));
-    assert.ok(config.extraction.exclude.includes('**/*.test.ts'));
-    assert.ok(config.extraction.exclude.includes('**/*.spec.ts'));
+    assert.ok(!config.extraction.exclude.includes('**/*.test.ts'), 'Test files should be included by default');
+    assert.ok(!config.extraction.exclude.includes('**/*.spec.ts'), 'Spec files should be included by default');
     assert.ok(config.extraction.exclude.includes('**/*.d.ts'));
     assert.ok(config.extraction.exclude.includes('dist/**'));
     assert.ok(config.extraction.exclude.includes('build/**'));

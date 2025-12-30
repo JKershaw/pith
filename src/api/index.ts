@@ -1,5 +1,7 @@
 import type { MangoDb } from '@jkershaw/mangodb';
 import type { WikiNode } from '../builder/index.ts';
+import type { GeneratorConfig } from '../generator/index.ts';
+import { generateProseForNode } from '../generator/index.ts';
 import express, { type Express, type Request, type Response } from 'express';
 import { stat } from 'node:fs/promises';
 
@@ -44,11 +46,11 @@ export async function bundleContext(
     }
   }
 
-  // Traverse to find related nodes (depth 1 = immediate imports + parent)
+  // Traverse to find related nodes (depth 1 = immediate imports + parent + test files)
   if (maxDepth >= 1) {
     const initialNodes = [...nodeMap.values()];
 
-    // Collect all targets to fetch (imports + parents)
+    // Collect all targets to fetch (imports + parents + test files)
     const targetsToFetch = new Set<string>();
 
     for (const node of initialNodes) {
@@ -64,6 +66,14 @@ export async function bundleContext(
       const parentEdge = node.edges.find(e => e.type === 'parent');
       if (parentEdge && !nodeMap.has(parentEdge.target)) {
         targetsToFetch.add(parentEdge.target);
+      }
+
+      // Collect test file targets (Phase 6.2.3)
+      const testFileEdges = node.edges.filter(e => e.type === 'testFile');
+      for (const edge of testFileEdges) {
+        if (!nodeMap.has(edge.target)) {
+          targetsToFetch.add(edge.target);
+        }
       }
     }
 
@@ -112,6 +122,12 @@ export function formatContextAsMarkdown(context: BundledContext): string {
     lines.push('');
     lines.push(`**Type:** ${node.type}`);
 
+    // Phase 6.3.3: Warning for high fan-in files
+    if (node.metadata.fanIn !== undefined && node.metadata.fanIn > 5) {
+      lines.push('');
+      lines.push(`> **Warning:** Widely used (${node.metadata.fanIn} files depend on this)`);
+    }
+
     // Prose summary and purpose
     if (node.prose) {
       lines.push('');
@@ -125,6 +141,33 @@ export function formatContextAsMarkdown(context: BundledContext): string {
         lines.push('**Gotchas:**');
         for (const gotcha of node.prose.gotchas) {
           lines.push(`- ${gotcha}`);
+        }
+      }
+
+      // Quick Start for modules (Phase 6.4)
+      if (node.type === 'module' && node.prose.quickStart) {
+        lines.push('');
+        lines.push('**Quick Start:**');
+        lines.push('```typescript');
+        lines.push(node.prose.quickStart);
+        lines.push('```');
+      }
+
+      // Patterns for files (Phase 6.4)
+      if (node.type === 'file' && node.prose.patterns && node.prose.patterns.length > 0) {
+        lines.push('');
+        lines.push('**Patterns:**');
+        for (const pattern of node.prose.patterns) {
+          lines.push(`- ${pattern}`);
+        }
+      }
+
+      // Similar Files for files (Phase 6.4)
+      if (node.type === 'file' && node.prose.similarFiles && node.prose.similarFiles.length > 0) {
+        lines.push('');
+        lines.push('**Similar Files:**');
+        for (const file of node.prose.similarFiles) {
+          lines.push(`- ${file}`);
         }
       }
     }
@@ -156,6 +199,16 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       lines.push('');
       lines.push('**Imports (resolved):**');
       for (const edge of importEdges) {
+        lines.push(`- ${edge.target}`);
+      }
+    }
+
+    // Phase 6.3.2: Dependents (importedBy edges)
+    const dependentEdges = node.edges.filter(e => e.type === 'importedBy');
+    if (dependentEdges.length > 0) {
+      lines.push('');
+      lines.push('**Dependents:**');
+      for (const edge of dependentEdges) {
         lines.push(`- ${edge.target}`);
       }
     }
@@ -199,9 +252,15 @@ export function formatContextAsMarkdown(context: BundledContext): string {
  * Create Express application with API routes.
  *
  * @param db - MangoDB database instance
+ * @param generatorConfig - Optional LLM generator configuration for on-demand prose generation
+ * @param fetchFn - Optional fetch function for testing
  * @returns Express application
  */
-export function createApp(db: MangoDb): Express {
+export function createApp(
+  db: MangoDb,
+  generatorConfig?: GeneratorConfig,
+  fetchFn?: typeof fetch
+): Express {
   const app = express();
 
   app.use(express.json());
@@ -213,9 +272,10 @@ export function createApp(db: MangoDb): Express {
     try {
       const pathParts = req.params.path as unknown as string[];
       const nodePath = pathParts.join('/'); // Join array back into path string
+      const proseParam = req.query.prose as string | undefined;
 
       const nodes = db.collection<WikiNode>('nodes');
-      const node = await nodes.findOne({ id: nodePath });
+      let node = await nodes.findOne({ id: nodePath });
 
       if (!node) {
         res.status(404).json({
@@ -223,6 +283,20 @@ export function createApp(db: MangoDb): Express {
           message: `Node not found: ${nodePath}`,
         });
         return;
+      }
+
+      // On-demand prose generation
+      // Generate prose if: node has no prose AND prose param is not 'false' AND generatorConfig is provided
+      if (!node.prose && proseParam !== 'false' && generatorConfig) {
+        try {
+          const updatedNode = await generateProseForNode(nodePath, db, generatorConfig, fetchFn);
+          if (updatedNode) {
+            node = updatedNode;
+          }
+        } catch (error) {
+          // Log error but return node without prose rather than failing the request
+          console.error(`Failed to generate prose for ${nodePath}:`, (error as Error).message);
+        }
       }
 
       res.json(node);
