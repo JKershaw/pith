@@ -172,8 +172,28 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       }
     }
 
-    // Signatures for files
-    if (node.type === 'file' && node.raw.signature && node.raw.signature.length > 0) {
+    // Functions with details (Phase 6.6.1) - preferred over signatures when available
+    if (node.type === 'file' && node.raw.functions && node.raw.functions.length > 0) {
+      lines.push('');
+      lines.push('**Functions:**');
+      for (const func of node.raw.functions) {
+        lines.push('');
+        lines.push(`### ${func.name} (lines ${func.startLine}-${func.endLine})`);
+        lines.push('```typescript');
+        lines.push(func.codeSnippet);
+        lines.push('```');
+
+        // Key statements (Phase 6.6.1.3)
+        if (func.keyStatements && func.keyStatements.length > 0) {
+          lines.push('');
+          lines.push('**Key statements:**');
+          for (const stmt of func.keyStatements) {
+            lines.push(`- [${stmt.category}] line ${stmt.line}: \`${stmt.text}\``);
+          }
+        }
+      }
+    } else if (node.type === 'file' && node.raw.signature && node.raw.signature.length > 0) {
+      // Fallback to simple signatures if no function details
       lines.push('');
       lines.push('**Functions:**');
       lines.push('```typescript');

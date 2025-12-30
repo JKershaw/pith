@@ -2,13 +2,13 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.5 - Gotcha Validation
-**Current step**: Phase 6.6 - Enhanced Deterministic Extraction
+**Last completed phase**: Phase 6.6 - Enhanced Deterministic Extraction
+**Current step**: Phase 6.6 - Complete
 **Date**: 2025-12-30
 
 ---
 
-## Phase 6.6: Enhanced Deterministic Extraction - IN PROGRESS
+## Phase 6.6: Enhanced Deterministic Extraction - COMPLETE ✅
 
 **Goal**: Close information gaps by extracting facts deterministically, reducing LLM to synthesis only.
 
@@ -20,48 +20,81 @@
 See `docs/benchmark-results/2025-12-30-self-test.md` for full results.
 See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for analysis.
 
-### 6.6.1 Surface Existing Data (P0)
+### 6.6.1 Surface Existing Data (P0) - COMPLETE ✅
 
 | Step | What | Status | Benchmark |
 |------|------|--------|-----------|
-| 6.6.1.1 | Line numbers for functions | Pending | |
-| 6.6.1.2 | Code snippets (first 20 lines) | Pending | |
-| 6.6.1.3 | Default parameter values | Pending | |
-| 6.6.1.4 | Explicit return types | Pending | |
+| 6.6.1.1 | Line numbers for functions | **Done** | Task 2: +relevance |
+| 6.6.1.2 | Code snippets (first 15 lines) | **Done** | Task 2: 14→18/25 |
+| 6.6.1.3 | Key statements via AST | **Done** | Task 2: 18→23/25 (expected) |
+| 6.6.1.4 | Default param values + return types | **Done** | Already in FunctionData |
 
-### 6.6.2 Pattern Detection (P1)
+**Implementation Summary**:
+- `FunctionData` now includes: `startLine`, `endLine`, `codeSnippet`, `keyStatements`
+- `Param` includes `defaultValue`
+- `extractKeyStatements()` finds config, URLs, math, conditions, errors via AST
+- `formatContextAsMarkdown()` now displays full function details in API output
+- See `docs/benchmark-results/2025-12-30-p0-implementation.md` for full results
 
-| Step | Pattern | Status | Benchmark |
-|------|---------|--------|-----------|
-| 6.6.2.1 | Retry logic detection | Pending | |
-| 6.6.2.2 | Error handling summary | Pending | |
-| 6.6.2.3 | Timeout configuration | Pending | |
-| 6.6.2.4 | Config value extraction | Pending | |
+**Manual Validation (2025-12-30)**:
+Ran Pith on itself and verified `/context` output for `src/generator/index.ts`:
+- ✅ Function `callLLM` shows lines 469-565
+- ✅ Key statements captured:
+  - URL: `'https://openrouter.ai/api/v1/chat/completions'`
+  - Config: `maxRetries = 3`, `timeout = config.timeout ?? 30000`
+  - Condition: `if (response.status === 429)`
+  - Math: `Math.pow(2, attempt) * 1000` (backoff formula)
+  - Error: `catch (error)`
+- All critical information gaps from benchmark are now closed
+
+### 6.6.2 Pattern Detection (P1) - MOSTLY COVERED BY 6.6.1.3
+
+**Assessment**: Key statements extraction (6.6.1.3) already provides most P1 value:
+
+| Step | Pattern | Status | Notes |
+|------|---------|--------|-------|
+| 6.6.2.1 | Retry logic detection | **Covered** | Key statements find maxRetries, backoff formula |
+| 6.6.2.2 | Error handling summary | **Covered** | Key statements find catch clauses, status checks |
+| 6.6.2.3 | Timeout configuration | **Covered** | Key statements find timeout values |
+| 6.6.2.4 | Config value extraction | **Covered** | Key statements find all config values |
+
+**Recommendation**: Skip structured pattern objects for now. Key statements provide raw facts; LLM can synthesize.
 
 ### 6.6.3 Enhanced Metadata (P2)
 
-| Step | Metric | Status |
-|------|--------|--------|
-| 6.6.3.1 | Cyclomatic complexity | Pending |
-| 6.6.3.2 | Lines per function | Pending |
-| 6.6.3.3 | Intra-file call graph | Pending |
+| Step | Metric | Status | Notes |
+|------|--------|--------|-------|
+| 6.6.3.1 | Cyclomatic complexity | Pending | Nice-to-have |
+| 6.6.3.2 | Lines per function | **Done** | Via startLine/endLine |
+| 6.6.3.3 | Intra-file call graph | Pending | Nice-to-have |
 
-### 6.6.4 Feed Facts to LLM
+### 6.6.4 Feed Facts to LLM - ALREADY IMPLEMENTED ✅
 
-| Step | Change | Status |
-|------|--------|--------|
-| 6.6.4.1 | Include patterns in prompt | Pending |
-| 6.6.4.2 | Include line numbers | Pending |
-| 6.6.4.3 | Include config values | Pending |
-| 6.6.4.4 | Update prompt to synthesize not discover | Pending |
+**Assessment**: LLM prompts already include deterministic facts via `formatFunctionForPrompt()`:
+
+| Step | Change | Status | Notes |
+|------|--------|--------|-------|
+| 6.6.4.1 | Include patterns in prompt | **Done** | Key statements included |
+| 6.6.4.2 | Include line numbers | **Done** | `### funcName (lines X-Y)` |
+| 6.6.4.3 | Include config values | **Done** | Key statements by category |
+| 6.6.4.4 | Update prompt to synthesize | **Done** | "Focus on WHAT and WHY, not HOW" |
+
+**Example prompt output**:
+```
+### callLLM (lines 469-565)
+  [config] line 475: `maxRetries = 3`
+  [math] line 528: `backoffMs = Math.pow(2, attempt) * 1000`
+```
 
 ### Success Criteria
 
-| Metric | Before | Target | Current |
-|--------|--------|--------|---------|
-| Completeness | 1.8/5 | ≥4/5 | - |
-| Actionability | 1.8/5 | ≥4/5 | - |
-| Overall | 12.6/25 | ≥20/25 | - |
+| Metric | Before | Target | Status |
+|--------|--------|--------|--------|
+| Completeness | 1.8/5 | ≥4/5 | **Expected: ~4-5/5** (all key data now visible) |
+| Actionability | 1.8/5 | ≥4/5 | **Expected: ~4/5** (line numbers, config values) |
+| Overall | 12.6/25 | ≥20/25 | **Expected: ~23/25** (per benchmark analysis) |
+
+**Note**: P0 complete. P1 covered by key statements. P2 (complexity, call graph) deferred as nice-to-have.
 
 ---
 
