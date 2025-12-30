@@ -40,12 +40,12 @@ export async function callLLM(...)
   // ... (82 more lines)
 ```
 **Key statements:**
-  - [url] line 474: `url = 'https://openrouter.ai/api/v1/chat/completions'`
-  - [config] line 475: `maxRetries = 3`
-  - [config] line 476: `timeout = config.timeout ?? 30000`
-  - [condition] line 519: `if (response.status === 429)`
-  - [math] line 528: `backoffMs = Math.pow(2, attempt) * 1000`  ← NOW VISIBLE!
-  - [error] line 548: `catch (error)`
+- [url] line 474: `url = 'https://openrouter.ai/api/v1/chat/completions'`
+- [config] line 475: `maxRetries = 3`
+- [config] line 476: `timeout = config.timeout ?? 30000`
+- [condition] line 519: `if (response.status === 429)`
+- [math] line 528: `backoffMs = Math.pow(2, attempt) * 1000`  ← NOW VISIBLE!
+- [error] line 548: `catch (error)`
 ```
 
 | Criterion | Baseline | P0.2 | P0.3 (Expected) | Control |
@@ -111,7 +111,7 @@ But missed (line 82+ of `callLLM`):
 ### Before (Baseline 2025-12-30)
 
 Pith said:
-```
+```json
 "gotchas": ["The 'callLLM' function has retry logic but may still fail on persistent network issues"]
 ```
 
@@ -202,6 +202,7 @@ function isRetryableError(error: Error, status?: number): boolean {
 ## Summary
 
 ### Results by Phase
+
 | Metric | Baseline | P0.2 (Snippets) | P0.3 (Key Stmts) | Control |
 |--------|:--------:|:---------------:|:----------------:|:-------:|
 | Task 2 Score | 14/25 | 18/25 | **23/25** (expected) | 25/25 |

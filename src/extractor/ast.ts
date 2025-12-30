@@ -47,9 +47,10 @@ export interface KeyStatement {
 }
 
 /**
- * Function data.
+ * Function data extracted from AST.
+ * Named FunctionData to avoid shadowing global Function constructor.
  */
-export interface Function {
+export interface FunctionData {
   name: string;
   signature: string;
   params: Param[];
@@ -76,7 +77,7 @@ export interface Property {
  */
 export interface Class {
   name: string;
-  methods: Function[];
+  methods: FunctionData[];
   properties: Property[];
   isExported: boolean;
   extends?: string;
@@ -100,7 +101,7 @@ export interface ExtractedFile {
   lines: number;
   imports: Import[];
   exports: Export[];
-  functions: Function[];
+  functions: FunctionData[];
   classes: Class[];
   interfaces: Interface[];
   git?: GitInfo;
@@ -431,7 +432,7 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
   }
 
   // Extract functions
-  const functions: Function[] = sourceFile.getFunctions().map((func) => ({
+  const functions: FunctionData[] = sourceFile.getFunctions().map((func) => ({
     name: func.getName() || 'anonymous',
     signature: func.getSignature().getDeclaration().getText(),
     params: func.getParameters().map((p) => ({

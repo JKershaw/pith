@@ -21,7 +21,7 @@ import {
   buildTestFileEdges,
   buildDependentEdges,
   type WikiNode,
-  type Function,
+  type FunctionData,
 } from './index.ts';
 import type { ExtractedFile } from '../extractor/ast.ts';
 import { getDb, closeDb } from '../db/index.ts';
@@ -406,7 +406,7 @@ describe('storeFileNodes', () => {
 describe('shouldCreateFunctionNode', () => {
   // Step 2.2.1: Test returns true for exported functions
   it('returns true for exported functions', () => {
-    const func: Function = {
+    const func: FunctionData = {
       name: 'authenticate',
       signature: 'export function authenticate(user: string): boolean',
       params: [],
@@ -423,7 +423,7 @@ describe('shouldCreateFunctionNode', () => {
   });
 
   it('returns false for non-exported functions', () => {
-    const func: Function = {
+    const func: FunctionData = {
       name: 'helper',
       signature: 'function helper(): void',
       params: [],
@@ -461,7 +461,7 @@ describe('buildFunctionNode', () => {
       },
     };
 
-    const func: Function = {
+    const func: FunctionData = {
       name: 'authenticate',
       signature: 'export function authenticate(user: string): boolean',
       params: [{ name: 'user', type: 'string', isOptional: false }],
@@ -496,7 +496,7 @@ describe('buildFunctionNode', () => {
       interfaces: [],
     };
 
-    const func: Function = {
+    const func: FunctionData = {
       name: 'authenticate',
       signature: 'export function authenticate(user: string): boolean',
       params: [],
@@ -524,7 +524,7 @@ describe('buildFunctionNode', () => {
       interfaces: [],
     };
 
-    const func: Function = {
+    const func: FunctionData = {
       name: 'add',
       signature: 'export function add(a: number, b: number): number',
       params: [
@@ -569,7 +569,7 @@ describe('buildFunctionNode', () => {
       },
     };
 
-    const func: Function = {
+    const func: FunctionData = {
       name: 'myFunction',
       signature: 'export function myFunction(user: string): boolean',
       params: [{ name: 'user', type: 'string', isOptional: false }],
@@ -598,7 +598,7 @@ describe('buildFunctionNode', () => {
       interfaces: [],
     };
 
-    const func: Function = {
+    const func: FunctionData = {
       name: 'authenticate',
       signature: 'export function authenticate(user: string): boolean',
       params: [],
@@ -633,7 +633,7 @@ describe('buildFunctionNode', () => {
       },
     };
 
-    const func: Function = {
+    const func: FunctionData = {
       name: 'authenticate',
       signature: 'export function authenticate(user: string): boolean',
       params: [],
@@ -680,7 +680,7 @@ describe('storeFunctionNodes', () => {
       },
     };
 
-    const func: Function = {
+    const func: FunctionData = {
       name: 'authenticate',
       signature: 'export function authenticate(user: string): boolean',
       params: [{ name: 'user', type: 'string', isOptional: false }],

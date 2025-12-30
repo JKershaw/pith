@@ -1,12 +1,12 @@
 import { basename } from 'node:path';
 import type { MangoDb } from '@jkershaw/mangodb';
-import type { ExtractedFile, Import, Export, Function, KeyStatement } from '../extractor/ast.ts';
+import type { ExtractedFile, Import, Export, FunctionData, KeyStatement } from '../extractor/ast.ts';
 import type { Commit } from '../extractor/git.ts';
 import type { JSDoc } from '../extractor/docs.ts';
 import type { ProseData } from '../generator/index.ts';
 
 // Re-export types for testing
-export type { Function };
+export type { FunctionData };
 
 /**
  * Edge between wiki nodes.
@@ -158,7 +158,7 @@ export async function storeFileNodes(db: MangoDb, nodes: WikiNode[]): Promise<vo
  * @param func - The function data
  * @returns True if the function is exported
  */
-export function shouldCreateFunctionNode(func: Function): boolean {
+export function shouldCreateFunctionNode(func: FunctionData): boolean {
   // Step 2.2.1: Create nodes for exported functions only
   return func.isExported;
 }
@@ -169,7 +169,7 @@ export function shouldCreateFunctionNode(func: Function): boolean {
  * @param func - The function data
  * @returns A WikiNode for the function
  */
-export function buildFunctionNode(extracted: ExtractedFile, func: Function): WikiNode {
+export function buildFunctionNode(extracted: ExtractedFile, func: FunctionData): WikiNode {
   // Step 2.2.3: Generate ID (file:function)
   const id = `${extracted.path}:${func.name}`;
 
