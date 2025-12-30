@@ -147,7 +147,6 @@ function getCodeSnippet(getText: () => string, maxLines = SNIPPET_MAX_LINES): st
  */
 function extractKeyStatements(func: FunctionDeclaration | MethodDeclaration): KeyStatement[] {
   const statements: KeyStatement[] = [];
-  const funcStartLine = func.getStartLineNumber();
 
   // 1. Find variable declarations with numeric literals or nullish coalescing defaults
   for (const decl of func.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
