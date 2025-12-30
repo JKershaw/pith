@@ -61,12 +61,19 @@ Record in results:
 
 ### 3. Prepare Test Tasks
 
-Select 5 tasks from the task bank (see Appendix A). Tasks should cover:
-- [ ] 1 architecture/overview task
-- [ ] 1 specific function behavior task
-- [ ] 1 cross-module relationship task
-- [ ] 1 debugging/investigation task
-- [ ] 1 modification planning task
+**Run ALL 15 tasks from the task bank** (see Appendix A) for comprehensive evaluation. This ensures:
+- Statistical significance across task types
+- Consistent comparison between benchmark runs
+- Complete coverage of Pith's strengths and weaknesses
+
+Tasks are organized into 5 categories with 3 tasks each:
+- [ ] 3 architecture/overview tasks (A1-A3)
+- [ ] 3 specific behavior tasks (B1-B3)
+- [ ] 3 cross-module relationship tasks (R1-R3)
+- [ ] 3 debugging/investigation tasks (D1-D3)
+- [ ] 3 modification planning tasks (M1-M3)
+
+**Note**: For quick regression tests, a 5-task subset (one per category) may be used, but full benchmarks should always run all 15 tasks.
 
 ---
 
@@ -317,30 +324,42 @@ Based on the gap analysis, list specific improvements for Pith:
 
 ## Appendix A: Task Bank
 
-### Architecture Tasks
-1. "What are the main components of this codebase and how do they interact?"
-2. "Explain the data flow from user input to database storage."
-3. "What design patterns are used in this codebase?"
+When benchmarking Pith itself (self-test), use the Pith-specific versions below. When benchmarking external repos, adapt the generic versions to that codebase.
 
-### Specific Behavior Tasks
-1. "How does the authentication middleware validate tokens?"
-2. "What happens when [specific function] is called with invalid input?"
-3. "Explain the caching strategy used in [module]."
+### Architecture Tasks (A1-A3)
+| ID | Pith Self-Test Version | Generic Version |
+|----|------------------------|-----------------|
+| A1 | "What are the main components of this codebase and how do they interact?" | Same |
+| A2 | "Explain the data flow from file input to wiki output." | "Explain the data flow from user input to database storage." |
+| A3 | "What design patterns are used in this codebase?" | Same |
 
-### Relationship Tasks
-1. "What files would be affected if I changed the User model schema?"
-2. "How do the API routes connect to the database layer?"
-3. "What are all the consumers of [specific utility function]?"
+### Specific Behavior Tasks (B1-B3)
+| ID | Pith Self-Test Version | Generic Version |
+|----|------------------------|-----------------|
+| B1 | "How does the extraction cache determine if a file needs re-extraction?" | "Explain the caching strategy used in [module]." |
+| B2 | "How does buildPrompt construct LLM prompts for different node types?" | "What happens when [specific function] is called with invalid input?" |
+| B3 | "What is the retry logic in the LLM client and what triggers a retry?" | "How does the authentication middleware validate tokens?" |
 
-### Debugging Tasks
-1. "A user reports [symptom]. What files should I investigate?"
-2. "Why might [specific operation] be slow?"
-3. "What could cause [error type] in the [module] code?"
+### Relationship Tasks (R1-R3)
+| ID | Pith Self-Test Version | Generic Version |
+|----|------------------------|-----------------|
+| R1 | "What files would be affected if I changed the WikiNode interface?" | "What files would be affected if I changed the User model schema?" |
+| R2 | "How do the API routes connect to the database layer?" | Same |
+| R3 | "What are all the consumers of the extractFile function?" | "What are all the consumers of [specific utility function]?" |
 
-### Modification Tasks
-1. "I want to add a new field to [entity]. What files need changes?"
-2. "How would I add rate limiting to the API endpoints?"
-3. "What's involved in adding support for [new feature]?"
+### Debugging Tasks (D1-D3)
+| ID | Pith Self-Test Version | Generic Version |
+|----|------------------------|-----------------|
+| D1 | "Generation completes but some nodes have empty prose. What should I investigate?" | "A user reports [symptom]. What files should I investigate?" |
+| D2 | "Why might the generate command be slow?" | "Why might [specific operation] be slow?" |
+| D3 | "API returns 404 for a file that exists. What could cause this?" | "What could cause [error type] in the [module] code?" |
+
+### Modification Tasks (M1-M3)
+| ID | Pith Self-Test Version | Generic Version |
+|----|------------------------|-----------------|
+| M1 | "How would I add support for JavaScript (.js) files in addition to TypeScript?" | "What's involved in adding support for [new feature]?" |
+| M2 | "How would I add rate limiting to the API endpoints?" | Same |
+| M3 | "I want to add a 'complexity' field to WikiNode. What files need changes?" | "I want to add a new field to [entity]. What files need changes?" |
 
 ---
 
@@ -371,3 +390,4 @@ EXTRACT_TIME=$(($(date +%s) - START))
 |------|--------|--------|
 | 2025-12-30 | Initial benchmarking plan created | Claude |
 | 2025-12-30 | Added Information Gap Analysis section to template | Claude |
+| 2025-12-30 | Updated to require all 15 tasks; added Pith-specific task versions | Claude |
