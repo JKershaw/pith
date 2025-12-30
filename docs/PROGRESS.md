@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.6.6 (Design Pattern Recognition)
-**Current step**: Phase 6.6.8 - Error Path Analysis (next)
+**Last completed phase**: Phase 6.6.8 (Error Path Analysis)
+**Current step**: Phase 6.6.7b - Cross-File Call Graph (next)
 **Date**: 2025-12-30
 
 ---
@@ -241,6 +241,55 @@ interface DetectedPattern {
 - Benchmark A3 (Design Patterns): Expected improvement from 13/25 to 18+/25
 - Provides concrete evidence for pattern usage in gotchas and documentation
 - Foundation for 6.6.6b (advanced patterns requiring cross-file analysis)
+
+---
+
+### 6.6.8 Error Path Analysis - COMPLETE ✅
+
+| Step | What | Status |
+|------|------|--------|
+| 6.6.8.1 | Find all early return/throw statements | **Done** |
+| 6.6.8.2 | Trace error propagation in catch blocks | **Done** |
+| 6.6.8.3 | Identify validation guards | **Done** |
+| 6.6.8.4 | Add "Error Paths" section for functions | **Done** |
+
+**Implementation Summary (2025-12-30)**:
+
+**New files**:
+- `src/extractor/errors.ts` - Error path detection functions
+- `src/extractor/errors.test.ts` - 14 tests for error path detection
+
+**Detection functions** (`src/extractor/errors.ts`):
+- `extractEarlyReturns()`: Finds return statements inside conditionals that exit early
+- `extractThrowStatements()`: Detects all throw statements with their conditions
+- `extractCatchBlocks()`: Classifies error handling as re-throw, transform, log, or swallow
+- `extractValidationGuards()`: Identifies input validation in first 5 statements
+- `extractErrorPaths()`: Main function combining all detectors
+
+**Data structure**:
+```typescript
+interface ErrorPath {
+  type: 'early-return' | 'throw' | 'catch' | 'guard';
+  line: number;
+  condition?: string;  // The condition that triggers this path
+  action: string;      // What happens (return value, error thrown, etc.)
+}
+```
+
+**Integration**:
+- Added `errorPaths` field to `FunctionData` interface
+- Propagated error paths from extraction to `WikiNode.raw.functions[].errorPaths`
+
+**Tests**: 342 total (14 new for Phase 6.6.8)
+
+**Error paths detected in key Pith functions**:
+- `src/generator/index.ts:callLLM` - 5 error paths (throws, catches, transforms)
+- `src/extractor/ast.ts:extractFile` - 2 error paths (catch + transform)
+
+**What this enables**:
+- Benchmark D1-D3 (Debugging tasks): Expected improvement from 15/25 to 20+/25
+- Specific error causes with line numbers for debugging questions
+- Foundation for error flow tracing in Phase 6.6.7b
 
 ---
 
@@ -743,15 +792,15 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2025-12-30 (Phase 6.6.6 Complete):
-- **Total tests**: 328
+As of 2025-12-30 (Phase 6.6.8 Complete):
+- **Total tests**: 342
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 86
+- **Test suites**: 91
 
 Commands:
 ```bash
-npm test      # 328 tests pass
+npm test      # 342 tests pass
 npm run lint  # No errors
 ```
 

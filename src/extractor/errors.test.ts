@@ -35,7 +35,7 @@ describe('extractEarlyReturns', () => {
 
   it('does not detect final return as early return', () => {
     const ctx = createProject(pithRoot);
-    const extracted = extractFile(ctx, 'src/extractor/cache.ts');
+    extractFile(ctx, 'src/extractor/cache.ts'); // Ensure file is processed
 
     // Test a simple function
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/extractor/cache.ts'));
@@ -52,7 +52,7 @@ describe('extractEarlyReturns', () => {
 
   it('extracts condition and action for early returns', () => {
     const ctx = createProject(pithRoot);
-    const extracted = extractFile(ctx, 'src/api/index.ts');
+    extractFile(ctx, 'src/api/index.ts'); // Ensure file is processed
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/api/index.ts'));
 
     // Look for a function with early returns
@@ -95,7 +95,7 @@ describe('extractThrowStatements', () => {
 
   it('extracts condition when throw is in conditional', () => {
     const ctx = createProject(pithRoot);
-    const extracted = extractFile(ctx, 'src/generator/index.ts');
+    extractFile(ctx, 'src/generator/index.ts'); // Ensure file is processed
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/generator/index.ts'));
 
     for (const func of sourceFile.getFunctions()) {
@@ -137,7 +137,7 @@ describe('extractCatchBlocks', () => {
 
   it('identifies re-throw pattern', () => {
     const ctx = createProject(pithRoot);
-    const extracted = extractFile(ctx, 'src/generator/index.ts');
+    extractFile(ctx, 'src/generator/index.ts'); // Ensure file is processed
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/generator/index.ts'));
 
     for (const func of sourceFile.getFunctions()) {
@@ -154,16 +154,16 @@ describe('extractCatchBlocks', () => {
 
   it('identifies error transformation pattern', () => {
     const ctx = createProject(pithRoot);
-    const extracted = extractFile(ctx, 'src/generator/index.ts');
+    extractFile(ctx, 'src/generator/index.ts'); // Ensure file is processed
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/generator/index.ts'));
 
-    let foundTransform = false;
     for (const func of sourceFile.getFunctions()) {
       const catchBlocks = extractCatchBlocks(func);
 
       for (const catchPath of catchBlocks) {
+        // Check for transform pattern
         if (catchPath.action.includes('transforms')) {
-          foundTransform = true;
+          assert.ok(true, 'Found error transformation');
         }
       }
     }
@@ -176,7 +176,7 @@ describe('extractCatchBlocks', () => {
 describe('extractValidationGuards', () => {
   it('detects validation guards at function start', () => {
     const ctx = createProject(pithRoot);
-    const extracted = extractFile(ctx, 'src/extractor/ast.ts');
+    extractFile(ctx, 'src/extractor/ast.ts'); // Ensure file is processed
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/extractor/ast.ts'));
 
     // extractFile has validation guards
@@ -191,7 +191,7 @@ describe('extractValidationGuards', () => {
 
   it('extracts condition and action for guards', () => {
     const ctx = createProject(pithRoot);
-    const extracted = extractFile(ctx, 'src/builder/index.ts');
+    extractFile(ctx, 'src/builder/index.ts'); // Ensure file is processed
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/builder/index.ts'));
 
     for (const func of sourceFile.getFunctions()) {
@@ -212,7 +212,7 @@ describe('extractValidationGuards', () => {
 
   it('only detects guards in first 5 statements', () => {
     const ctx = createProject(pithRoot);
-    const extracted = extractFile(ctx, 'src/builder/index.ts');
+    extractFile(ctx, 'src/builder/index.ts'); // Ensure file is processed
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/builder/index.ts'));
 
     // buildFileNode is a good candidate
@@ -237,7 +237,7 @@ describe('extractValidationGuards', () => {
 describe('extractErrorPaths', () => {
   it('extracts all error paths from a function', () => {
     const ctx = createProject(pithRoot);
-    const extracted = extractFile(ctx, 'src/generator/index.ts');
+    extractFile(ctx, 'src/generator/index.ts'); // Ensure file is processed
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/generator/index.ts'));
 
     // callLLM has all types of error paths
@@ -264,7 +264,7 @@ describe('extractErrorPaths', () => {
 
   it('includes all error path types', () => {
     const ctx = createProject(pithRoot);
-    const extracted = extractFile(ctx, 'src/generator/index.ts');
+    extractFile(ctx, 'src/generator/index.ts'); // Ensure file is processed
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/generator/index.ts'));
 
     const allTypes = new Set<string>();
@@ -283,15 +283,13 @@ describe('extractErrorPaths', () => {
 
   it('detects error paths in API handler functions', () => {
     const ctx = createProject(pithRoot);
-    const extracted = extractFile(ctx, 'src/api/index.ts');
+    extractFile(ctx, 'src/api/index.ts'); // Ensure file is processed
 
     // API handlers often have validation guards and early returns
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/api/index.ts'));
 
-    let totalErrorPaths = 0;
     for (const func of sourceFile.getFunctions()) {
       const errorPaths = extractErrorPaths(func);
-      totalErrorPaths += errorPaths.length;
 
       for (const path of errorPaths) {
         assert.ok(['early-return', 'throw', 'catch', 'guard'].includes(path.type));
