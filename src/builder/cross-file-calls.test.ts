@@ -231,7 +231,8 @@ describe('followReExportChain', () => {
     ];
 
     // Should return null when max depth is reached
-    const result = followReExportChain('func', 'src/a.ts', allNodes, 5);
+    // Pass undefined for filePathMap to let it build internally, and explicit maxDepth
+    const result = followReExportChain('func', 'src/a.ts', allNodes, undefined, 5);
 
     assert.strictEqual(result, null);
   });

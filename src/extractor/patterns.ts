@@ -237,9 +237,10 @@ export function detectSingletonPattern(extracted: ExtractedFile): DetectedPatter
       evidence.push(`${func.name} checks and creates instance`);
     }
 
-    // Also check for getInstance pattern
-    if (func.name.toLowerCase().includes('getinstance') ||
-        func.name.toLowerCase().includes('get') && snippet.includes('instance')) {
+    // Also check for getInstance pattern (require both 'get' and 'instance' in function name)
+    const funcNameLower = func.name.toLowerCase();
+    if (funcNameLower.includes('getinstance') ||
+        (funcNameLower.includes('get') && funcNameLower.includes('instance'))) {
       hasGetterFunction = true;
       if (!evidence.some(e => e.includes(func.name))) {
         evidence.push(`${func.name} singleton getter`);

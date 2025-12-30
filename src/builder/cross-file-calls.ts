@@ -44,16 +44,31 @@ export interface CrossFileCallGraph {
 const MAX_REEXPORT_DEPTH = 5;
 
 /**
+ * Build a map of file paths for quick lookup.
+ * @param allNodes - All file nodes in the project
+ * @returns Map from file path to node id
+ */
+function buildFilePathMap(allNodes: WikiNode[]): Map<string, string> {
+  const filePathMap = new Map<string, string>();
+  for (const node of allNodes) {
+    if (node.type === 'file') {
+      filePathMap.set(node.path, node.id);
+    }
+  }
+  return filePathMap;
+}
+
+/**
  * Resolve a relative import path to an absolute file path.
  * @param importingFile - The file doing the import
  * @param importPath - The import path (e.g., './utils', '../helpers/format')
- * @param allNodes - All file nodes in the project
+ * @param filePathMap - Pre-built map of file paths for O(1) lookup
  * @returns Resolved file path or null if not found
  */
 function resolveImportPath(
   importingFile: string,
   importPath: string,
-  allNodes: WikiNode[]
+  filePathMap: Map<string, string>
 ): string | null {
   // Skip non-relative imports (node_modules, etc.)
   if (!importPath.startsWith('.')) {
@@ -68,14 +83,6 @@ function resolveImportPath(
 
   // Normalize path separators (join uses OS-specific separators, we want forward slashes)
   resolvedPath = resolvedPath.split('\\').join('/');
-
-  // Create a map of file paths for quick lookup
-  const filePathMap = new Map<string, string>();
-  for (const node of allNodes) {
-    if (node.type === 'file') {
-      filePathMap.set(node.path, node.id);
-    }
-  }
 
   // Try different extensions
   const candidates = [
@@ -100,13 +107,15 @@ function resolveImportPath(
  * @param importStmt - The import statement that imports this symbol
  * @param importingFile - The file doing the import
  * @param allNodes - All file nodes in the project
+ * @param filePathMap - Pre-built map of file paths (optional, built if not provided)
  * @returns Resolved symbol location or null if not found/not applicable
  */
 export function resolveImportedSymbol(
   symbolName: string,
   importStmt: Import,
   importingFile: string,
-  allNodes: WikiNode[]
+  allNodes: WikiNode[],
+  filePathMap?: Map<string, string>
 ): ResolvedSymbol | null {
   // Skip type-only imports (Step 6.6.7b.1)
   if (importStmt.isTypeOnly) {
@@ -118,8 +127,11 @@ export function resolveImportedSymbol(
     return null;
   }
 
+  // Build file path map if not provided
+  const pathMap = filePathMap ?? buildFilePathMap(allNodes);
+
   // Resolve the import path to an actual file
-  const resolvedFile = resolveImportPath(importingFile, importStmt.from, allNodes);
+  const resolvedFile = resolveImportPath(importingFile, importStmt.from, pathMap);
   if (!resolvedFile) {
     return null;
   }
@@ -155,6 +167,7 @@ export function resolveImportedSymbol(
  * @param symbolName - The name of the symbol being traced
  * @param currentFile - The current file in the chain
  * @param allNodes - All file nodes in the project
+ * @param filePathMap - Pre-built map of file paths (optional, built if not provided)
  * @param maxDepth - Maximum depth to prevent infinite loops (default 5)
  * @param depth - Current depth (used internally for recursion)
  * @returns The original source location or null if not found/max depth reached
@@ -163,6 +176,7 @@ export function followReExportChain(
   symbolName: string,
   currentFile: string,
   allNodes: WikiNode[],
+  filePathMap?: Map<string, string>,
   maxDepth: number = MAX_REEXPORT_DEPTH,
   depth: number = 0
 ): ResolvedSymbol | null {
@@ -170,6 +184,9 @@ export function followReExportChain(
   if (depth >= maxDepth) {
     return null;
   }
+
+  // Build file path map if not provided (first call in chain)
+  const pathMap = filePathMap ?? buildFilePathMap(allNodes);
 
   // Find the current file node
   const currentNode = allNodes.find(n => n.id === currentFile || n.path === currentFile);
@@ -201,13 +218,13 @@ export function followReExportChain(
     // Check if this import includes the symbol
     if (importStmt.names.includes(symbolName) || importStmt.defaultName === symbolName) {
       // Resolve the import path
-      const nextFile = resolveImportPath(currentFile, importStmt.from, allNodes);
+      const nextFile = resolveImportPath(currentFile, importStmt.from, pathMap);
       if (!nextFile) {
         return null;
       }
 
-      // Recursively follow the chain
-      return followReExportChain(symbolName, nextFile, allNodes, maxDepth, depth + 1);
+      // Recursively follow the chain (pass pathMap to avoid rebuilding)
+      return followReExportChain(symbolName, nextFile, allNodes, pathMap, maxDepth, depth + 1);
     }
   }
 
@@ -219,9 +236,14 @@ export function followReExportChain(
  * Maps imported symbol names to their source file and symbol name.
  * @param fileNode - The file node
  * @param allNodes - All file nodes in the project
+ * @param filePathMap - Pre-built map of file paths for O(1) lookup
  * @returns Map of symbol names to resolved locations
  */
-function buildImportSymbolMap(fileNode: WikiNode, allNodes: WikiNode[]): ImportSymbolMap {
+function buildImportSymbolMap(
+  fileNode: WikiNode,
+  allNodes: WikiNode[],
+  filePathMap: Map<string, string>
+): ImportSymbolMap {
   const symbolMap: ImportSymbolMap = {};
 
   if (!fileNode.raw.imports) {
@@ -231,10 +253,10 @@ function buildImportSymbolMap(fileNode: WikiNode, allNodes: WikiNode[]): ImportS
   for (const importStmt of fileNode.raw.imports) {
     // Process named imports
     for (const name of importStmt.names) {
-      const resolved = resolveImportedSymbol(name, importStmt, fileNode.path, allNodes);
+      const resolved = resolveImportedSymbol(name, importStmt, fileNode.path, allNodes, filePathMap);
       if (resolved) {
         // Follow re-export chains to find the original source
-        const original = followReExportChain(resolved.symbolName, resolved.sourceFile, allNodes);
+        const original = followReExportChain(resolved.symbolName, resolved.sourceFile, allNodes, filePathMap);
         if (original) {
           symbolMap[name] = original;
         } else {
@@ -245,10 +267,10 @@ function buildImportSymbolMap(fileNode: WikiNode, allNodes: WikiNode[]): ImportS
 
     // Process default import
     if (importStmt.defaultName) {
-      const resolved = resolveImportedSymbol(importStmt.defaultName, importStmt, fileNode.path, allNodes);
+      const resolved = resolveImportedSymbol(importStmt.defaultName, importStmt, fileNode.path, allNodes, filePathMap);
       if (resolved) {
         // Follow re-export chains
-        const original = followReExportChain(resolved.symbolName, resolved.sourceFile, allNodes);
+        const original = followReExportChain(resolved.symbolName, resolved.sourceFile, allNodes, filePathMap);
         if (original) {
           symbolMap[importStmt.defaultName] = original;
         } else {
@@ -270,10 +292,13 @@ function buildImportSymbolMap(fileNode: WikiNode, allNodes: WikiNode[]): ImportS
 export function buildCrossFileCallGraph(fileNodes: WikiNode[]): CrossFileCallGraph {
   const callGraph: CrossFileCallGraph = {};
 
+  // Build file path map once for O(1) lookups (optimization from CodeRabbit review)
+  const filePathMap = buildFilePathMap(fileNodes);
+
   // Build import maps for all files
   const importMaps = new Map<string, ImportSymbolMap>();
   for (const fileNode of fileNodes) {
-    importMaps.set(fileNode.id, buildImportSymbolMap(fileNode, fileNodes));
+    importMaps.set(fileNode.id, buildImportSymbolMap(fileNode, fileNodes, filePathMap));
   }
 
   // Process each file

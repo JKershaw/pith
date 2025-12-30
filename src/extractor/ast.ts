@@ -7,6 +7,7 @@ import type { GitInfo } from './git.ts';
 import type { DocsInfo } from './docs.ts';
 import type { ErrorPath } from './errors.ts';
 import { extractErrorPaths } from './errors.ts';
+import type { DetectedPattern } from './patterns.ts';
 
 /**
  * Import declaration data.
@@ -111,7 +112,7 @@ export interface ExtractedFile {
   interfaces: Interface[];
   git?: GitInfo;
   docs?: DocsInfo;
-  patterns?: import('./patterns.ts').DetectedPattern[];  // Phase 6.6.6
+  patterns?: DetectedPattern[];  // Phase 6.6.6
 }
 
 /**

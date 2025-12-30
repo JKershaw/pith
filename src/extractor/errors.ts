@@ -157,7 +157,11 @@ export function extractCatchBlocks(func: FunctionDeclaration | MethodDeclaration
     let action = '';
     const hasThrow = block.getDescendantsOfKind(SyntaxKind.ThrowStatement).length > 0;
     const hasReturn = block.getDescendantsOfKind(SyntaxKind.ReturnStatement).length > 0;
-    const hasConsoleLog = block.getText().includes('console.log') || block.getText().includes('console.error');
+    // Use AST-based detection for console calls to avoid false positives from string literals
+    const hasConsoleLog = block.getDescendantsOfKind(SyntaxKind.CallExpression).some((call) => {
+      const callText = call.getExpression().getText();
+      return callText === 'console.log' || callText === 'console.error' || callText === 'console.warn';
+    });
 
     if (statements.length === 0) {
       action = 'swallows error (empty catch)';

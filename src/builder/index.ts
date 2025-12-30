@@ -1,10 +1,10 @@
 import { basename } from 'node:path';
 import type { MangoDb } from '@jkershaw/mangodb';
-import type { ExtractedFile, Import, Export, FunctionData, KeyStatement } from '../extractor/ast.js';
-import type { Commit } from '../extractor/git.js';
-import type { JSDoc } from '../extractor/docs.js';
-import type { ProseData } from '../generator/index.js';
-import type { ErrorPath } from '../extractor/errors.js';
+import type { ExtractedFile, Import, Export, FunctionData, KeyStatement } from '../extractor/ast.ts';
+import type { Commit } from '../extractor/git.ts';
+import type { JSDoc } from '../extractor/docs.ts';
+import type { ProseData } from '../generator/index.ts';
+import type { ErrorPath } from '../extractor/errors.ts';
 import { buildCrossFileCallGraph, getCrossFileCallsForFunction } from './cross-file-calls.ts';
 
 // Re-export types for testing
@@ -158,10 +158,11 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
     errorPaths: f.errorPaths,  // Phase 6.6.8
   }));
 
-  // Phase 6.6.7a.4: Compute calledBy from calls
+  // Phase 6.6.7a.4: Compute calledBy from calls using Map for O(n) lookup
+  const funcMap = new Map(functions.map((f) => [f.name, f]));
   for (const func of functions) {
     for (const calledFuncName of func.calls) {
-      const calledFunc = functions.find((f) => f.name === calledFuncName);
+      const calledFunc = funcMap.get(calledFuncName);
       if (calledFunc && !calledFunc.calledBy.includes(func.name)) {
         calledFunc.calledBy.push(func.name);
       }
