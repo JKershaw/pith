@@ -61,6 +61,8 @@ export interface FunctionDetails {
   isExported: boolean;
   codeSnippet: string;  // First N lines of function source (Phase 6.6.1.2)
   keyStatements: KeyStatement[];  // Important statements extracted via AST (Phase 6.6.1.3)
+  calls: string[];  // Names of functions called within this function (Phase 6.6.7a.3)
+  calledBy: string[];  // Names of functions that call this function (Phase 6.6.7a.4)
 }
 
 /**
@@ -131,6 +133,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
   const signature = extracted.functions.map((f) => f.signature);
 
   // Step 6.6.1: Extract function details with line numbers, code snippets, and key statements
+  // Step 6.6.7a: Add calls and compute calledBy
   const functions: FunctionDetails[] = extracted.functions.map((f) => ({
     name: f.name,
     signature: f.signature,
@@ -140,7 +143,19 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
     isExported: f.isExported,
     codeSnippet: f.codeSnippet,
     keyStatements: f.keyStatements,
+    calls: f.calls,  // Phase 6.6.7a.3
+    calledBy: [],  // Will be computed below
   }));
+
+  // Phase 6.6.7a.4: Compute calledBy from calls
+  for (const func of functions) {
+    for (const calledFuncName of func.calls) {
+      const calledFunc = functions.find((f) => f.name === calledFuncName);
+      if (calledFunc && !calledFunc.calledBy.includes(func.name)) {
+        calledFunc.calledBy.push(func.name);
+      }
+    }
+  }
 
   // Step 2.1.9: Copy JSDoc
   const jsdoc = extracted.docs?.jsdoc;
