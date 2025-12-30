@@ -4,11 +4,9 @@ import {
   resolveImportedSymbol,
   followReExportChain,
   buildCrossFileCallGraph,
-  type ImportSymbolMap,
-  type CrossFileCall,
 } from './cross-file-calls.ts';
 import type { WikiNode } from './index.ts';
-import type { Import, Export } from '../extractor/ast.ts';
+import type { Import } from '../extractor/ast.ts';
 
 describe('resolveImportedSymbol', () => {
   // Step 6.6.7b.1: Test import resolution for named imports

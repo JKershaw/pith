@@ -4,7 +4,7 @@
  */
 
 import type { WikiNode } from './index.ts';
-import type { Import, Export } from '../extractor/ast.ts';
+import type { Import } from '../extractor/ast.ts';
 import { join, dirname } from 'node:path';
 
 /**

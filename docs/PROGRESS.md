@@ -2,13 +2,13 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.6.8 (Error Path Analysis)
-**Current step**: Phase 6.6.7b - Cross-File Call Graph (next)
+**Last completed phase**: Phase 6.6.7b (Cross-File Call Graph)
+**Current step**: Phase 6.6 COMPLETE - All enhanced extraction phases done
 **Date**: 2025-12-30
 
 ---
 
-## Phase 6.6: Enhanced Deterministic Extraction - IN PROGRESS
+## Phase 6.6: Enhanced Deterministic Extraction - COMPLETE ✅
 
 **Goal**: Close information gaps by extracting facts deterministically, reducing LLM to synthesis only.
 
@@ -290,6 +290,88 @@ interface ErrorPath {
 - Benchmark D1-D3 (Debugging tasks): Expected improvement from 15/25 to 20+/25
 - Specific error causes with line numbers for debugging questions
 - Foundation for error flow tracing in Phase 6.6.7b
+
+---
+
+### 6.6.7b Cross-File Call Graph - COMPLETE ✅
+
+| Step | What | Status |
+|------|------|--------|
+| 6.6.7b.1 | Resolve imported symbols to source files | **Done** |
+| 6.6.7b.2 | Handle re-exports | **Done** |
+| 6.6.7b.3 | Build cross-file call graph | **Done** |
+| 6.6.7b.4 | Add "Call Flow" section for functions | **Done** |
+
+**Implementation Summary (2025-12-30)**:
+
+**New files**:
+- `src/builder/cross-file-calls.ts` - Cross-file call graph logic
+- `src/builder/cross-file-calls.test.ts` - 10 tests for cross-file calls
+- Test fixtures: `utils.ts`, `service.ts`, `controller.ts`
+
+**Core functions** (`src/builder/cross-file-calls.ts`):
+- `resolveImportedSymbol()`: Maps imported symbols to source files
+  - Handles named imports: `import { X } from './y'` → `y.ts:X`
+  - Handles default imports: `import X from './y'` → `y.ts:default`
+  - Skips type-only imports and node_modules
+- `followReExportChain()`: Follows re-export chains with max depth of 5
+- `buildCrossFileCallGraph()`: Creates complete map of cross-file function calls
+- `updateCrossFileCalls()`: Populates WikiNodes with cross-file call data
+
+**Data structure**:
+```typescript
+interface CrossFileCall {
+  caller: string;  // 'file.ts:functionName'
+  callee: string;  // 'other.ts:functionName'
+}
+```
+
+**Integration**:
+- Added `crossFileCalls` and `crossFileCalledBy` to `FunctionDetails`
+- Integrated into build process via CLI
+- Added "Call Flow" section to API markdown output (for functions with >3 cross-file calls)
+
+**Tests**: 352 total (10 new for Phase 6.6.7b)
+
+**Example cross-file calls detected**:
+- `controller.ts:handleRegister` → `service.ts:registerUser`
+- `service.ts:registerUser` → `utils.ts:formatUserName`, `validateEmail`, `hashPassword`
+
+**What this enables**:
+- Benchmark B1-B3 (Behavior tasks): Expected improvement from 16/25 to 20+/25
+- Complete call flow tracing across module boundaries
+- Foundation for advanced pattern recognition across files
+
+---
+
+### Phase 6.6 Summary - ALL COMPLETE ✅
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 6.6.1 | Surface Existing Data (P0) | ✅ Complete |
+| 6.6.2 | Pattern Detection (P1) | ✅ Covered by 6.6.1.3 |
+| 6.6.3 | Enhanced Metadata (P2) | ✅ Complete |
+| 6.6.4 | Feed Facts to LLM | ✅ Complete |
+| 6.6.5 | Change Impact Analysis | ✅ Complete |
+| 6.6.6 | Design Pattern Recognition | ✅ Complete |
+| 6.6.7a | Intra-File Call Graph | ✅ Complete |
+| 6.6.7b | Cross-File Call Graph | ✅ Complete |
+| 6.6.8 | Error Path Analysis | ✅ Complete |
+
+**Total tests**: 352
+**Total new capabilities added**:
+- Line numbers and code snippets for functions
+- Key statements extraction (config, URLs, math, conditions, errors)
+- Change impact analysis with transitive dependents
+- Design pattern recognition (Retry, Cache, Builder, Singleton)
+- Intra-file and cross-file call graphs
+- Error path analysis (early returns, throws, catches, guards)
+
+---
+
+### 6.6.9 Implementation Hints (P2 - DEFERRED)
+
+Per ROADMAP.md, implementation hints are deferred until pattern recognition and change impact are proven effective in benchmarks.
 
 ---
 
@@ -792,15 +874,15 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2025-12-30 (Phase 6.6.8 Complete):
-- **Total tests**: 342
+As of 2025-12-30 (Phase 6.6 Complete):
+- **Total tests**: 352
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 91
+- **Test suites**: 94
 
 Commands:
 ```bash
-npm test      # 342 tests pass
+npm test      # 352 tests pass
 npm run lint  # No errors
 ```
 
