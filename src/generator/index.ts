@@ -1,4 +1,4 @@
-import type { WikiNode } from '../builder/index.ts';
+import type { WikiNode, FunctionDetails } from '../builder/index.ts';
 import type { MangoDb } from '@jkershaw/mangodb';
 import { ProxyAgent } from 'undici';
 
@@ -67,6 +67,17 @@ export function buildPrompt(node: WikiNode, childSummaries?: Map<string, string>
 }
 
 /**
+ * Format a function for the prompt with line numbers.
+ * @param func - Function details
+ * @returns Formatted string with name, lines, and signature
+ */
+function formatFunctionForPrompt(func: FunctionDetails): string {
+  // Get just the first line of the signature for brevity
+  const signatureFirstLine = func.signature.split('\n')[0].trim();
+  return `  - ${func.name} (lines ${func.startLine}-${func.endLine}): ${signatureFirstLine}`;
+}
+
+/**
  * Build a prompt for a file node.
  * @param node - The file wiki node
  * @returns The prompt string
@@ -82,10 +93,14 @@ function buildFilePrompt(node: WikiNode): string {
     ? node.raw.exports.map(exp => `  - ${exp.name} (${exp.kind})`).join('\n')
     : '(none)';
 
-  // Build functions section
-  const functionsSection = node.raw.signature && node.raw.signature.length > 0
-    ? node.raw.signature.map(sig => `  - ${sig}`).join('\n')
-    : '(none)';
+  // Build functions section with line numbers (Phase 6.6.1)
+  let functionsSection = '(none)';
+  if (node.raw.functions && node.raw.functions.length > 0) {
+    functionsSection = node.raw.functions.map(formatFunctionForPrompt).join('\n');
+  } else if (node.raw.signature && node.raw.signature.length > 0) {
+    // Fallback to signatures if functions not available
+    functionsSection = node.raw.signature.map(sig => `  - ${sig}`).join('\n');
+  }
 
   // Build git section
   const gitSection = `Last modified ${node.metadata.lastModified.toISOString().split('T')[0]}. ${node.metadata.commits} commits total.`;

@@ -18,6 +18,18 @@ export interface Edge {
 }
 
 /**
+ * Function details with line numbers for wiki output.
+ */
+export interface FunctionDetails {
+  name: string;
+  signature: string;
+  startLine: number;
+  endLine: number;
+  isAsync: boolean;
+  isExported: boolean;
+}
+
+/**
  * Wiki node representing a file, function, or module.
  */
 export interface WikiNode {
@@ -38,6 +50,9 @@ export interface WikiNode {
     recencyInDays?: number;
     // Test command (Phase 6.2.4)
     testCommand?: string;
+    // Line location (Phase 6.6.1 - for function nodes)
+    startLine?: number;
+    endLine?: number;
   };
   edges: Edge[];
   raw: {
@@ -47,6 +62,7 @@ export interface WikiNode {
     exports?: Export[];
     recentCommits?: Commit[];
     readme?: string;
+    functions?: FunctionDetails[];  // Phase 6.6.1 - function details with line numbers
   };
   prose?: ProseData;  // Generated prose from LLM
 }
@@ -80,6 +96,16 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
   // Step 2.1.8: Extract function signatures
   const signature = extracted.functions.map((f) => f.signature);
 
+  // Step 6.6.1: Extract function details with line numbers
+  const functions: FunctionDetails[] = extracted.functions.map((f) => ({
+    name: f.name,
+    signature: f.signature,
+    startLine: f.startLine,
+    endLine: f.endLine,
+    isAsync: f.isAsync,
+    isExported: f.isExported,
+  }));
+
   // Step 2.1.9: Copy JSDoc
   const jsdoc = extracted.docs?.jsdoc;
 
@@ -101,6 +127,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
     edges: [], // Will be populated in Phase 2.4
     raw: {
       signature: signature.length > 0 ? signature : undefined,
+      functions: functions.length > 0 ? functions : undefined,
       jsdoc,
       imports: imports.length > 0 ? imports : undefined,
       exports: exports.length > 0 ? exports : undefined,
@@ -145,14 +172,16 @@ export function buildFunctionNode(extracted: ExtractedFile, func: Function): Wik
   // Step 2.2.2: Set name to function name
   const name = func.name;
 
-  // Build metadata
+  // Build metadata with line numbers (Phase 6.6.1)
   const lines = func.endLine - func.startLine + 1;
-  const metadata = {
+  const metadata: WikiNode['metadata'] = {
     lines,
     commits: extracted.git?.commitCount ?? 0,
     lastModified: extracted.git?.lastModified ?? new Date(),
     createdAt: extracted.git?.createdAt,
     authors: extracted.git?.authors ?? [],
+    startLine: func.startLine,
+    endLine: func.endLine,
   };
 
   // Step 2.2.4: Copy function signature
