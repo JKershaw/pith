@@ -165,7 +165,59 @@ function buildFilePrompt(node: WikiNode): string {
       .join('\n');
   }
 
-  return `You are documenting a TypeScript file for an LLM-optimized codebase wiki.
+  // Extract key statements summary for emphasis
+  const allKeyStatements: string[] = [];
+  if (node.raw.functions) {
+    for (const func of node.raw.functions) {
+      if (func.keyStatements) {
+        for (const stmt of func.keyStatements) {
+          allKeyStatements.push(`[${stmt.category}] ${func.name} line ${stmt.line}: ${stmt.text}`);
+        }
+      }
+    }
+  }
+  const keyStatementsEmphasis = allKeyStatements.length > 0
+    ? `\n\nKEY VALUES FOUND (reference significant ones in gotchasDetailed):\n${allKeyStatements.map(s => `  - ${s}`).join('\n')}`
+    : '';
+
+  return `You are documenting a TypeScript file for a developer-focused codebase wiki.
+
+## CRITICAL RULES - Read these first:
+
+1. TRANSFORM SIGNIFICANT KEY STATEMENTS → GOTCHAS: Key statements that could surprise developers or cause issues should become gotchasDetailed entries. Prioritize:
+   - ✓ Timeouts, retry counts, rate limits (e.g., maxRetries = 3, timeout = 30000)
+   - ✓ Error conditions and thresholds (e.g., if (status === 429), MAX_SIZE = 10MB)
+   - ✗ Skip mundane defaults (e.g., indent = 2, encoding = 'utf8', port = 3000)
+
+2. BE SPECIFIC, NOT VAGUE: When you do include something, use actual values, line numbers, and function names.
+
+3. EXAMPLE - How to transform input to output:
+
+INPUT (Key statements from code):
+  [config] callLLM line 47: maxRetries = 3       ← Important: affects error recovery
+  [config] callLLM line 48: timeout = 30000      ← Important: could cause hangs
+  [config] callLLM line 49: indent = 2           ← Skip: mundane formatting default
+  [condition] callLLM line 85: if (response.status === 429)  ← Important: error handling
+
+WRONG OUTPUT (too vague - DO NOT do this):
+  "gotchas": ["Has retry logic", "Handles rate limiting"]
+  "gotchasDetailed": [{"warning": "May timeout", "location": "callLLM"}]
+
+CORRECT OUTPUT (specific and actionable, skips mundane config):
+  "gotchas": ["Retries 3 times with 30s timeout", "429 responses trigger retry"]
+  "gotchasDetailed": [
+    {"warning": "API calls retry up to 3 times before failing", "location": "callLLM line 47", "evidence": "maxRetries = 3"},
+    {"warning": "Requests timeout after 30 seconds", "location": "callLLM line 48", "evidence": "timeout = 30000"},
+    {"warning": "Rate-limited responses (429) trigger automatic retry", "location": "callLLM line 85", "evidence": "if (response.status === 429)"}
+  ]
+  "debugging": {
+    "errorPatterns": ["Timeout errors: check callLLM line 48, timeout = 30000"],
+    "keyLocations": ["Retry logic: callLLM lines 47-90"]
+  }
+
+---
+
+## FILE DATA:
 
 FILE: ${node.path}
 IMPORTS:
@@ -176,35 +228,30 @@ FUNCTIONS:
 ${functionsSection}
 GIT: ${gitSection}
 JSDOC:
-${jsdocSection}
+${jsdocSection}${keyStatementsEmphasis}
 
-Generate documentation in this exact JSON format:
+---
+
+## OUTPUT FORMAT:
+
+Generate JSON with these fields:
 {
   "summary": "One sentence describing what this file does",
-  "purpose": "2-3 sentences explaining why this file exists and its role in the system",
-  "gotchas": ["Simple warning strings for backwards compatibility"],
+  "purpose": "2-3 sentences explaining why this file exists and its role",
+  "gotchas": ["Short warning strings (include key values like 'timeout=30s')"],
   "gotchasDetailed": [
-    {
-      "warning": "Description of the issue or edge case",
-      "location": "line 123 or functionName",
-      "evidence": "Specific code or value that causes this (e.g., 'maxRetries = 3')"
-    }
+    {"warning": "Description", "location": "functionName line X", "evidence": "actual code/value"}
   ],
-  "keyExports": ["List of most important export names"],
-  "patterns": ["Common usage patterns with function names and line references"],
-  "similarFiles": ["Paths to other files that follow similar patterns"],
+  "keyExports": ["Most important exports"],
+  "patterns": ["Usage patterns with function names"],
+  "similarFiles": ["Paths to files with similar patterns"],
   "debugging": {
     "errorPatterns": ["For error X, check functionName at line Y"],
-    "keyLocations": ["Error handling: lines 100-150", "Config loading: lines 50-80"]
+    "keyLocations": ["Category: functionName lines X-Y"]
   }
 }
 
-IMPORTANT: Reference specific line numbers and function names from the FUNCTIONS section above.
-- In gotchasDetailed, always include the location (line number or function name) and evidence (actual code/values)
-- In debugging.errorPatterns, point to specific functions and lines where errors are handled
-- In debugging.keyLocations, list the most important code sections with line ranges
-
-Be specific and actionable. A developer should be able to use this documentation to debug issues or make modifications.`;
+Remember: Focus on key statements that could surprise developers or cause issues. Include specific values and line numbers.`;
 }
 
 /**
@@ -231,7 +278,29 @@ function buildModulePrompt(node: WikiNode, childSummaries?: Map<string, string>)
   // Build README section
   const readmeSection = node.raw.readme || '(none)';
 
-  return `You are documenting a module (directory) for an LLM-optimized codebase wiki.
+  return `You are documenting a module (directory) for a developer-focused codebase wiki.
+
+## CRITICAL RULES - Read these first:
+
+1. TRACE DATA FLOW WITH FILE NAMES: In dataFlow, explicitly name which file is the entry point, which files transform data, and which file outputs it.
+
+2. BE SPECIFIC ABOUT CONNECTIONS: Don't just list files - explain HOW they connect.
+
+3. EXAMPLE - How to write good vs bad module documentation:
+
+WRONG (too vague - DO NOT do this):
+  "dataFlow": "Data flows through the module files."
+  "keyFiles": ["index.ts: main file", "utils.ts: utilities"]
+  "gotchas": ["Complex module"]
+
+CORRECT (specific and actionable):
+  "dataFlow": "Data enters via api.ts which parses requests, transforms via processor.ts which validates and enriches, then exits via output.ts which formats responses. The db.ts file is called by processor.ts for persistence."
+  "keyFiles": ["api.ts: HTTP entry point - all requests start here", "processor.ts: core business logic - validation and transformation", "db.ts: persistence layer - called by processor for storage"]
+  "gotchas": ["Must call init() from index.ts before using processor.ts", "db.ts requires DATABASE_URL env var or throws on import"]
+
+---
+
+## MODULE DATA:
 
 MODULE: ${node.path}
 FILES:
@@ -240,23 +309,22 @@ ${filesSection}
 README:
 ${readmeSection}
 
-Generate documentation in this exact JSON format:
+---
+
+## OUTPUT FORMAT:
+
+Generate JSON with these fields:
 {
   "summary": "One sentence describing what this module does",
   "purpose": "2-3 sentences explaining this module's role in the architecture",
-  "keyFiles": ["filename.ts: brief description of its role"],
+  "keyFiles": ["filename.ts: what it does and why it matters"],
   "publicApi": ["Exports that other modules should use"],
-  "quickStart": "A brief code example showing how to use this module (2-3 lines)",
-  "dataFlow": "Explain how data flows through this module: which file is the entry point, how data transforms, and where it exits. Reference specific file names.",
-  "gotchas": ["Module-level warnings or important considerations"]
+  "quickStart": "A 2-3 line code example showing typical usage",
+  "dataFlow": "Trace data: 'Enters via X.ts, transforms in Y.ts, exits via Z.ts'. Name specific files.",
+  "gotchas": ["Specific warnings with file names (e.g., 'X.ts requires Y to be called first')"]
 }
 
-IMPORTANT:
-- In keyFiles, explain WHAT each file does and WHY it matters
-- In dataFlow, trace the path data takes through the module (e.g., "Data enters via api.ts, is processed by transformer.ts, and stored via db.ts")
-- Include practical gotchas about using this module (e.g., "Must call init() before using other functions")
-
-Help developers understand both the structure AND the flow of this module.`;
+Remember: A developer reading this should understand exactly how data moves through this module and which file to look at for each concern.`;
 }
 
 /**
