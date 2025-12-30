@@ -61,6 +61,8 @@ export interface FunctionData {
   endLine: number;
   codeSnippet: string;  // First N lines of function source
   keyStatements: KeyStatement[];  // Important statements extracted via AST
+  calls: string[];  // Names of functions called within this function (Phase 6.6.7a.1)
+  calledBy: string[];  // Names of functions that call this function (Phase 6.6.7a.4, computed in builder)
 }
 
 /**
@@ -282,6 +284,41 @@ export interface ProjectContext {
 }
 
 /**
+ * Extract function calls within a function.
+ * Phase 6.6.7a.1: Track function calls within same file.
+ * @param func - The function or method declaration to analyze
+ * @param allFunctionNames - Names of all functions defined in the same file
+ * @returns Array of function names called within this function
+ */
+function extractFunctionCalls(
+  func: FunctionDeclaration | MethodDeclaration,
+  allFunctionNames: Set<string>
+): string[] {
+  const calls: string[] = [];
+  const seen = new Set<string>();
+
+  // Find all CallExpression nodes within the function
+  for (const callExpr of func.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    // Get the expression being called (e.g., "foo" in "foo()")
+    const expression = callExpr.getExpression();
+
+    // We only want direct function calls like "foo()"
+    // Ignore method calls like "obj.method()" or "this.method()"
+    if (expression.getKind() === SyntaxKind.Identifier) {
+      const functionName = expression.getText();
+
+      // Only include if it's a function defined in the same file
+      if (allFunctionNames.has(functionName) && !seen.has(functionName)) {
+        calls.push(functionName);
+        seen.add(functionName);
+      }
+    }
+  }
+
+  return calls;
+}
+
+/**
  * Create a ts-morph Project for a directory.
  * @param rootDir - The root directory of the project
  * @returns A configured Project instance with root directory
@@ -432,6 +469,11 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
   }
 
   // Extract functions
+  // Phase 6.6.7a.1: First, collect all function names in the file
+  const allFunctionNames = new Set<string>(
+    sourceFile.getFunctions().map((f) => f.getName() || 'anonymous')
+  );
+
   const functions: FunctionData[] = sourceFile.getFunctions().map((func) => ({
     name: func.getName() || 'anonymous',
     signature: func.getSignature().getDeclaration().getText(),
@@ -448,37 +490,46 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     endLine: func.getEndLineNumber(),
     codeSnippet: getCodeSnippet(() => func.getText()),
     keyStatements: extractKeyStatements(func),
+    calls: extractFunctionCalls(func, allFunctionNames),  // Phase 6.6.7a.1
+    calledBy: [],  // Phase 6.6.7a.4: Computed later in builder
   }));
 
   // Extract classes
-  const classes: Class[] = sourceFile.getClasses().map((cls) => ({
-    name: cls.getName() || 'anonymous',
-    methods: cls.getMethods().map((method) => ({
-      name: method.getName(),
-      signature: method.getSignature().getDeclaration().getText(),
-      params: method.getParameters().map((p) => ({
-        name: p.getName(),
-        type: p.getType().getText(),
-        isOptional: p.isOptional(),
-        defaultValue: p.getInitializer()?.getText(),
+  const classes: Class[] = sourceFile.getClasses().map((cls) => {
+    // Phase 6.6.7a.1: Collect all method names for this class
+    const allMethodNames = new Set<string>(cls.getMethods().map((m) => m.getName()));
+
+    return {
+      name: cls.getName() || 'anonymous',
+      methods: cls.getMethods().map((method) => ({
+        name: method.getName(),
+        signature: method.getSignature().getDeclaration().getText(),
+        params: method.getParameters().map((p) => ({
+          name: p.getName(),
+          type: p.getType().getText(),
+          isOptional: p.isOptional(),
+          defaultValue: p.getInitializer()?.getText(),
+        })),
+        returnType: method.getReturnType().getText(),
+        isAsync: method.isAsync(),
+        isExported: false, // Methods aren't directly exported
+        startLine: method.getStartLineNumber(),
+        endLine: method.getEndLineNumber(),
+        codeSnippet: getCodeSnippet(() => method.getText()),
+        keyStatements: extractKeyStatements(method),
+        calls: extractFunctionCalls(method, allMethodNames),  // Phase 6.6.7a.1
+        calledBy: [],  // Phase 6.6.7a.4: Computed later in builder
       })),
-      returnType: method.getReturnType().getText(),
-      isAsync: method.isAsync(),
-      isExported: false, // Methods aren't directly exported
-      startLine: method.getStartLineNumber(),
-      endLine: method.getEndLineNumber(),
-      codeSnippet: getCodeSnippet(() => method.getText()),
-      keyStatements: extractKeyStatements(method),
-    })),
-    properties: cls.getProperties().map((prop) => ({
-      name: prop.getName(),
-      type: prop.getType().getText(),
-      isOptional: prop.hasQuestionToken(),
-    })),
-    isExported: cls.isExported(),
-    extends: cls.getExtends()?.getText(),
-    implements: cls.getImplements().map((i) => i.getText()),
-  }));
+      properties: cls.getProperties().map((prop) => ({
+        name: prop.getName(),
+        type: prop.getType().getText(),
+        isOptional: prop.hasQuestionToken(),
+      })),
+      isExported: cls.isExported(),
+      extends: cls.getExtends()?.getText(),
+      implements: cls.getImplements().map((i) => i.getText()),
+    };
+  });
 
   // Extract interfaces
   const interfaces: Interface[] = sourceFile.getInterfaces().map((iface) => ({

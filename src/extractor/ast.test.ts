@@ -213,3 +213,69 @@ describe('storeExtracted', () => {
     assert.ok(stored.docs.readme);
   });
 });
+
+describe('extractFunctionCalls - Phase 6.6.7a.1', () => {
+  it('extracts direct function calls within same file', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/auth.ts');
+
+    // createSession calls generateToken
+    const createSession = result.functions.find((f) => f.name === 'createSession');
+    assert.ok(createSession);
+    assert.ok(Array.isArray(createSession.calls));
+    assert.ok(createSession.calls.includes('generateToken'));
+  });
+
+  it('returns empty array for functions with no calls', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/auth.ts');
+
+    // validateToken doesn't call any other functions in the file
+    const validateToken = result.functions.find((f) => f.name === 'validateToken');
+    assert.ok(validateToken);
+    assert.ok(Array.isArray(validateToken.calls));
+    assert.strictEqual(validateToken.calls.length, 0);
+  });
+
+  it('ignores calls to functions not defined in same file', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/auth.ts');
+
+    // Functions might call Date(), Math.random(), etc., but these should be ignored
+    // since they're not defined in the same file
+    const createSession = result.functions.find((f) => f.name === 'createSession');
+    assert.ok(createSession);
+
+    // Should only include generateToken, not Date or any built-ins
+    const localCalls = createSession.calls.filter((call) => {
+      const callNames = result.functions.map((f) => f.name);
+      return callNames.includes(call);
+    });
+
+    assert.strictEqual(localCalls.length, createSession.calls.length,
+      'All calls should be to functions defined in the same file');
+  });
+
+  it('handles functions with no function calls at all', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/auth.ts');
+
+    // generateToken only calls built-ins like Math.random()
+    const generateToken = result.functions.find((f) => f.name === 'generateToken');
+    assert.ok(generateToken);
+    assert.ok(Array.isArray(generateToken.calls));
+    // Should not include Math.random or any other built-ins
+    assert.strictEqual(generateToken.calls.length, 0);
+  });
+
+  it('includes calledBy as empty array initially', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/auth.ts');
+
+    // calledBy should be empty during extraction, computed later in builder
+    const createSession = result.functions.find((f) => f.name === 'createSession');
+    assert.ok(createSession);
+    assert.ok(Array.isArray(createSession.calledBy));
+    assert.strictEqual(createSession.calledBy.length, 0);
+  });
+});
