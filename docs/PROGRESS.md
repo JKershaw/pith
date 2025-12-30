@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.6.5 (Change Impact Analysis)
-**Current step**: Phase 6.6.6+ - Pattern recognition, cross-file tracing
+**Last completed phase**: Phase 6.6.7a (Intra-File Call Graph)
+**Current step**: Phase 6.6.6 - Pattern Recognition (next)
 **Date**: 2025-12-30
 
 ---
@@ -66,7 +66,7 @@ Ran Pith on itself and verified `/context` output for `src/generator/index.ts`:
 |------|--------|--------|-------|
 | 6.6.3.1 | Cyclomatic complexity | Pending | Nice-to-have |
 | 6.6.3.2 | Lines per function | **Done** | Via startLine/endLine |
-| 6.6.3.3 | Intra-file call graph | Pending | Nice-to-have |
+| 6.6.3.3 | Intra-file call graph | **Done** | Implemented in 6.6.7a |
 
 ### 6.6.4 Feed Facts to LLM - ALREADY IMPLEMENTED ✅
 
@@ -146,6 +146,37 @@ npm test -- src/utils/helper.test.ts
 ```
 ```
 
+### 6.6.7a Intra-File Call Graph - COMPLETE ✅
+
+| Step | What | Status |
+|------|------|--------|
+| 6.6.7a.1 | Track function calls within same file | **Done** |
+| 6.6.7a.2 | Identify call chains (A→B→C) within file | **Done** |
+| 6.6.7a.3 | Add "Calls" field to function nodes | **Done** |
+| 6.6.7a.4 | Add "Called by" field to function nodes | **Done** |
+
+**Implementation Summary (2025-12-30)**:
+
+**Extractor additions** (`src/extractor/ast.ts`):
+- Added `calls` and `calledBy` fields to `FunctionData` interface
+- Implemented `extractFunctionCalls()` to find direct function calls using AST analysis
+- Filters to only include calls to functions defined in the same file
+- Ignores method calls (obj.method()) and built-in functions
+
+**Builder additions** (`src/builder/index.ts`):
+- Added `calls` and `calledBy` fields to `FunctionDetails` interface
+- Implemented reverse lookup to compute `calledBy` from `calls` data
+- Handles multiple callers and call chains (A→B→C)
+
+**Tests**: 317 total (10 new for Phase 6.6.7a)
+
+**What this enables**:
+- Phase 6.6.6: Design Pattern Recognition (detect retry patterns, caching, etc.)
+- Phase 6.6.8: Error Path Analysis (trace error propagation through call chains)
+- Phase 6.6.7b: Cross-File Call Graph (extend to track calls across files)
+
+---
+
 ### 6.6.6 - 6.6.9 Gap Analysis (Remaining)
 
 Based on comprehensive 15-task benchmark, remaining gaps require new capabilities:
@@ -161,8 +192,9 @@ Based on comprehensive 15-task benchmark, remaining gaps require new capabilitie
 **Note**: Gaps overlap - fixing one capability may improve multiple task categories. The 8.4-point overall gap (15.5→23.9) requires addressing several capabilities, not all independently.
 
 **Dependencies**:
-- 6.6.7 (Cross-file tracing) enables 6.6.6 (Pattern detection) and 6.6.8 (Error paths)
-- 6.6.5 (Change impact) is independent and highest priority
+- ✅ 6.6.7a (Intra-file call graph) now enables 6.6.6 (Pattern detection) and 6.6.8 (Error paths)
+- ✅ 6.6.5 (Change impact) is complete
+- 6.6.7b (Cross-file tracing) extends 6.6.7a for advanced patterns
 
 ---
 
@@ -644,15 +676,15 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2025-12-30 (Phase 6.6.5 Complete):
-- **Total tests**: 307
+As of 2025-12-30 (Phase 6.6.7a Complete):
+- **Total tests**: 317
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 78
+- **Test suites**: 81
 
 Commands:
 ```bash
-npm test      # 307 tests pass
+npm test      # 317 tests pass
 npm run lint  # No errors
 ```
 
