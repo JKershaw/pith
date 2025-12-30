@@ -22,12 +22,30 @@ function getProxyDispatcher(url: string): ProxyAgent | undefined {
 }
 
 /**
+ * A gotcha with optional location and evidence
+ */
+export interface Gotcha {
+  warning: string;           // The warning message
+  location?: string;         // Line number or function name (e.g., "line 442" or "callLLM")
+  evidence?: string;         // Code or fact that supports this warning
+}
+
+/**
+ * Debugging hints for a file
+ */
+export interface DebuggingHints {
+  errorPatterns?: string[];  // Common errors and where to look
+  keyLocations?: string[];   // Important locations for debugging
+}
+
+/**
  * Generated prose for a node
  */
 export interface ProseData {
   summary: string;           // One-line description
   purpose: string;           // 2-3 sentences explaining why this exists
-  gotchas: string[];         // Array of warnings, edge cases, non-obvious behavior
+  gotchas: string[];         // Array of warnings (kept for backwards compatibility)
+  gotchasDetailed?: Gotcha[];// Detailed gotchas with location and evidence
   gotchaConfidence?: ('high' | 'medium' | 'low')[]; // Confidence level for each gotcha (Phase 6.5)
   keyExports?: string[];     // Most important exports (for files)
   keyFiles?: string[];       // Most important files (for modules)
@@ -35,6 +53,8 @@ export interface ProseData {
   quickStart?: string;       // Quick start example (for modules)
   patterns?: string[];       // Usage patterns (for files)
   similarFiles?: string[];   // Files with similar patterns (for files)
+  debugging?: DebuggingHints;// Debugging hints with locations (for files)
+  dataFlow?: string;         // How data flows through the module (for modules)
   generatedAt: Date;         // When prose was generated
   stale?: boolean;           // True if source changed after prose was generated
 }
@@ -162,15 +182,29 @@ Generate documentation in this exact JSON format:
 {
   "summary": "One sentence describing what this file does",
   "purpose": "2-3 sentences explaining why this file exists and its role in the system",
-  "gotchas": ["Array of warnings, edge cases, or non-obvious behavior"],
+  "gotchas": ["Simple warning strings for backwards compatibility"],
+  "gotchasDetailed": [
+    {
+      "warning": "Description of the issue or edge case",
+      "location": "line 123 or functionName",
+      "evidence": "Specific code or value that causes this (e.g., 'maxRetries = 3')"
+    }
+  ],
   "keyExports": ["List of most important export names"],
-  "patterns": ["Common usage patterns or typical ways to use this file's exports"],
-  "similarFiles": ["Paths to other files that follow similar patterns or serve related purposes"]
+  "patterns": ["Common usage patterns with function names and line references"],
+  "similarFiles": ["Paths to other files that follow similar patterns"],
+  "debugging": {
+    "errorPatterns": ["For error X, check functionName at line Y"],
+    "keyLocations": ["Error handling: lines 100-150", "Config loading: lines 50-80"]
+  }
 }
 
-Focus on WHAT and WHY, not HOW. Be concise but complete.
-Include practical patterns that show how to use this file.
-List similar files to help developers find related code.`;
+IMPORTANT: Reference specific line numbers and function names from the FUNCTIONS section above.
+- In gotchasDetailed, always include the location (line number or function name) and evidence (actual code/values)
+- In debugging.errorPatterns, point to specific functions and lines where errors are handled
+- In debugging.keyLocations, list the most important code sections with line ranges
+
+Be specific and actionable. A developer should be able to use this documentation to debug issues or make modifications.`;
 }
 
 /**
@@ -210,13 +244,19 @@ Generate documentation in this exact JSON format:
 {
   "summary": "One sentence describing what this module does",
   "purpose": "2-3 sentences explaining this module's role in the architecture",
-  "keyFiles": ["Most important files with brief descriptions"],
+  "keyFiles": ["filename.ts: brief description of its role"],
   "publicApi": ["Exports that other modules should use"],
-  "quickStart": "A brief code example showing how to use this module (2-3 lines)"
+  "quickStart": "A brief code example showing how to use this module (2-3 lines)",
+  "dataFlow": "Explain how data flows through this module: which file is the entry point, how data transforms, and where it exits. Reference specific file names.",
+  "gotchas": ["Module-level warnings or important considerations"]
 }
 
-Focus on the module's responsibilities, not implementation details.
-Include a practical quick start example to help developers get started quickly.`;
+IMPORTANT:
+- In keyFiles, explain WHAT each file does and WHY it matters
+- In dataFlow, trace the path data takes through the module (e.g., "Data enters via api.ts, is processed by transformer.ts, and stored via db.ts")
+- Include practical gotchas about using this module (e.g., "Must call init() before using other functions")
+
+Help developers understand both the structure AND the flow of this module.`;
 }
 
 /**
@@ -255,17 +295,48 @@ export function parseLLMResponse(response: string): ProseData {
     throw new Error('Missing required field: purpose');
   }
 
+  // Parse gotchasDetailed if present
+  let gotchasDetailed: Gotcha[] | undefined;
+  if (Array.isArray(parsed.gotchasDetailed)) {
+    gotchasDetailed = parsed.gotchasDetailed
+      .filter((g: unknown): g is Record<string, unknown> =>
+        typeof g === 'object' && g !== null && typeof (g as Record<string, unknown>).warning === 'string'
+      )
+      .map((g: Record<string, unknown>) => ({
+        warning: g.warning as string,
+        location: typeof g.location === 'string' ? g.location : undefined,
+        evidence: typeof g.evidence === 'string' ? g.evidence : undefined,
+      }));
+  }
+
+  // Parse debugging hints if present
+  let debugging: DebuggingHints | undefined;
+  if (parsed.debugging && typeof parsed.debugging === 'object') {
+    const dbg = parsed.debugging as Record<string, unknown>;
+    debugging = {
+      errorPatterns: Array.isArray(dbg.errorPatterns) ? dbg.errorPatterns.filter((e): e is string => typeof e === 'string') : undefined,
+      keyLocations: Array.isArray(dbg.keyLocations) ? dbg.keyLocations.filter((e): e is string => typeof e === 'string') : undefined,
+    };
+    // Only include if at least one field is present
+    if (!debugging.errorPatterns && !debugging.keyLocations) {
+      debugging = undefined;
+    }
+  }
+
   // Build ProseData with defaults for optional fields
   return {
     summary: parsed.summary,
     purpose: parsed.purpose,
     gotchas: Array.isArray(parsed.gotchas) ? parsed.gotchas : [],
+    gotchasDetailed,
     keyExports: Array.isArray(parsed.keyExports) ? parsed.keyExports : undefined,
     keyFiles: Array.isArray(parsed.keyFiles) ? parsed.keyFiles : undefined,
     publicApi: Array.isArray(parsed.publicApi) ? parsed.publicApi : undefined,
     quickStart: typeof parsed.quickStart === 'string' ? parsed.quickStart : undefined,
     patterns: Array.isArray(parsed.patterns) ? parsed.patterns : undefined,
     similarFiles: Array.isArray(parsed.similarFiles) ? parsed.similarFiles : undefined,
+    debugging,
+    dataFlow: typeof parsed.dataFlow === 'string' ? parsed.dataFlow : undefined,
     generatedAt: new Date(),
   };
 }

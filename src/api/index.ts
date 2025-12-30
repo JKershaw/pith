@@ -144,6 +144,46 @@ export function formatContextAsMarkdown(context: BundledContext): string {
         }
       }
 
+      // Detailed gotchas with locations (Phase 6.7)
+      if (node.prose.gotchasDetailed && node.prose.gotchasDetailed.length > 0) {
+        lines.push('');
+        lines.push('**Gotchas (detailed):**');
+        for (const gotcha of node.prose.gotchasDetailed) {
+          let line = `- ${gotcha.warning}`;
+          if (gotcha.location) {
+            line += ` (${gotcha.location})`;
+          }
+          if (gotcha.evidence) {
+            line += ` - Evidence: \`${gotcha.evidence}\``;
+          }
+          lines.push(line);
+        }
+      }
+
+      // Debugging hints (Phase 6.7)
+      if (node.prose.debugging) {
+        lines.push('');
+        lines.push('**Debugging:**');
+        if (node.prose.debugging.errorPatterns && node.prose.debugging.errorPatterns.length > 0) {
+          lines.push('*Error patterns:*');
+          for (const pattern of node.prose.debugging.errorPatterns) {
+            lines.push(`- ${pattern}`);
+          }
+        }
+        if (node.prose.debugging.keyLocations && node.prose.debugging.keyLocations.length > 0) {
+          lines.push('*Key locations:*');
+          for (const location of node.prose.debugging.keyLocations) {
+            lines.push(`- ${location}`);
+          }
+        }
+      }
+
+      // Data flow for modules (Phase 6.7)
+      if (node.type === 'module' && node.prose.dataFlow) {
+        lines.push('');
+        lines.push(`**Data Flow:** ${node.prose.dataFlow}`);
+      }
+
       // Quick Start for modules (Phase 6.4)
       if (node.type === 'module' && node.prose.quickStart) {
         lines.push('');
