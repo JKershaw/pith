@@ -555,6 +555,74 @@ describe('API', () => {
       assert.ok(markdown.includes('src/lexer.ts'), 'Should show first similar file');
       assert.ok(markdown.includes('src/tokenizer.ts'), 'Should show second similar file');
     });
+
+    it('displays function details with line numbers, code snippets, and key statements - Phase 6.6.1', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithFunctions: WikiNode = {
+        id: 'src/generator.ts',
+        type: 'file',
+        path: 'src/generator.ts',
+        name: 'generator.ts',
+        metadata: {
+          lines: 200,
+          commits: 10,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {
+          signature: ['async function callLLM(prompt: string): Promise<string>'],
+          functions: [
+            {
+              name: 'callLLM',
+              signature: 'async function callLLM(prompt: string): Promise<string>',
+              startLine: 45,
+              endLine: 120,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: `async function callLLM(prompt: string): Promise<string> {
+  const maxRetries = 3;
+  const timeout = config.timeout ?? 30000;
+  // ... (72 more lines)`,
+              keyStatements: [
+                { line: 47, text: 'maxRetries = 3', category: 'config' },
+                { line: 48, text: 'timeout = config.timeout ?? 30000', category: 'config' },
+                { line: 85, text: 'if (response.status === 429)', category: 'condition' },
+                { line: 92, text: 'backoffMs = Math.pow(2, attempt) * 1000', category: 'math' },
+                { line: 105, text: 'catch (error)', category: 'error' },
+              ],
+            },
+          ],
+        },
+        prose: {
+          summary: 'LLM API integration',
+          purpose: 'Calls OpenRouter API with retry logic',
+          gotchas: [],
+          generatedAt: new Date('2024-12-15'),
+        },
+      };
+
+      await nodes.insertOne(fileWithFunctions);
+
+      const context = await bundleContext(db, ['src/generator.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show function with line numbers
+      assert.ok(markdown.includes('callLLM'), 'Should show function name');
+      assert.ok(markdown.includes('45') && markdown.includes('120'), 'Should show line numbers');
+
+      // Should show code snippet
+      assert.ok(markdown.includes('maxRetries = 3'), 'Should show code snippet content');
+      assert.ok(markdown.includes('timeout = config.timeout ?? 30000'), 'Should show config in snippet');
+
+      // Should show key statements
+      assert.ok(markdown.includes('Key statements') || markdown.includes('key statements'), 'Should have key statements section');
+      assert.ok(markdown.includes('status === 429'), 'Should show status code condition');
+      assert.ok(markdown.includes('Math.pow(2, attempt)'), 'Should show backoff formula');
+    });
   });
 
   describe('createApp', () => {
