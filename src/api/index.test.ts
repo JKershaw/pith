@@ -995,3 +995,309 @@ describe('API', () => {
     });
   });
 });
+
+describe('Change Impact API - Phase 6.6.5', () => {
+  let client: MangoClient;
+
+  beforeEach(async () => {
+    client = new MangoClient('./data/impact-test');
+    await client.connect();
+    const db = client.db('pith');
+    const nodes = db.collection<WikiNode>('nodes');
+
+    // Set up test data for impact analysis
+    const testNodes: WikiNode[] = [
+      // Core types file (many files depend on this)
+      {
+        id: 'src/types/index.ts',
+        type: 'file',
+        path: 'src/types/index.ts',
+        name: 'index.ts',
+        metadata: { lines: 50, commits: 5, lastModified: new Date(), authors: ['alice'] },
+        edges: [
+          { type: 'importedBy', target: 'src/utils/helper.ts' },
+          { type: 'importedBy', target: 'src/auth/login.ts' },
+          { type: 'testFile', target: 'src/types/index.test.ts' },
+        ],
+        raw: {
+          exports: [
+            { name: 'User', kind: 'interface' },
+            { name: 'Session', kind: 'interface' },
+          ],
+        },
+      },
+      // Test file for types
+      {
+        id: 'src/types/index.test.ts',
+        type: 'file',
+        path: 'src/types/index.test.ts',
+        name: 'index.test.ts',
+        metadata: { lines: 30, commits: 2, lastModified: new Date(), authors: ['alice'], testCommand: 'npm test -- src/types/index.test.ts' },
+        edges: [],
+        raw: {},
+      },
+      // Utils helper (depends on types, depended by login)
+      {
+        id: 'src/utils/helper.ts',
+        type: 'file',
+        path: 'src/utils/helper.ts',
+        name: 'helper.ts',
+        metadata: { lines: 80, commits: 10, lastModified: new Date(), authors: ['bob'] },
+        edges: [
+          { type: 'imports', target: 'src/types/index.ts' },
+          { type: 'importedBy', target: 'src/auth/login.ts' },
+          { type: 'testFile', target: 'src/utils/helper.test.ts' },
+        ],
+        raw: {
+          imports: [{ from: '../types', names: ['User', 'Session'] }],
+          functions: [
+            {
+              name: 'validateUser',
+              signature: 'function validateUser(user: User): boolean',
+              startLine: 10,
+              endLine: 25,
+              isAsync: false,
+              isExported: true,
+              codeSnippet: 'const isValid = user.id && user.name;\nreturn isValid;',
+              keyStatements: [],
+            },
+          ],
+        },
+      },
+      // Test file for helper
+      {
+        id: 'src/utils/helper.test.ts',
+        type: 'file',
+        path: 'src/utils/helper.test.ts',
+        name: 'helper.test.ts',
+        metadata: { lines: 60, commits: 3, lastModified: new Date(), authors: ['bob'], testCommand: 'npm test -- src/utils/helper.test.ts' },
+        edges: [],
+        raw: {},
+      },
+      // Auth login (depends on both types and helper)
+      {
+        id: 'src/auth/login.ts',
+        type: 'file',
+        path: 'src/auth/login.ts',
+        name: 'login.ts',
+        metadata: { lines: 100, commits: 15, lastModified: new Date(), authors: ['alice', 'bob'] },
+        edges: [
+          { type: 'imports', target: 'src/types/index.ts' },
+          { type: 'imports', target: 'src/utils/helper.ts' },
+          { type: 'testFile', target: 'src/auth/login.test.ts' },
+        ],
+        raw: {
+          imports: [
+            { from: '../types', names: ['User', 'Session'] },
+            { from: '../utils/helper', names: ['validateUser'] },
+          ],
+          functions: [
+            {
+              name: 'login',
+              signature: 'async function login(username: string, password: string): Promise<Session>',
+              startLine: 15,
+              endLine: 50,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: 'const user = await findUser(username);\nconst valid = validateUser(user);\nif (!valid) throw new Error("Invalid");',
+              keyStatements: [],
+            },
+          ],
+        },
+      },
+      // Test file for login
+      {
+        id: 'src/auth/login.test.ts',
+        type: 'file',
+        path: 'src/auth/login.test.ts',
+        name: 'login.test.ts',
+        metadata: { lines: 120, commits: 8, lastModified: new Date(), authors: ['alice'], testCommand: 'npm test -- src/auth/login.test.ts' },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    for (const node of testNodes) {
+      await nodes.insertOne(node);
+    }
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await rm('./data/impact-test', { recursive: true, force: true });
+  });
+
+  describe('GET /impact/:path', () => {
+    it('returns impact analysis for a file with dependents', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/impact/src/types/index.ts`);
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.sourceFile, 'src/types/index.ts');
+        assert.ok(data.directDependents.includes('src/utils/helper.ts'));
+        assert.ok(data.directDependents.includes('src/auth/login.ts'));
+        assert.ok(data.totalAffectedFiles >= 2);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('includes transitive dependents', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/impact/src/types/index.ts`);
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        // login.ts depends on helper.ts which depends on types
+        // but login also directly imports types, so it should be in directDependents
+        assert.ok(data.directDependents.includes('src/auth/login.ts'));
+      } finally {
+        server.close();
+      }
+    });
+
+    it('includes test files that cover affected code', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/impact/src/types/index.ts`);
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.ok(data.testFiles);
+        assert.ok(data.testFiles.length > 0);
+        assert.ok(data.testFiles.some((t: { path: string }) => t.path === 'src/types/index.test.ts'));
+      } finally {
+        server.close();
+      }
+    });
+
+    it('returns 404 for non-existent file', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/impact/src/nonexistent.ts`);
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 404);
+        assert.strictEqual(data.error, 'NOT_FOUND');
+      } finally {
+        server.close();
+      }
+    });
+
+    it('returns empty impact for isolated file', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+      await nodes.insertOne({
+        id: 'src/isolated.ts',
+        type: 'file',
+        path: 'src/isolated.ts',
+        name: 'isolated.ts',
+        metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: ['alice'] },
+        edges: [],
+        raw: {},
+      });
+
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>(resolve => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/impact/src/isolated.ts`);
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.totalAffectedFiles, 0);
+        assert.strictEqual(data.directDependents.length, 0);
+      } finally {
+        server.close();
+      }
+    });
+  });
+
+  describe('formatChangeImpactAsMarkdown', () => {
+    it('formats impact with all sections', async () => {
+      const { formatChangeImpactAsMarkdown } = await import('./index.ts');
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+      const allNodes = await nodes.find({}).toArray();
+
+      const markdown = await formatChangeImpactAsMarkdown(
+        'src/types/index.ts',
+        allNodes as WikiNode[]
+      );
+
+      // Check sections exist
+      assert.ok(markdown.includes('# Change Impact Analysis'));
+      assert.ok(markdown.includes('src/types/index.ts'));
+      assert.ok(markdown.includes('## Direct Dependents'));
+      assert.ok(markdown.includes('src/utils/helper.ts'));
+      assert.ok(markdown.includes('## Test Files to Run'));
+    });
+
+    it('shows affected functions in dependents', async () => {
+      const { formatChangeImpactAsMarkdown } = await import('./index.ts');
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+      const allNodes = await nodes.find({}).toArray();
+
+      // Add a changedExports option to the markdown
+      const markdown = await formatChangeImpactAsMarkdown(
+        'src/utils/helper.ts',
+        allNodes as WikiNode[],
+        ['validateUser']
+      );
+
+      // Should show the login function that uses validateUser
+      assert.ok(markdown.includes('login'));
+    });
+
+    it('handles files with no dependents gracefully', async () => {
+      const { formatChangeImpactAsMarkdown } = await import('./index.ts');
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add isolated file
+      await nodes.insertOne({
+        id: 'src/isolated.ts',
+        type: 'file',
+        path: 'src/isolated.ts',
+        name: 'isolated.ts',
+        metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: ['alice'] },
+        edges: [],
+        raw: {},
+      });
+
+      const allNodes = await nodes.find({}).toArray();
+      const markdown = await formatChangeImpactAsMarkdown(
+        'src/isolated.ts',
+        allNodes as WikiNode[]
+      );
+
+      assert.ok(markdown.includes('No files depend on this'));
+    });
+  });
+});

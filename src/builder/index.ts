@@ -18,6 +18,38 @@ export interface Edge {
 }
 
 /**
+ * Impact tree showing what files are affected by changes to a source file.
+ * Phase 6.6.5: Change Impact Analysis
+ */
+export interface ImpactTree {
+  sourceFile: string;
+  directDependents: string[];
+  transitiveDependents: string[];
+  totalAffectedFiles: number;
+  dependentsByDepth: Record<number, string[]>;
+}
+
+/**
+ * Information about an affected function.
+ * Phase 6.6.5.2: Function-level impact
+ */
+export interface AffectedFunction {
+  name: string;
+  startLine: number;
+  endLine: number;
+  usedSymbols: string[];
+}
+
+/**
+ * Test file information for impact analysis.
+ * Phase 6.6.5.4: Test file impact
+ */
+export interface TestFileImpact {
+  path: string;
+  testCommand?: string;
+}
+
+/**
  * Function details with line numbers for wiki output.
  */
 export interface FunctionDetails {
@@ -620,4 +652,189 @@ export function buildDependentEdges(fileNodes: WikiNode[]): Array<Edge & { sourc
   }
 
   return edges;
+}
+
+/**
+ * Build a transitive impact tree showing all files affected by changes to a source file.
+ * Step 6.6.5.1: Traverse importedBy edges recursively to build full impact tree.
+ * @param sourceFileId - The ID of the file being changed
+ * @param allNodes - Array of all file nodes in the project
+ * @param maxDepth - Maximum depth to traverse (default 10, prevents runaway on very deep graphs)
+ * @returns An ImpactTree with direct and transitive dependents
+ */
+export function buildImpactTree(
+  sourceFileId: string,
+  allNodes: WikiNode[],
+  maxDepth: number = 10
+): ImpactTree {
+  // Create a map for quick node lookup
+  const nodeMap = new Map<string, WikiNode>();
+  for (const node of allNodes) {
+    nodeMap.set(node.id, node);
+  }
+
+  const visited = new Set<string>();
+  const directDependents: string[] = [];
+  const transitiveDependents: string[] = [];
+  const dependentsByDepth: Record<number, string[]> = {};
+
+  // BFS to find all dependents with depth tracking
+  const queue: Array<{ nodeId: string; depth: number }> = [];
+
+  // Get the source node
+  const sourceNode = nodeMap.get(sourceFileId);
+  if (!sourceNode) {
+    return {
+      sourceFile: sourceFileId,
+      directDependents: [],
+      transitiveDependents: [],
+      totalAffectedFiles: 0,
+      dependentsByDepth: {},
+    };
+  }
+
+  // Add the source to visited (don't count it as affected)
+  visited.add(sourceFileId);
+
+  // Find direct dependents (depth 1)
+  const importedByEdges = sourceNode.edges.filter(e => e.type === 'importedBy');
+  for (const edge of importedByEdges) {
+    if (!visited.has(edge.target)) {
+      queue.push({ nodeId: edge.target, depth: 1 });
+      visited.add(edge.target);
+    }
+  }
+
+  // Process the queue
+  while (queue.length > 0) {
+    const { nodeId, depth } = queue.shift()!;
+
+    // Track by depth
+    if (!dependentsByDepth[depth]) {
+      dependentsByDepth[depth] = [];
+    }
+    dependentsByDepth[depth].push(nodeId);
+
+    // Categorize as direct or transitive
+    if (depth === 1) {
+      directDependents.push(nodeId);
+    } else {
+      transitiveDependents.push(nodeId);
+    }
+
+    // Don't go beyond max depth
+    if (depth >= maxDepth) {
+      continue;
+    }
+
+    // Find this node's dependents
+    const dependentNode = nodeMap.get(nodeId);
+    if (dependentNode) {
+      const theirDependents = dependentNode.edges.filter(e => e.type === 'importedBy');
+      for (const edge of theirDependents) {
+        if (!visited.has(edge.target)) {
+          queue.push({ nodeId: edge.target, depth: depth + 1 });
+          visited.add(edge.target);
+        }
+      }
+    }
+  }
+
+  return {
+    sourceFile: sourceFileId,
+    directDependents,
+    transitiveDependents,
+    totalAffectedFiles: directDependents.length + transitiveDependents.length,
+    dependentsByDepth,
+  };
+}
+
+/**
+ * Find functions in a dependent file that use symbols from the changed file.
+ * Step 6.6.5.2: For each affected file, identify functions that use changed entity.
+ * @param dependentNode - The file node that depends on the changed file
+ * @param changedExports - Names of exports from the changed file
+ * @returns Array of affected functions with the symbols they use
+ */
+export function findAffectedFunctions(
+  dependentNode: WikiNode,
+  changedExports: string[]
+): AffectedFunction[] {
+  const affected: AffectedFunction[] = [];
+
+  // No functions to check
+  if (!dependentNode.raw.functions || dependentNode.raw.functions.length === 0) {
+    return affected;
+  }
+
+  // Check each function's code snippet for usage of changed exports
+  for (const func of dependentNode.raw.functions) {
+    const usedSymbols: string[] = [];
+
+    // Check if any of the changed exports appear in the function's code
+    for (const exportName of changedExports) {
+      // Look for the symbol in the code snippet
+      // Use word boundary matching to avoid partial matches
+      const regex = new RegExp(`\\b${exportName}\\b`);
+      if (regex.test(func.codeSnippet)) {
+        usedSymbols.push(exportName);
+      }
+    }
+
+    // If this function uses any of the changed exports, add it to affected list
+    if (usedSymbols.length > 0) {
+      affected.push({
+        name: func.name,
+        startLine: func.startLine,
+        endLine: func.endLine,
+        usedSymbols,
+      });
+    }
+  }
+
+  return affected;
+}
+
+/**
+ * Get test files that cover the affected source files.
+ * Step 6.6.5.4: Include test file impact (which tests touch this code).
+ * @param affectedFiles - Array of affected source file IDs
+ * @param allNodes - Array of all file nodes
+ * @returns Array of test file information
+ */
+export function getTestFilesForImpact(
+  affectedFiles: string[],
+  allNodes: WikiNode[]
+): TestFileImpact[] {
+  const testFiles: TestFileImpact[] = [];
+  const seenTestFiles = new Set<string>();
+
+  // Create a map for quick node lookup
+  const nodeMap = new Map<string, WikiNode>();
+  for (const node of allNodes) {
+    nodeMap.set(node.id, node);
+  }
+
+  // For each affected file, find its test files
+  for (const fileId of affectedFiles) {
+    const node = nodeMap.get(fileId);
+    if (!node) continue;
+
+    // Find testFile edges
+    const testEdges = node.edges.filter(e => e.type === 'testFile');
+    for (const edge of testEdges) {
+      // Avoid duplicates
+      if (seenTestFiles.has(edge.target)) continue;
+      seenTestFiles.add(edge.target);
+
+      // Get test file node for metadata
+      const testNode = nodeMap.get(edge.target);
+      testFiles.push({
+        path: edge.target,
+        testCommand: testNode?.metadata.testCommand,
+      });
+    }
+  }
+
+  return testFiles;
 }
