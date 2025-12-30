@@ -122,4 +122,6 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the build plan.
 - [Concepts](docs/CONCEPTS.md) — Nodes, edges, fractal structure
 - [Extraction](docs/EXTRACTION.md) — What data is extracted from code and git
 - [Roadmap](docs/ROADMAP.md) — Build phases and milestones
+- [Progress](docs/PROGRESS.md) — Current implementation status
 - [Technical Decisions](docs/TECHNICAL_DECISIONS.md) — Key choices and rationale
+- [Benchmarking](docs/benchmarking-plan.md) — Quality evaluation methodology

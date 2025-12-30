@@ -1,5 +1,21 @@
 # Roadmap
 
+## Current Status
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| 1-5 | ✅ Complete | MVP: Extraction, Build, Generate, API, Polish |
+| 6.1-6.5 | ✅ Complete | On-demand generation, test files, modification impact, patterns, gotcha validation |
+| **6.6** | **⬅️ In Progress** | **Enhanced Deterministic Extraction** |
+| 7+ | Planned | Advanced relationships, integrations |
+
+**Current focus**: Phase 6.6 - Improving context quality by extracting more facts deterministically.
+See [PROGRESS.md](PROGRESS.md) for detailed status and [benchmark results](benchmark-results/) for validation data.
+
+---
+
+## Completed Phases (1-5)
+
 Phased build plan from zero to useful. Each phase follows TDD: write failing tests first, then implement.
 
 ## Phase 1: Foundation
@@ -337,9 +353,9 @@ Works smoothly on a 100+ file codebase. Clear feedback during operations.
 
 ---
 
-## Future Phases (Post-MVP)
+## Current & Future Phases
 
-### Phase 6: On-Demand Generation & Task-Oriented Context ⬅️ NEXT
+### Phase 6: On-Demand Generation & Task-Oriented Context ✅ COMPLETE
 
 **Goal**: Make output more useful for LLM task context, reduce upfront costs.
 
@@ -414,7 +430,7 @@ Cross-check LLM claims against code to reduce hallucinations.
 
 ---
 
-### Phase 6.6: Enhanced Deterministic Extraction ⬅️ NEXT
+#### Phase 6.6: Enhanced Deterministic Extraction ⬅️ IN PROGRESS
 
 **Goal**: Close information gaps identified in benchmarking by extracting more facts deterministically, reducing LLM's role to synthesis only.
 
@@ -428,7 +444,7 @@ See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for full analy
 
 **Principle**: Extract facts with code, synthesize with LLM.
 
-#### 6.6.1 Surface Existing Data (P0)
+##### 6.6.1 Surface Existing Data (P0)
 
 Data already in ts-morph but not included in output.
 
@@ -441,7 +457,7 @@ Data already in ts-morph but not included in output.
 
 **Benchmark checkpoint**: Re-run benchmark, expect Completeness to improve.
 
-#### 6.6.2 Pattern Detection (P1)
+##### 6.6.2 Pattern Detection (P1)
 
 Detect common patterns via AST analysis.
 
@@ -454,7 +470,7 @@ Detect common patterns via AST analysis.
 
 **Benchmark checkpoint**: Re-run Task 2 (error handling), expect score to improve significantly.
 
-#### 6.6.3 Enhanced Metadata (P2)
+##### 6.6.3 Enhanced Metadata (P2)
 
 Additional computed metrics.
 
@@ -464,7 +480,7 @@ Additional computed metrics.
 | 6.6.3.2 | Lines of code per function | From AST line numbers |
 | 6.6.3.3 | Call graph (intra-file) | Track function calls within file |
 
-#### 6.6.4 Feed Facts to LLM
+##### 6.6.4 Feed Facts to LLM
 
 Update prose prompts to include deterministic facts, so LLM synthesizes rather than discovers.
 
@@ -477,7 +493,7 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 
 **Final benchmark**: Full 5-task benchmark, target Pith score ≥20/25.
 
-#### Phase 6.6 Success Criteria
+##### Phase 6.6 Success Criteria
 
 | Metric | Before | Target |
 |--------|--------|--------|
