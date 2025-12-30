@@ -4,6 +4,8 @@ import type { ExtractedFile, Import, Export, FunctionData, KeyStatement } from '
 import type { Commit } from '../extractor/git.ts';
 import type { JSDoc } from '../extractor/docs.ts';
 import type { ProseData } from '../generator/index.ts';
+import type { ErrorPath } from '../extractor/errors.ts';
+import { buildCrossFileCallGraph, getCrossFileCallsForFunction } from './cross-file-calls.ts';
 
 // Re-export types for testing
 export type { FunctionData };
@@ -61,6 +63,11 @@ export interface FunctionDetails {
   isExported: boolean;
   codeSnippet: string;  // First N lines of function source (Phase 6.6.1.2)
   keyStatements: KeyStatement[];  // Important statements extracted via AST (Phase 6.6.1.3)
+  calls: string[];  // Names of functions called within this function (Phase 6.6.7a.3)
+  calledBy: string[];  // Names of functions that call this function (Phase 6.6.7a.4)
+  crossFileCalls: string[];  // Cross-file calls (file:function format) (Phase 6.6.7b.3)
+  crossFileCalledBy: string[];  // Cross-file callers (file:function format) (Phase 6.6.7b.3)
+  errorPaths: ErrorPath[];  // Error handling paths (Phase 6.6.8)
 }
 
 /**
@@ -97,6 +104,7 @@ export interface WikiNode {
     recentCommits?: Commit[];
     readme?: string;
     functions?: FunctionDetails[];  // Phase 6.6.1 - function details with line numbers
+    patterns?: import('../extractor/patterns.ts').DetectedPattern[];  // Phase 6.6.6 - detected design patterns
   };
   prose?: ProseData;  // Generated prose from LLM
 }
@@ -131,6 +139,9 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
   const signature = extracted.functions.map((f) => f.signature);
 
   // Step 6.6.1: Extract function details with line numbers, code snippets, and key statements
+  // Step 6.6.7a: Add calls and compute calledBy
+  // Step 6.6.7b: Add cross-file calls (computed later in build process)
+  // Step 6.6.8: Add error paths
   const functions: FunctionDetails[] = extracted.functions.map((f) => ({
     name: f.name,
     signature: f.signature,
@@ -140,7 +151,23 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
     isExported: f.isExported,
     codeSnippet: f.codeSnippet,
     keyStatements: f.keyStatements,
+    calls: f.calls,  // Phase 6.6.7a.3
+    calledBy: [],  // Will be computed below
+    crossFileCalls: [],  // Phase 6.6.7b.3 (computed later)
+    crossFileCalledBy: [],  // Phase 6.6.7b.3 (computed later)
+    errorPaths: f.errorPaths,  // Phase 6.6.8
   }));
+
+  // Phase 6.6.7a.4: Compute calledBy from calls using Map for O(n) lookup
+  const funcMap = new Map(functions.map((f) => [f.name, f]));
+  for (const func of functions) {
+    for (const calledFuncName of func.calls) {
+      const calledFunc = funcMap.get(calledFuncName);
+      if (calledFunc && !calledFunc.calledBy.includes(func.name)) {
+        calledFunc.calledBy.push(func.name);
+      }
+    }
+  }
 
   // Step 2.1.9: Copy JSDoc
   const jsdoc = extracted.docs?.jsdoc;
@@ -153,6 +180,9 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
 
   // Step 2.1.12: Copy recent commits
   const recentCommits = extracted.git?.recentCommits;
+
+  // Phase 6.6.6: Copy detected patterns
+  const patterns = extracted.patterns;
 
   return {
     id,
@@ -168,6 +198,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
       imports: imports.length > 0 ? imports : undefined,
       exports: exports.length > 0 ? exports : undefined,
       recentCommits,
+      patterns,  // Phase 6.6.6
     },
   };
 }
@@ -837,4 +868,30 @@ export function getTestFilesForImpact(
   }
 
   return testFiles;
+}
+
+/**
+ * Update cross-file calls on all file nodes.
+ * Step 6.6.7b.3: Build cross-file call graph and update function details.
+ * Must be called after all file nodes are created.
+ * @param fileNodes - Array of all file nodes
+ */
+export function updateCrossFileCalls(fileNodes: WikiNode[]): void {
+  // Build the cross-file call graph
+  const callGraph = buildCrossFileCallGraph(fileNodes);
+
+  // Update each file node's function details with cross-file calls
+  for (const fileNode of fileNodes) {
+    if (!fileNode.raw.functions || fileNode.raw.functions.length === 0) {
+      continue;
+    }
+
+    for (const func of fileNode.raw.functions) {
+      const functionId = `${fileNode.path}:${func.name}`;
+      const { calls, calledBy } = getCrossFileCallsForFunction(functionId, callGraph);
+
+      func.crossFileCalls = calls;
+      func.crossFileCalledBy = calledBy;
+    }
+  }
 }

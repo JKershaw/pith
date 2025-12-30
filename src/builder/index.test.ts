@@ -205,6 +205,10 @@ describe('buildFileNode', () => {
           isExported: true,
           startLine: 1,
           endLine: 3,
+          codeSnippet: 'function add(a: number, b: number): number {\n  return a + b;\n}',
+          keyStatements: [],
+          calls: [],
+          calledBy: [],
         },
         {
           name: 'subtract',
@@ -215,6 +219,10 @@ describe('buildFileNode', () => {
           isExported: false,
           startLine: 5,
           endLine: 7,
+          codeSnippet: 'function subtract(a: number, b: number): number {\n  return a - b;\n}',
+          keyStatements: [],
+          calls: [],
+          calledBy: [],
         },
       ],
       classes: [],
@@ -2329,6 +2337,290 @@ describe('Impact Tree - Phase 6.6.5', () => {
 
       assert.strictEqual(testFiles.length, 1);
       assert.strictEqual(testFiles[0].testCommand, 'npm test -- src/foo.test.ts');
+    });
+  });
+});
+
+describe('Function Call Graph - Phase 6.6.7a', () => {
+  describe('buildFileNode with calls and calledBy', () => {
+    it('includes calls field from extracted data', () => {
+      const extracted: ExtractedFile = {
+        path: 'src/test.ts',
+        lines: 100,
+        imports: [],
+        exports: [],
+        functions: [
+          {
+            name: 'foo',
+            signature: 'function foo(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: true,
+            startLine: 1,
+            endLine: 5,
+            codeSnippet: 'function foo() { bar(); }',
+            keyStatements: [],
+            calls: ['bar'],
+            calledBy: [],
+          },
+          {
+            name: 'bar',
+            signature: 'function bar(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: false,
+            startLine: 7,
+            endLine: 10,
+            codeSnippet: 'function bar() { }',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      };
+
+      const node = buildFileNode(extracted);
+
+      assert.ok(node.raw.functions);
+      assert.strictEqual(node.raw.functions.length, 2);
+
+      const foo = node.raw.functions.find((f) => f.name === 'foo');
+      assert.ok(foo);
+      assert.ok(Array.isArray(foo.calls));
+      assert.strictEqual(foo.calls.length, 1);
+      assert.ok(foo.calls.includes('bar'));
+    });
+
+    it('computes calledBy from calls', () => {
+      const extracted: ExtractedFile = {
+        path: 'src/test.ts',
+        lines: 100,
+        imports: [],
+        exports: [],
+        functions: [
+          {
+            name: 'foo',
+            signature: 'function foo(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: true,
+            startLine: 1,
+            endLine: 5,
+            codeSnippet: 'function foo() { bar(); }',
+            keyStatements: [],
+            calls: ['bar'],
+            calledBy: [],
+          },
+          {
+            name: 'bar',
+            signature: 'function bar(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: false,
+            startLine: 7,
+            endLine: 10,
+            codeSnippet: 'function bar() { }',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      };
+
+      const node = buildFileNode(extracted);
+
+      assert.ok(node.raw.functions);
+
+      const bar = node.raw.functions.find((f) => f.name === 'bar');
+      assert.ok(bar);
+      assert.ok(Array.isArray(bar.calledBy));
+      assert.strictEqual(bar.calledBy.length, 1);
+      assert.ok(bar.calledBy.includes('foo'));
+    });
+
+    it('handles multiple callers', () => {
+      const extracted: ExtractedFile = {
+        path: 'src/test.ts',
+        lines: 100,
+        imports: [],
+        exports: [],
+        functions: [
+          {
+            name: 'foo',
+            signature: 'function foo(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: true,
+            startLine: 1,
+            endLine: 5,
+            codeSnippet: 'function foo() { helper(); }',
+            keyStatements: [],
+            calls: ['helper'],
+            calledBy: [],
+          },
+          {
+            name: 'bar',
+            signature: 'function bar(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: true,
+            startLine: 7,
+            endLine: 11,
+            codeSnippet: 'function bar() { helper(); }',
+            keyStatements: [],
+            calls: ['helper'],
+            calledBy: [],
+          },
+          {
+            name: 'helper',
+            signature: 'function helper(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: false,
+            startLine: 13,
+            endLine: 15,
+            codeSnippet: 'function helper() { }',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      };
+
+      const node = buildFileNode(extracted);
+
+      assert.ok(node.raw.functions);
+
+      const helper = node.raw.functions.find((f) => f.name === 'helper');
+      assert.ok(helper);
+      assert.strictEqual(helper.calledBy.length, 2);
+      assert.ok(helper.calledBy.includes('foo'));
+      assert.ok(helper.calledBy.includes('bar'));
+    });
+
+    it('handles call chains A→B→C', () => {
+      const extracted: ExtractedFile = {
+        path: 'src/test.ts',
+        lines: 100,
+        imports: [],
+        exports: [],
+        functions: [
+          {
+            name: 'a',
+            signature: 'function a(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: true,
+            startLine: 1,
+            endLine: 3,
+            codeSnippet: 'function a() { b(); }',
+            keyStatements: [],
+            calls: ['b'],
+            calledBy: [],
+          },
+          {
+            name: 'b',
+            signature: 'function b(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: false,
+            startLine: 5,
+            endLine: 7,
+            codeSnippet: 'function b() { c(); }',
+            keyStatements: [],
+            calls: ['c'],
+            calledBy: [],
+          },
+          {
+            name: 'c',
+            signature: 'function c(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: false,
+            startLine: 9,
+            endLine: 11,
+            codeSnippet: 'function c() { }',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      };
+
+      const node = buildFileNode(extracted);
+
+      assert.ok(node.raw.functions);
+
+      const a = node.raw.functions.find((f) => f.name === 'a');
+      const b = node.raw.functions.find((f) => f.name === 'b');
+      const c = node.raw.functions.find((f) => f.name === 'c');
+
+      assert.ok(a);
+      assert.ok(b);
+      assert.ok(c);
+
+      // Check calls
+      assert.ok(a.calls.includes('b'));
+      assert.ok(b.calls.includes('c'));
+      assert.strictEqual(c.calls.length, 0);
+
+      // Check calledBy
+      assert.strictEqual(a.calledBy.length, 0);
+      assert.ok(b.calledBy.includes('a'));
+      assert.ok(c.calledBy.includes('b'));
+    });
+
+    it('handles functions with no calls', () => {
+      const extracted: ExtractedFile = {
+        path: 'src/test.ts',
+        lines: 100,
+        imports: [],
+        exports: [],
+        functions: [
+          {
+            name: 'standalone',
+            signature: 'function standalone(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: true,
+            startLine: 1,
+            endLine: 3,
+            codeSnippet: 'function standalone() { return; }',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      };
+
+      const node = buildFileNode(extracted);
+
+      assert.ok(node.raw.functions);
+      const standalone = node.raw.functions[0];
+      assert.ok(standalone);
+      assert.strictEqual(standalone.calls.length, 0);
+      assert.strictEqual(standalone.calledBy.length, 0);
     });
   });
 });

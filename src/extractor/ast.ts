@@ -5,6 +5,9 @@ import { minimatch } from 'minimatch';
 import type { MangoDb } from '@jkershaw/mangodb';
 import type { GitInfo } from './git.ts';
 import type { DocsInfo } from './docs.ts';
+import type { ErrorPath } from './errors.ts';
+import { extractErrorPaths } from './errors.ts';
+import type { DetectedPattern } from './patterns.ts';
 
 /**
  * Import declaration data.
@@ -57,10 +60,14 @@ export interface FunctionData {
   returnType: string;
   isAsync: boolean;
   isExported: boolean;
+  isDefaultExport: boolean;  // Phase 6.6: Explicit default export detection
   startLine: number;
   endLine: number;
   codeSnippet: string;  // First N lines of function source
   keyStatements: KeyStatement[];  // Important statements extracted via AST
+  calls: string[];  // Names of functions called within this function (Phase 6.6.7a.1)
+  calledBy: string[];  // Names of functions that call this function (Phase 6.6.7a.4, computed in builder)
+  errorPaths: ErrorPath[];  // Error handling paths (Phase 6.6.8)
 }
 
 /**
@@ -106,6 +113,7 @@ export interface ExtractedFile {
   interfaces: Interface[];
   git?: GitInfo;
   docs?: DocsInfo;
+  patterns?: DetectedPattern[];  // Phase 6.6.6
 }
 
 /**
@@ -282,6 +290,41 @@ export interface ProjectContext {
 }
 
 /**
+ * Extract function calls within a function.
+ * Phase 6.6.7a.1: Track function calls within same file.
+ * @param func - The function or method declaration to analyze
+ * @param allFunctionNames - Names of all functions defined in the same file
+ * @returns Array of function names called within this function
+ */
+function extractFunctionCalls(
+  func: FunctionDeclaration | MethodDeclaration,
+  allFunctionNames: Set<string>
+): string[] {
+  const calls: string[] = [];
+  const seen = new Set<string>();
+
+  // Find all CallExpression nodes within the function
+  for (const callExpr of func.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    // Get the expression being called (e.g., "foo" in "foo()")
+    const expression = callExpr.getExpression();
+
+    // We only want direct function calls like "foo()"
+    // Ignore method calls like "obj.method()" or "this.method()"
+    if (expression.getKind() === SyntaxKind.Identifier) {
+      const functionName = expression.getText();
+
+      // Only include if it's a function defined in the same file
+      if (allFunctionNames.has(functionName) && !seen.has(functionName)) {
+        calls.push(functionName);
+        seen.add(functionName);
+      }
+    }
+  }
+
+  return calls;
+}
+
+/**
  * Create a ts-morph Project for a directory.
  * @param rootDir - The root directory of the project
  * @returns A configured Project instance with root directory
@@ -432,6 +475,18 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
   }
 
   // Extract functions
+  // Phase 6.6.7a.1: Build global set of all callable names (functions + all class methods)
+  // This allows detecting intra-file calls between top-level functions and class methods
+  const allCallableNames = new Set<string>();
+  for (const func of sourceFile.getFunctions()) {
+    allCallableNames.add(func.getName() || 'anonymous');
+  }
+  for (const cls of sourceFile.getClasses()) {
+    for (const method of cls.getMethods()) {
+      allCallableNames.add(method.getName());
+    }
+  }
+
   const functions: FunctionData[] = sourceFile.getFunctions().map((func) => ({
     name: func.getName() || 'anonymous',
     signature: func.getSignature().getDeclaration().getText(),
@@ -444,10 +499,14 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     returnType: func.getReturnType().getText(),
     isAsync: func.isAsync(),
     isExported: func.isExported(),
+    isDefaultExport: func.isDefaultExport(),  // Phase 6.6: Explicit default export detection
     startLine: func.getStartLineNumber(),
     endLine: func.getEndLineNumber(),
     codeSnippet: getCodeSnippet(() => func.getText()),
     keyStatements: extractKeyStatements(func),
+    calls: extractFunctionCalls(func, allCallableNames),  // Phase 6.6.7a.1
+    calledBy: [],  // Phase 6.6.7a.4: Computed later in builder
+    errorPaths: extractErrorPaths(func),  // Phase 6.6.8
   }));
 
   // Extract classes
@@ -465,10 +524,14 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
       returnType: method.getReturnType().getText(),
       isAsync: method.isAsync(),
       isExported: false, // Methods aren't directly exported
+      isDefaultExport: false, // Methods aren't default exported
       startLine: method.getStartLineNumber(),
       endLine: method.getEndLineNumber(),
       codeSnippet: getCodeSnippet(() => method.getText()),
       keyStatements: extractKeyStatements(method),
+      calls: extractFunctionCalls(method, allCallableNames),  // Phase 6.6.7a.1: Use global callable set
+      calledBy: [],  // Phase 6.6.7a.4: Computed later in builder
+      errorPaths: extractErrorPaths(method),  // Phase 6.6.8
     })),
     properties: cls.getProperties().map((prop) => ({
       name: prop.getName(),
@@ -491,7 +554,8 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     isExported: iface.isExported(),
   }));
 
-  return {
+  // Build the extracted file data (without patterns initially)
+  const extracted: ExtractedFile = {
     path: relativePath,
     lines: sourceFile.getEndLineNumber(),
     imports,
@@ -500,6 +564,12 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     classes,
     interfaces,
   };
+
+  // Phase 6.6.6: Detect design patterns
+  // Note: Pattern detection is done separately to avoid circular imports
+  // See cli/extract.ts for pattern detection integration
+
+  return extracted;
 }
 
 /**

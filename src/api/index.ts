@@ -239,6 +239,31 @@ export function formatContextAsMarkdown(context: BundledContext): string {
             lines.push(`- [${stmt.category}] line ${stmt.line}: \`${stmt.text}\``);
           }
         }
+
+        // Call Flow (Phase 6.6.7b.4) - show for functions with >3 cross-file calls
+        const totalCrossFileCalls = (func.crossFileCalls?.length || 0) + (func.crossFileCalledBy?.length || 0);
+        if (totalCrossFileCalls > 3) {
+          lines.push('');
+          lines.push('**Call Flow:**');
+
+          // Show what this function calls
+          if (func.crossFileCalls && func.crossFileCalls.length > 0) {
+            lines.push('');
+            lines.push('*Calls:*');
+            for (const callee of func.crossFileCalls) {
+              lines.push(`- ${callee}`);
+            }
+          }
+
+          // Show what calls this function
+          if (func.crossFileCalledBy && func.crossFileCalledBy.length > 0) {
+            lines.push('');
+            lines.push('*Called by:*');
+            for (const caller of func.crossFileCalledBy) {
+              lines.push(`- ${caller}`);
+            }
+          }
+        }
       }
     } else if (node.type === 'file' && node.raw.signature && node.raw.signature.length > 0) {
       // Fallback to simple signatures if no function details

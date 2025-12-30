@@ -80,8 +80,8 @@ describe('CLI', () => {
     const collection = db.collection<ExtractedFile>('extracted');
     const files = await collection.find({}).toArray();
 
-    // Should have extracted all 4 TypeScript files
-    assert.strictEqual(files.length, 4, 'Should extract 4 files');
+    // Should have extracted all 7 TypeScript files
+    assert.strictEqual(files.length, 7, 'Should extract 7 files');
 
     // Check that each file has required fields
     for (const file of files) {

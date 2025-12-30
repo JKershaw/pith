@@ -2,13 +2,13 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.6.5 (Change Impact Analysis)
-**Current step**: Phase 6.6.6+ - Pattern recognition, cross-file tracing
+**Last completed phase**: Phase 6.6.7b (Cross-File Call Graph)
+**Current step**: Phase 6.6 COMPLETE - All enhanced extraction phases done
 **Date**: 2025-12-30
 
 ---
 
-## Phase 6.6: Enhanced Deterministic Extraction - IN PROGRESS
+## Phase 6.6: Enhanced Deterministic Extraction - COMPLETE ✅
 
 **Goal**: Close information gaps by extracting facts deterministically, reducing LLM to synthesis only.
 
@@ -66,7 +66,7 @@ Ran Pith on itself and verified `/context` output for `src/generator/index.ts`:
 |------|--------|--------|-------|
 | 6.6.3.1 | Cyclomatic complexity | Pending | Nice-to-have |
 | 6.6.3.2 | Lines per function | **Done** | Via startLine/endLine |
-| 6.6.3.3 | Intra-file call graph | Pending | Nice-to-have |
+| 6.6.3.3 | Intra-file call graph | **Done** | Implemented in 6.6.7a |
 
 ### 6.6.4 Feed Facts to LLM - ALREADY IMPLEMENTED ✅
 
@@ -146,6 +146,235 @@ npm test -- src/utils/helper.test.ts
 ```
 ```
 
+### 6.6.7a Intra-File Call Graph - COMPLETE ✅
+
+| Step | What | Status |
+|------|------|--------|
+| 6.6.7a.1 | Track function calls within same file | **Done** |
+| 6.6.7a.2 | Identify call chains (A→B→C) within file | **Done** |
+| 6.6.7a.3 | Add "Calls" field to function nodes | **Done** |
+| 6.6.7a.4 | Add "Called by" field to function nodes | **Done** |
+
+**Implementation Summary (2025-12-30)**:
+
+**Extractor additions** (`src/extractor/ast.ts`):
+- Added `calls` and `calledBy` fields to `FunctionData` interface
+- Implemented `extractFunctionCalls()` to find direct function calls using AST analysis
+- Filters to only include calls to functions defined in the same file
+- Ignores method calls (obj.method()) and built-in functions
+
+**Builder additions** (`src/builder/index.ts`):
+- Added `calls` and `calledBy` fields to `FunctionDetails` interface
+- Implemented reverse lookup to compute `calledBy` from `calls` data
+- Handles multiple callers and call chains (A→B→C)
+
+**Tests**: 317 total (10 new for Phase 6.6.7a)
+
+**What this enables**:
+- Phase 6.6.6: Design Pattern Recognition (detect retry patterns, caching, etc.)
+- Phase 6.6.8: Error Path Analysis (trace error propagation through call chains)
+- Phase 6.6.7b: Cross-File Call Graph (extend to track calls across files)
+
+---
+
+### 6.6.6 Design Pattern Recognition - COMPLETE ✅
+
+| Step | What | Status |
+|------|------|--------|
+| 6.6.6.1 | Detect Retry pattern | **Done** |
+| 6.6.6.2 | Detect Cache pattern | **Done** |
+| 6.6.6.3 | Detect Builder pattern | **Done** |
+| 6.6.6.4 | Detect Singleton pattern | **Done** |
+| 6.6.6.5 | Validate detected patterns | **Done** |
+| 6.6.6.6 | Add "Patterns" section to prose prompt | **Done** |
+
+**Implementation Summary (2025-12-30)**:
+
+**New files**:
+- `src/extractor/patterns.ts` - Pattern detection functions
+- `src/extractor/patterns.test.ts` - 11 tests for pattern detection
+
+**Pattern detectors** (`src/extractor/patterns.ts`):
+- `detectRetryPattern()`: Finds loops with try/catch + exponential backoff (Math.pow)
+  - Uses keyStatements to find retry variables, error handling, backoff formulas
+  - Detects retry patterns even when loop is outside code snippet
+  - **High confidence**: Verified in `callLLM` function
+- `detectCachePattern()`: Finds modules with cache-like structures
+  - Detects cache types (interfaces with "cache" in name)
+  - Finds cache operations (load, save, get, set, has)
+  - **High confidence**: Verified in `cache.ts`
+- `detectBuilderPattern()`: Finds classes with chainable methods
+  - Detects methods returning `this` for chaining
+  - **Medium confidence**: Requires 2+ chainable methods
+- `detectSingletonPattern()`: Finds module-level instance management
+  - Detects getInstance patterns and instance checks
+  - **Medium confidence**: Requires instance variable + getter
+
+**Data structure**:
+```typescript
+interface DetectedPattern {
+  name: 'retry' | 'cache' | 'builder' | 'singleton';
+  confidence: 'high' | 'medium' | 'low';
+  evidence: string[];  // Line numbers and code snippets
+  location: string;    // file:function or file path
+}
+```
+
+**Integration**:
+- Added `patterns` field to `ExtractedFile` interface
+- Added `patterns` to `WikiNode.raw` interface
+- Pattern detection runs during extraction via `addPatternsToExtractedFile()`
+- Patterns included in LLM prompts with evidence
+
+**Prose prompt changes** (`src/generator/index.ts`):
+- Added "DETECTED PATTERNS" section showing found patterns with evidence
+- Updated output format instructions to confirm/refine detected patterns
+- LLM now sees pattern hints and can elaborate with implementation details
+
+**Tests**: 328 total (11 new for Phase 6.6.6)
+
+**Patterns detected in Pith itself**:
+- `src/generator/index.ts:callLLM` - RETRY pattern (maxRetries=3, exponential backoff)
+- `src/extractor/cache.ts` - CACHE pattern (ExtractionCache interface + load/save/get operations)
+
+**What this enables**:
+- Benchmark A3 (Design Patterns): Expected improvement from 13/25 to 18+/25
+- Provides concrete evidence for pattern usage in gotchas and documentation
+- Foundation for 6.6.6b (advanced patterns requiring cross-file analysis)
+
+---
+
+### 6.6.8 Error Path Analysis - COMPLETE ✅
+
+| Step | What | Status |
+|------|------|--------|
+| 6.6.8.1 | Find all early return/throw statements | **Done** |
+| 6.6.8.2 | Trace error propagation in catch blocks | **Done** |
+| 6.6.8.3 | Identify validation guards | **Done** |
+| 6.6.8.4 | Add "Error Paths" section for functions | **Done** |
+
+**Implementation Summary (2025-12-30)**:
+
+**New files**:
+- `src/extractor/errors.ts` - Error path detection functions
+- `src/extractor/errors.test.ts` - 14 tests for error path detection
+
+**Detection functions** (`src/extractor/errors.ts`):
+- `extractEarlyReturns()`: Finds return statements inside conditionals that exit early
+- `extractThrowStatements()`: Detects all throw statements with their conditions
+- `extractCatchBlocks()`: Classifies error handling as re-throw, transform, log, or swallow
+- `extractValidationGuards()`: Identifies input validation in first 5 statements
+- `extractErrorPaths()`: Main function combining all detectors
+
+**Data structure**:
+```typescript
+interface ErrorPath {
+  type: 'early-return' | 'throw' | 'catch' | 'guard';
+  line: number;
+  condition?: string;  // The condition that triggers this path
+  action: string;      // What happens (return value, error thrown, etc.)
+}
+```
+
+**Integration**:
+- Added `errorPaths` field to `FunctionData` interface
+- Propagated error paths from extraction to `WikiNode.raw.functions[].errorPaths`
+
+**Tests**: 342 total (14 new for Phase 6.6.8)
+
+**Error paths detected in key Pith functions**:
+- `src/generator/index.ts:callLLM` - 5 error paths (throws, catches, transforms)
+- `src/extractor/ast.ts:extractFile` - 2 error paths (catch + transform)
+
+**What this enables**:
+- Benchmark D1-D3 (Debugging tasks): Expected improvement from 15/25 to 20+/25
+- Specific error causes with line numbers for debugging questions
+- Foundation for error flow tracing in Phase 6.6.7b
+
+---
+
+### 6.6.7b Cross-File Call Graph - COMPLETE ✅
+
+| Step | What | Status |
+|------|------|--------|
+| 6.6.7b.1 | Resolve imported symbols to source files | **Done** |
+| 6.6.7b.2 | Handle re-exports | **Done** |
+| 6.6.7b.3 | Build cross-file call graph | **Done** |
+| 6.6.7b.4 | Add "Call Flow" section for functions | **Done** |
+
+**Implementation Summary (2025-12-30)**:
+
+**New files**:
+- `src/builder/cross-file-calls.ts` - Cross-file call graph logic
+- `src/builder/cross-file-calls.test.ts` - 10 tests for cross-file calls
+- Test fixtures: `utils.ts`, `service.ts`, `controller.ts`
+
+**Core functions** (`src/builder/cross-file-calls.ts`):
+- `resolveImportedSymbol()`: Maps imported symbols to source files
+  - Handles named imports: `import { X } from './y'` → `y.ts:X`
+  - Handles default imports: `import X from './y'` → `y.ts:default`
+  - Skips type-only imports and node_modules
+- `followReExportChain()`: Follows re-export chains with max depth of 5
+- `buildCrossFileCallGraph()`: Creates complete map of cross-file function calls
+- `updateCrossFileCalls()`: Populates WikiNodes with cross-file call data
+
+**Data structure**:
+```typescript
+interface CrossFileCall {
+  caller: string;  // 'file.ts:functionName'
+  callee: string;  // 'other.ts:functionName'
+}
+```
+
+**Integration**:
+- Added `crossFileCalls` and `crossFileCalledBy` to `FunctionDetails`
+- Integrated into build process via CLI
+- Added "Call Flow" section to API markdown output (for functions with >3 cross-file calls)
+
+**Tests**: 352 total (10 new for Phase 6.6.7b)
+
+**Example cross-file calls detected**:
+- `controller.ts:handleRegister` → `service.ts:registerUser`
+- `service.ts:registerUser` → `utils.ts:formatUserName`, `validateEmail`, `hashPassword`
+
+**What this enables**:
+- Benchmark B1-B3 (Behavior tasks): Expected improvement from 16/25 to 20+/25
+- Complete call flow tracing across module boundaries
+- Foundation for advanced pattern recognition across files
+
+---
+
+### Phase 6.6 Summary - ALL COMPLETE ✅
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 6.6.1 | Surface Existing Data (P0) | ✅ Complete |
+| 6.6.2 | Pattern Detection (P1) | ✅ Covered by 6.6.1.3 |
+| 6.6.3 | Enhanced Metadata (P2) | ✅ Complete |
+| 6.6.4 | Feed Facts to LLM | ✅ Complete |
+| 6.6.5 | Change Impact Analysis | ✅ Complete |
+| 6.6.6 | Design Pattern Recognition | ✅ Complete |
+| 6.6.7a | Intra-File Call Graph | ✅ Complete |
+| 6.6.7b | Cross-File Call Graph | ✅ Complete |
+| 6.6.8 | Error Path Analysis | ✅ Complete |
+
+**Total tests**: 352
+**Total new capabilities added**:
+- Line numbers and code snippets for functions
+- Key statements extraction (config, URLs, math, conditions, errors)
+- Change impact analysis with transitive dependents
+- Design pattern recognition (Retry, Cache, Builder, Singleton)
+- Intra-file and cross-file call graphs
+- Error path analysis (early returns, throws, catches, guards)
+
+---
+
+### 6.6.9 Implementation Hints (P2 - DEFERRED)
+
+Per ROADMAP.md, implementation hints are deferred until pattern recognition and change impact are proven effective in benchmarks.
+
+---
+
 ### 6.6.6 - 6.6.9 Gap Analysis (Remaining)
 
 Based on comprehensive 15-task benchmark, remaining gaps require new capabilities:
@@ -161,8 +390,9 @@ Based on comprehensive 15-task benchmark, remaining gaps require new capabilitie
 **Note**: Gaps overlap - fixing one capability may improve multiple task categories. The 8.4-point overall gap (15.5→23.9) requires addressing several capabilities, not all independently.
 
 **Dependencies**:
-- 6.6.7 (Cross-file tracing) enables 6.6.6 (Pattern detection) and 6.6.8 (Error paths)
-- 6.6.5 (Change impact) is independent and highest priority
+- ✅ 6.6.7a (Intra-file call graph) now enables 6.6.6 (Pattern detection) and 6.6.8 (Error paths)
+- ✅ 6.6.5 (Change impact) is complete
+- 6.6.7b (Cross-file tracing) extends 6.6.7a for advanced patterns
 
 ---
 
@@ -644,15 +874,15 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2025-12-30 (Phase 6.6.5 Complete):
-- **Total tests**: 307
+As of 2025-12-30 (Phase 6.6 Complete):
+- **Total tests**: 352
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 78
+- **Test suites**: 94
 
 Commands:
 ```bash
-npm test      # 307 tests pass
+npm test      # 352 tests pass
 npm run lint  # No errors
 ```
 

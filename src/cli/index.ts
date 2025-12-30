@@ -8,6 +8,7 @@ import { stat } from 'node:fs/promises';
 import { findFiles, createProject, extractFile, storeExtracted, type ExtractedFile } from '../extractor/ast.ts';
 import { extractGitInfo } from '../extractor/git.ts';
 import { extractDocs } from '../extractor/docs.ts';
+import { addPatternsToExtractedFile } from '../extractor/patterns.ts';
 import {
   loadExtractionCache,
   saveExtractionCache,
@@ -28,6 +29,7 @@ import {
   buildTestFileEdges,
   buildDependentEdges,
   computeMetadata,
+  updateCrossFileCalls,
   type WikiNode,
 } from '../builder/index.ts';
 import {
@@ -188,6 +190,9 @@ program
               // Combine all data
               extracted.git = git;
               extracted.docs = docs;
+
+              // Phase 6.6.6: Detect design patterns
+              addPatternsToExtractedFile(extracted);
 
               // Compute hash for cache
               const fullPath = join(absolutePath, relativePath);
@@ -419,6 +424,10 @@ program
       }
 
       log('Built edges', 'verbose');
+
+      // Update cross-file calls (Phase 6.6.7b.3)
+      updateCrossFileCalls(fileNodes);
+      log('Computed cross-file call graph', 'verbose');
 
       // Compute metadata (fan-in, fan-out, age, recency)
       computeMetadata(allNodes);
