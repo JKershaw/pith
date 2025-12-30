@@ -6,11 +6,13 @@
 |-------|--------|-------------|
 | 1-5 | ✅ Complete | MVP: Extraction, Build, Generate, API, Polish |
 | 6.1-6.5 | ✅ Complete | On-demand generation, test files, modification impact, patterns, gotcha validation |
-| **6.6** | **⬅️ In Progress** | **Enhanced Deterministic Extraction** |
+| 6.6.1-6.6.4 | ✅ Complete | Line numbers, code snippets, key statements, LLM prompts |
+| **6.6.5-6.6.8** | **⬅️ In Progress** | **Change impact, patterns, tracing, error paths** |
 | 7+ | Planned | Advanced relationships, integrations |
 
-**Current focus**: Phase 6.6 - Improving context quality by extracting more facts deterministically.
-See [PROGRESS.md](PROGRESS.md) for detailed status and [benchmark results](benchmark-results/) for validation data.
+**Current focus**: Phase 6.6.5 - Change Impact Analysis (highest priority gap from benchmarks).
+
+**Latest benchmark** (2025-12-30, 15 tasks): Pith 15.5/25 vs Control 23.9/25. See [benchmark results](benchmark-results/2025-12-30-self-test-v5-comprehensive.md) for analysis.
 
 ---
 
@@ -480,26 +482,117 @@ Additional computed metrics.
 | 6.6.3.2 | Lines of code per function | From AST line numbers |
 | 6.6.3.3 | Call graph (intra-file) | Track function calls within file |
 
-##### 6.6.4 Feed Facts to LLM
+##### 6.6.4 Feed Facts to LLM ✅ COMPLETE
 
 Update prose prompts to include deterministic facts, so LLM synthesizes rather than discovers.
 
-| Step | Change |
-|------|--------|
-| 6.6.4.1 | Include detected patterns in prompt |
-| 6.6.4.2 | Include line numbers for key functions |
-| 6.6.4.3 | Include config values found |
-| 6.6.4.4 | Ask LLM to explain/synthesize, not discover |
+| Step | Change | Status |
+|------|--------|--------|
+| 6.6.4.1 | Include detected patterns in prompt | Done |
+| 6.6.4.2 | Include line numbers for key functions | Done |
+| 6.6.4.3 | Include config values found | Done |
+| 6.6.4.4 | Ask LLM to explain/synthesize, not discover | Done |
 
-**Final benchmark**: Full 5-task benchmark, target Pith score ≥20/25.
+---
 
-##### Phase 6.6 Success Criteria
+##### 6.6.5 Change Impact Analysis ⬅️ PRIORITY
 
-| Metric | Before | Target |
-|--------|--------|--------|
-| Completeness | 1.8/5 | ≥4/5 |
-| Actionability | 1.8/5 | ≥4/5 |
-| Overall score | 12.6/25 | ≥20/25 |
+**Problem**: Modification tasks (M1-M3) average 13/25. Control maps all affected files with line references.
+
+**Benchmark Evidence**:
+- M1 (Add complexity field): Control listed 8 files, 60+ test fixtures, specific lines
+- Pith showed only interface location
+
+| Step | What | Test |
+|------|------|------|
+| 6.6.5.1 | Traverse `importedBy` edges recursively to build full impact tree | Impact tree includes transitive dependents |
+| 6.6.5.2 | For each affected file, identify functions that use changed entity | List specific function names using the entity |
+| 6.6.5.3 | Add "Change Impact" section to `/context` markdown output | Shows N files, N functions, test files affected |
+| 6.6.5.4 | Include test file impact (which tests touch this code) | Test files listed with relevant test names |
+
+**Benchmark checkpoint**: Re-run M1 task, expect Actionability to improve 1→4.
+
+##### 6.6.6 Design Pattern Recognition
+
+**Problem**: A3 (Design Patterns) scored 13/25. Control identified 18 patterns, Pith identified 0.
+
+**Benchmark Evidence**:
+- Control found: Pipeline, Singleton, Factory, Strategy, Builder, Retry+Backoff, Cache, etc.
+- Pith mentioned no patterns by name
+
+| Step | What | Detection Method |
+|------|------|------------------|
+| 6.6.6.1 | Detect Pipeline pattern | Sequential function calls with output→input chaining |
+| 6.6.6.2 | Detect Singleton pattern | Module-level instance with getter function |
+| 6.6.6.3 | Detect Factory pattern | Functions returning new instances based on input type |
+| 6.6.6.4 | Detect Retry pattern | Loop containing try/catch with delay |
+| 6.6.6.5 | Detect Command pattern | Functions matching `*Command` or CLI handler structure |
+| 6.6.6.6 | Add "Patterns" section to prose prompt | LLM confirms/refines detected patterns |
+
+**Benchmark checkpoint**: Re-run A3 task, expect Completeness to improve 1→4.
+
+##### 6.6.7 Cross-File Tracing
+
+**Problem**: Behavior tasks (B1-B3) average 16/25. Control traces complete call chains across files.
+
+**Benchmark Evidence**:
+- B2 (buildPrompt): Control traced dispatcher→buildFilePrompt→formatFunctionForPrompt→formatKeyStatements
+- Pith only listed function names without showing flow
+
+| Step | What | Output |
+|------|------|--------|
+| 6.6.7.1 | Build cross-file call graph during extraction | Map: `file:function → [file:function, ...]` |
+| 6.6.7.2 | For API endpoints, trace from route → handler → dependencies | Call chain with file:line references |
+| 6.6.7.3 | For key functions, identify callers across all files | "Called by" section in context |
+| 6.6.7.4 | Add "Call Flow" section for functions with >3 calls | Show traced path for complex functions |
+
+**Benchmark checkpoint**: Re-run B1, B2 tasks, expect Completeness to improve 2→4.
+
+##### 6.6.8 Error Path Analysis
+
+**Problem**: Debugging tasks (D1-D3) average 15.3/25. Control identifies specific causes and paths.
+
+**Benchmark Evidence**:
+- D3 (404 debugging): Control found 13 distinct causes with line numbers
+- Pith was generic: "API module handles requests"
+
+| Step | What | Output |
+|------|------|--------|
+| 6.6.8.1 | Trace error propagation in catch blocks | Which errors are caught, re-thrown, transformed |
+| 6.6.8.2 | Find all `return` statements with error conditions | Map: error type → return location |
+| 6.6.8.3 | Identify validation/guard conditions that cause early exit | List conditions that reject input |
+| 6.6.8.4 | Add "Error Paths" section for functions with try/catch | Show caught errors and their handling |
+
+**Benchmark checkpoint**: Re-run D3 task, expect Actionability to improve 1→4.
+
+##### 6.6.9 Implementation Hints (P2 - Deferred)
+
+**Problem**: M2 (Rate limiting), M3 (Python support) scored 13/25. Control provided step-by-step guides.
+
+**Note**: This requires significant prompt engineering for each modification type. Defer until pattern recognition (6.6.6) is complete.
+
+| Step | What | When |
+|------|------|------|
+| 6.6.9.1 | For "add middleware" modifications, identify insertion points | After 6.6.6 patterns |
+| 6.6.9.2 | For "add field" modifications, list all type references | After 6.6.5 impact |
+| 6.6.9.3 | Include similar modifications from git history | After git analysis |
+
+---
+
+##### Phase 6.6 Success Criteria (Updated)
+
+| Metric | Baseline | After P0 | Target | Gap |
+|--------|----------|----------|--------|-----|
+| Completeness | 1.8/5 | 1.8/5 | ≥4/5 | -2.2 |
+| Actionability | 1.8/5 | 1.8/5 | ≥4/5 | -2.2 |
+| Overall score | 12.6/25 | 15.5/25 | ≥20/25 | -4.5 |
+
+**Priority Order** (based on benchmark impact):
+1. **6.6.5 Change Impact** - Closes modification task gap (-11 points)
+2. **6.6.6 Pattern Recognition** - Closes architecture gap (-11 points in A3)
+3. **6.6.7 Cross-File Tracing** - Closes behavior task gap (-8 points)
+4. **6.6.8 Error Paths** - Closes debugging task gap (-8.5 points)
+5. 6.6.9 Implementation Hints - Deferred (requires above work first)
 
 ---
 
