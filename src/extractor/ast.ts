@@ -3,8 +3,10 @@ import { join, relative } from 'node:path';
 import { Project, SyntaxKind, type FunctionDeclaration, type MethodDeclaration } from 'ts-morph';
 import { minimatch } from 'minimatch';
 import type { MangoDb } from '@jkershaw/mangodb';
-import type { GitInfo } from './git.ts';
-import type { DocsInfo } from './docs.ts';
+import type { GitInfo } from './git.js';
+import type { DocsInfo } from './docs.js';
+import type { ErrorPath } from './errors.js';
+import { extractErrorPaths } from './errors.js';
 
 /**
  * Import declaration data.
@@ -63,6 +65,7 @@ export interface FunctionData {
   keyStatements: KeyStatement[];  // Important statements extracted via AST
   calls: string[];  // Names of functions called within this function (Phase 6.6.7a.1)
   calledBy: string[];  // Names of functions that call this function (Phase 6.6.7a.4, computed in builder)
+  errorPaths: ErrorPath[];  // Error handling paths (Phase 6.6.8)
 }
 
 /**
@@ -493,6 +496,7 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     keyStatements: extractKeyStatements(func),
     calls: extractFunctionCalls(func, allFunctionNames),  // Phase 6.6.7a.1
     calledBy: [],  // Phase 6.6.7a.4: Computed later in builder
+    errorPaths: extractErrorPaths(func),  // Phase 6.6.8
   }));
 
   // Extract classes
@@ -520,6 +524,7 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
         keyStatements: extractKeyStatements(method),
         calls: extractFunctionCalls(method, allMethodNames),  // Phase 6.6.7a.1
         calledBy: [],  // Phase 6.6.7a.4: Computed later in builder
+        errorPaths: extractErrorPaths(method),  // Phase 6.6.8
       })),
       properties: cls.getProperties().map((prop) => ({
         name: prop.getName(),

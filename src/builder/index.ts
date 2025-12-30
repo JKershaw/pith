@@ -1,9 +1,10 @@
 import { basename } from 'node:path';
 import type { MangoDb } from '@jkershaw/mangodb';
-import type { ExtractedFile, Import, Export, FunctionData, KeyStatement } from '../extractor/ast.ts';
-import type { Commit } from '../extractor/git.ts';
-import type { JSDoc } from '../extractor/docs.ts';
-import type { ProseData } from '../generator/index.ts';
+import type { ExtractedFile, Import, Export, FunctionData, KeyStatement } from '../extractor/ast.js';
+import type { Commit } from '../extractor/git.js';
+import type { JSDoc } from '../extractor/docs.js';
+import type { ProseData } from '../generator/index.js';
+import type { ErrorPath } from '../extractor/errors.js';
 
 // Re-export types for testing
 export type { FunctionData };
@@ -63,6 +64,7 @@ export interface FunctionDetails {
   keyStatements: KeyStatement[];  // Important statements extracted via AST (Phase 6.6.1.3)
   calls: string[];  // Names of functions called within this function (Phase 6.6.7a.3)
   calledBy: string[];  // Names of functions that call this function (Phase 6.6.7a.4)
+  errorPaths: ErrorPath[];  // Error handling paths (Phase 6.6.8)
 }
 
 /**
@@ -135,6 +137,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
 
   // Step 6.6.1: Extract function details with line numbers, code snippets, and key statements
   // Step 6.6.7a: Add calls and compute calledBy
+  // Step 6.6.8: Add error paths
   const functions: FunctionDetails[] = extracted.functions.map((f) => ({
     name: f.name,
     signature: f.signature,
@@ -146,6 +149,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
     keyStatements: f.keyStatements,
     calls: f.calls,  // Phase 6.6.7a.3
     calledBy: [],  // Will be computed below
+    errorPaths: f.errorPaths,  // Phase 6.6.8
   }));
 
   // Phase 6.6.7a.4: Compute calledBy from calls
