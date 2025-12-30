@@ -2,23 +2,23 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.6 - Enhanced Deterministic Extraction
-**Current step**: Phase 6.6 - Complete
+**Last completed phase**: Phase 6.6.1-6.6.4 (P0 Deterministic Extraction)
+**Current step**: Phase 6.6.5+ - Addressing remaining gaps
 **Date**: 2025-12-30
 
 ---
 
-## Phase 6.6: Enhanced Deterministic Extraction - COMPLETE ✅
+## Phase 6.6: Enhanced Deterministic Extraction - IN PROGRESS
 
 **Goal**: Close information gaps by extracting facts deterministically, reducing LLM to synthesis only.
 
-**Benchmark baseline** (2025-12-30):
-- Pith score: 12.6/25
-- Control score: 24.2/25
-- Key gaps: Line numbers, code snippets, implementation details
+**Benchmark progression** (2025-12-30):
+- Baseline (v1): 12.6/25
+- After P0 implementation: 15.5/25 (15-task comprehensive)
+- Control score: 23.9/25
+- **Remaining gap: 8.4 points (34%)**
 
-See `docs/benchmark-results/2025-12-30-self-test.md` for full results.
-See `docs/benchmark-results/2025-12-30-deterministic-analysis.md` for analysis.
+See `docs/benchmark-results/2025-12-30-self-test-v5-comprehensive.md` for comprehensive results.
 
 ### 6.6.1 Surface Existing Data (P0) - COMPLETE ✅
 
@@ -88,13 +88,33 @@ Ran Pith on itself and verified `/context` output for `src/generator/index.ts`:
 
 ### Success Criteria
 
-| Metric | Before | Target | Status |
-|--------|--------|--------|--------|
-| Completeness | 1.8/5 | ≥4/5 | **Expected: ~4-5/5** (all key data now visible) |
-| Actionability | 1.8/5 | ≥4/5 | **Expected: ~4/5** (line numbers, config values) |
-| Overall | 12.6/25 | ≥20/25 | **Expected: ~23/25** (per benchmark analysis) |
+| Metric | Before | After P0 | Target | Gap |
+|--------|--------|----------|--------|-----|
+| Relevance | 2.4/5 | 3.0/5 | ≥4/5 | -1.0 |
+| Completeness | 1.8/5 | 1.8/5 | ≥4/5 | -2.2 |
+| Accuracy | 3.6/5 | 4.0/5 | ≥4.5/5 | -0.5 |
+| Actionability | 1.8/5 | 1.8/5 | ≥4/5 | -2.2 |
+| Overall | 12.6/25 | 15.5/25 | ≥20/25 | -4.5 |
 
-**Note**: P0 complete. P1 covered by key statements. P2 (complexity, call graph) deferred as nice-to-have.
+**Finding**: P0 improved Relevance (+0.6) and Accuracy (+0.4) via line numbers and code snippets. Completeness/Actionability require deeper capabilities (6.6.5-6.6.8).
+
+### 6.6.5 - 6.6.9 Gap Analysis (NEW)
+
+Based on comprehensive 15-task benchmark, remaining gaps require new capabilities:
+
+| Gap | Task Evidence | Task Score | Priority |
+|-----|---------------|------------|----------|
+| Change impact analysis | M1-M3: avg 13/25 (Control maps all affected files) | 13/25 | P0 |
+| Design pattern identification | A3: 13/25 (Control found 18 patterns, Pith found 0) | 13/25 | P1 |
+| Cross-file tracing | B1, B2, R2: avg 16/25 (Control traces complete chains) | 16/25 | P1 |
+| Error path analysis | D1, D3: avg 15/25 (Control found 13 causes for 404) | 15/25 | P1 |
+| Implementation hints | M2, M3: 13/25 (Control provides step-by-step guides) | 13/25 | P2 |
+
+**Note**: Gaps overlap - fixing one capability may improve multiple task categories. The 8.4-point overall gap (15.5→23.9) requires addressing several capabilities, not all independently.
+
+**Dependencies**:
+- 6.6.7 (Cross-file tracing) enables 6.6.6 (Pattern detection) and 6.6.8 (Error paths)
+- 6.6.5 (Change impact) is independent and highest priority
 
 ---
 
