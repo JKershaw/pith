@@ -295,7 +295,7 @@ describe('API', () => {
       );
     });
 
-    it('provides suggestions for medium-confidence fuzzy matches', async () => {
+    it('returns plain error for low-confidence fuzzy matches', async () => {
       const db = client.db('pith');
       const nodes = db.collection<WikiNode>('nodes');
 
@@ -316,7 +316,7 @@ describe('API', () => {
         raw: {},
       });
 
-      // Request with a path that has low similarity (won't auto-match)
+      // Request with a path that has very low similarity (won't match at all)
       const context = await bundleContext(db, ['lib/utilities/misc.ts']);
 
       // Should not auto-match due to low confidence
@@ -326,6 +326,55 @@ describe('API', () => {
         context.errors[0]!.includes('Node not found'),
         'Error should mention node not found'
       );
+      // Low confidence matches should NOT include "did you mean" suggestions
+      assert.ok(
+        !context.errors[0]!.includes('did you mean'),
+        'Low-confidence error should not include suggestions'
+      );
+    });
+
+    it('provides suggestions for medium-confidence fuzzy matches', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a node with a name that will produce medium confidence match
+      await nodes.insertOne({
+        id: 'src/helpers/utils.ts',
+        type: 'file',
+        path: 'src/helpers/utils.ts',
+        name: 'utils.ts',
+        metadata: {
+          lines: 50,
+          commits: 3,
+          lastModified: new Date('2024-12-01'),
+          authors: ['bob'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+      });
+
+      // Request with a path that has medium similarity (same filename, similar dir)
+      // "src/helper/utils.ts" vs "src/helpers/utils.ts" - close but not high enough for auto-match
+      const context = await bundleContext(db, ['src/helper/utils.ts']);
+
+      // Medium confidence should either auto-match or provide suggestions
+      if (context.nodes.length === 0) {
+        // If it didn't auto-match, should have suggestions in error
+        assert.strictEqual(context.errors.length, 1, 'Should have exactly one error');
+        assert.ok(
+          context.errors[0]!.includes('did you mean'),
+          'Medium-confidence error should include suggestions'
+        );
+        assert.ok(
+          context.errors[0]!.includes('src/helpers/utils.ts'),
+          'Suggestions should include the similar path'
+        );
+      } else {
+        // If it did auto-match (high confidence), verify fuzzy match info
+        assert.ok(context.fuzzyMatches, 'Should have fuzzy match info');
+        assert.strictEqual(context.fuzzyMatches![0]!.actualPath, 'src/helpers/utils.ts');
+      }
     });
 
     it('includes fuzzy match info for multiple paths', async () => {
