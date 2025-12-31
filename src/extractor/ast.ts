@@ -60,14 +60,14 @@ export interface FunctionData {
   returnType: string;
   isAsync: boolean;
   isExported: boolean;
-  isDefaultExport: boolean;  // Phase 6.6: Explicit default export detection
+  isDefaultExport: boolean; // Phase 6.6: Explicit default export detection
   startLine: number;
   endLine: number;
-  codeSnippet: string;  // First N lines of function source
-  keyStatements: KeyStatement[];  // Important statements extracted via AST
-  calls: string[];  // Names of functions called within this function (Phase 6.6.7a.1)
-  calledBy: string[];  // Names of functions that call this function (Phase 6.6.7a.4, computed in builder)
-  errorPaths: ErrorPath[];  // Error handling paths (Phase 6.6.8)
+  codeSnippet: string; // First N lines of function source
+  keyStatements: KeyStatement[]; // Important statements extracted via AST
+  calls: string[]; // Names of functions called within this function (Phase 6.6.7a.1)
+  calledBy: string[]; // Names of functions that call this function (Phase 6.6.7a.4, computed in builder)
+  errorPaths: ErrorPath[]; // Error handling paths (Phase 6.6.8)
 }
 
 /**
@@ -104,6 +104,7 @@ export interface Interface {
  * Extracted file data structure.
  */
 export interface ExtractedFile {
+  [key: string]: unknown; // Index signature for MangoDB Document compatibility
   path: string;
   lines: number;
   imports: Import[];
@@ -113,7 +114,7 @@ export interface ExtractedFile {
   interfaces: Interface[];
   git?: GitInfo;
   docs?: DocsInfo;
-  patterns?: DetectedPattern[];  // Phase 6.6.6
+  patterns?: DetectedPattern[]; // Phase 6.6.6
 }
 
 /**
@@ -167,16 +168,17 @@ function extractKeyStatements(func: FunctionDeclaration | MethodDeclaration): Ke
     const line = decl.getStartLineNumber();
 
     // Config: numeric literals or ?? with numeric fallback
-    if (init.getKind() === SyntaxKind.NumericLiteral ||
-        initText.match(/\?\?\s*\d+/) ||
-        initText.match(/\|\|\s*\d+/)) {
+    if (
+      init.getKind() === SyntaxKind.NumericLiteral ||
+      initText.match(/\?\?\s*\d+/) ||
+      initText.match(/\|\|\s*\d+/)
+    ) {
       statements.push({ line, text: declText, category: 'config' });
       continue;
     }
 
     // URL: string literals that look like URLs
-    if (init.getKind() === SyntaxKind.StringLiteral &&
-        initText.match(/https?:\/\/|wss?:\/\//)) {
+    if (init.getKind() === SyntaxKind.StringLiteral && initText.match(/https?:\/\/|wss?:\/\//)) {
       statements.push({ line, text: declText, category: 'url' });
       continue;
     }
@@ -193,12 +195,13 @@ function extractKeyStatements(func: FunctionDeclaration | MethodDeclaration): Ke
     const callText = call.getText();
     if (callText.includes('Math.pow')) {
       // Get the containing statement
-      const stmt = call.getFirstAncestorByKind(SyntaxKind.VariableStatement) ||
-                   call.getFirstAncestorByKind(SyntaxKind.ExpressionStatement);
+      const stmt =
+        call.getFirstAncestorByKind(SyntaxKind.VariableStatement) ||
+        call.getFirstAncestorByKind(SyntaxKind.ExpressionStatement);
       if (stmt) {
         const line = stmt.getStartLineNumber();
         // Avoid duplicates
-        if (!statements.some(s => s.line === line)) {
+        if (!statements.some((s) => s.line === line)) {
           statements.push({ line, text: stmt.getText().trim(), category: 'math' });
         }
       }
@@ -209,8 +212,10 @@ function extractKeyStatements(func: FunctionDeclaration | MethodDeclaration): Ke
   for (const ifStmt of func.getDescendantsOfKind(SyntaxKind.IfStatement)) {
     const condition = ifStmt.getExpression().getText();
     // Match status code patterns
-    if (condition.match(/status\s*(===|==|>=|<=|>|<)\s*\d{3}/) ||
-        condition.match(/\d{3}\s*(===|==|>=|<=|>|<)\s*status/)) {
+    if (
+      condition.match(/status\s*(===|==|>=|<=|>|<)\s*\d{3}/) ||
+      condition.match(/\d{3}\s*(===|==|>=|<=|>|<)\s*status/)
+    ) {
       const line = ifStmt.getStartLineNumber();
       // Get just the condition part, not the body
       const conditionOnly = `if (${condition})`;
@@ -231,7 +236,7 @@ function extractKeyStatements(func: FunctionDeclaration | MethodDeclaration): Ke
 
   // Remove duplicates (same line)
   const seen = new Set<number>();
-  return statements.filter(s => {
+  return statements.filter((s) => {
     if (seen.has(s.line)) return false;
     seen.add(s.line);
     return true;
@@ -265,10 +270,10 @@ export async function findFiles(rootDir: string, options?: FindFilesOptions): Pr
         const relativePath = relative(rootDir, fullPath);
 
         // Check if file matches include patterns
-        const isIncluded = include.some(pattern => minimatch(relativePath, pattern));
+        const isIncluded = include.some((pattern) => minimatch(relativePath, pattern));
 
         // Check if file matches exclude patterns
-        const isExcluded = exclude.some(pattern => minimatch(relativePath, pattern));
+        const isExcluded = exclude.some((pattern) => minimatch(relativePath, pattern));
 
         if (isIncluded && !isExcluded) {
           files.push(relativePath);
@@ -499,14 +504,14 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     returnType: func.getReturnType().getText(),
     isAsync: func.isAsync(),
     isExported: func.isExported(),
-    isDefaultExport: func.isDefaultExport(),  // Phase 6.6: Explicit default export detection
+    isDefaultExport: func.isDefaultExport(), // Phase 6.6: Explicit default export detection
     startLine: func.getStartLineNumber(),
     endLine: func.getEndLineNumber(),
     codeSnippet: getCodeSnippet(() => func.getText()),
     keyStatements: extractKeyStatements(func),
-    calls: extractFunctionCalls(func, allCallableNames),  // Phase 6.6.7a.1
-    calledBy: [],  // Phase 6.6.7a.4: Computed later in builder
-    errorPaths: extractErrorPaths(func),  // Phase 6.6.8
+    calls: extractFunctionCalls(func, allCallableNames), // Phase 6.6.7a.1
+    calledBy: [], // Phase 6.6.7a.4: Computed later in builder
+    errorPaths: extractErrorPaths(func), // Phase 6.6.8
   }));
 
   // Extract classes
@@ -529,9 +534,9 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
       endLine: method.getEndLineNumber(),
       codeSnippet: getCodeSnippet(() => method.getText()),
       keyStatements: extractKeyStatements(method),
-      calls: extractFunctionCalls(method, allCallableNames),  // Phase 6.6.7a.1: Use global callable set
-      calledBy: [],  // Phase 6.6.7a.4: Computed later in builder
-      errorPaths: extractErrorPaths(method),  // Phase 6.6.8
+      calls: extractFunctionCalls(method, allCallableNames), // Phase 6.6.7a.1: Use global callable set
+      calledBy: [], // Phase 6.6.7a.4: Computed later in builder
+      errorPaths: extractErrorPaths(method), // Phase 6.6.8
     })),
     properties: cls.getProperties().map((prop) => ({
       name: prop.getName(),

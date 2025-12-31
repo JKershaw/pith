@@ -13,8 +13,11 @@ function getProxyDispatcher(url: string): ProxyAgent | undefined {
     return undefined;
   }
 
-  const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY ||
-                   process.env.https_proxy || process.env.http_proxy;
+  const proxyUrl =
+    process.env.HTTPS_PROXY ||
+    process.env.HTTP_PROXY ||
+    process.env.https_proxy ||
+    process.env.http_proxy;
   if (proxyUrl) {
     return new ProxyAgent(proxyUrl);
   }
@@ -25,38 +28,38 @@ function getProxyDispatcher(url: string): ProxyAgent | undefined {
  * A gotcha with optional location and evidence
  */
 export interface Gotcha {
-  warning: string;           // The warning message
-  location?: string;         // Line number or function name (e.g., "line 442" or "callLLM")
-  evidence?: string;         // Code or fact that supports this warning
+  warning: string; // The warning message
+  location?: string; // Line number or function name (e.g., "line 442" or "callLLM")
+  evidence?: string; // Code or fact that supports this warning
 }
 
 /**
  * Debugging hints for a file
  */
 export interface DebuggingHints {
-  errorPatterns?: string[];  // Common errors and where to look
-  keyLocations?: string[];   // Important locations for debugging
+  errorPatterns?: string[]; // Common errors and where to look
+  keyLocations?: string[]; // Important locations for debugging
 }
 
 /**
  * Generated prose for a node
  */
 export interface ProseData {
-  summary: string;           // One-line description
-  purpose: string;           // 2-3 sentences explaining why this exists
-  gotchas: string[];         // Array of warnings (kept for backwards compatibility)
-  gotchasDetailed?: Gotcha[];// Detailed gotchas with location and evidence
+  summary: string; // One-line description
+  purpose: string; // 2-3 sentences explaining why this exists
+  gotchas: string[]; // Array of warnings (kept for backwards compatibility)
+  gotchasDetailed?: Gotcha[]; // Detailed gotchas with location and evidence
   gotchaConfidence?: ('high' | 'medium' | 'low')[]; // Confidence level for each gotcha (Phase 6.5)
-  keyExports?: string[];     // Most important exports (for files)
-  keyFiles?: string[];       // Most important files (for modules)
-  publicApi?: string[];      // Exports that other modules should use (for modules)
-  quickStart?: string;       // Quick start example (for modules)
-  patterns?: string[];       // Usage patterns (for files)
-  similarFiles?: string[];   // Files with similar patterns (for files)
-  debugging?: DebuggingHints;// Debugging hints with locations (for files)
-  dataFlow?: string;         // How data flows through the module (for modules)
-  generatedAt: Date;         // When prose was generated
-  stale?: boolean;           // True if source changed after prose was generated
+  keyExports?: string[]; // Most important exports (for files)
+  keyFiles?: string[]; // Most important files (for modules)
+  publicApi?: string[]; // Exports that other modules should use (for modules)
+  quickStart?: string; // Quick start example (for modules)
+  patterns?: string[]; // Usage patterns (for files)
+  similarFiles?: string[]; // Files with similar patterns (for files)
+  debugging?: DebuggingHints; // Debugging hints with locations (for files)
+  dataFlow?: string; // How data flows through the module (for modules)
+  generatedAt: Date; // When prose was generated
+  stale?: boolean; // True if source changed after prose was generated
 }
 
 /**
@@ -64,11 +67,11 @@ export interface ProseData {
  */
 export interface GeneratorConfig {
   provider: 'openrouter';
-  model: string;             // e.g., 'anthropic/claude-sonnet-4'
-  apiKey: string;            // OpenRouter API key
-  maxTokens?: number;        // Default: 1024
-  temperature?: number;      // Default: 0.3
-  timeout?: number;          // Request timeout in milliseconds (default: 30000)
+  model: string; // e.g., 'anthropic/claude-sonnet-4'
+  apiKey: string; // OpenRouter API key
+  maxTokens?: number; // Default: 1024
+  temperature?: number; // Default: 0.3
+  timeout?: number; // Request timeout in milliseconds (default: 30000)
 }
 
 /**
@@ -127,14 +130,18 @@ function formatFunctionForPrompt(func: FunctionDetails): string {
  */
 function buildFilePrompt(node: WikiNode): string {
   // Build imports section
-  const importsSection = node.raw.imports && node.raw.imports.length > 0
-    ? node.raw.imports.map(imp => `  - ${imp.names?.join(', ') || 'default'} from "${imp.from}"`).join('\n')
-    : '(none)';
+  const importsSection =
+    node.raw.imports && node.raw.imports.length > 0
+      ? node.raw.imports
+          .map((imp) => `  - ${imp.names?.join(', ') || 'default'} from "${imp.from}"`)
+          .join('\n')
+      : '(none)';
 
   // Build exports section
-  const exportsSection = node.raw.exports && node.raw.exports.length > 0
-    ? node.raw.exports.map(exp => `  - ${exp.name} (${exp.kind})`).join('\n')
-    : '(none)';
+  const exportsSection =
+    node.raw.exports && node.raw.exports.length > 0
+      ? node.raw.exports.map((exp) => `  - ${exp.name} (${exp.kind})`).join('\n')
+      : '(none)';
 
   // Build functions section with line numbers (Phase 6.6.1)
   let functionsSection = '(none)';
@@ -142,7 +149,7 @@ function buildFilePrompt(node: WikiNode): string {
     functionsSection = node.raw.functions.map(formatFunctionForPrompt).join('\n');
   } else if (node.raw.signature && node.raw.signature.length > 0) {
     // Fallback to signatures if functions not available
-    functionsSection = node.raw.signature.map(sig => `  - ${sig}`).join('\n');
+    functionsSection = node.raw.signature.map((sig) => `  - ${sig}`).join('\n');
   }
 
   // Build git section
@@ -155,7 +162,8 @@ function buildFilePrompt(node: WikiNode): string {
       .map(([name, doc]) => {
         let docStr = `  ${name}: ${doc.description || ''}`;
         if (doc.params?.length) {
-          docStr += '\n    Params: ' + doc.params.map(p => `${p.name}: ${p.description}`).join(', ');
+          docStr +=
+            '\n    Params: ' + doc.params.map((p) => `${p.name}: ${p.description}`).join(', ');
         }
         if (doc.returns) {
           docStr += `\n    Returns: ${doc.returns}`;
@@ -176,14 +184,15 @@ function buildFilePrompt(node: WikiNode): string {
       }
     }
   }
-  const keyStatementsEmphasis = allKeyStatements.length > 0
-    ? `\n\nKEY VALUES FOUND (reference significant ones in gotchasDetailed):\n${allKeyStatements.map(s => `  - ${s}`).join('\n')}`
-    : '';
+  const keyStatementsEmphasis =
+    allKeyStatements.length > 0
+      ? `\n\nKEY VALUES FOUND (reference significant ones in gotchasDetailed):\n${allKeyStatements.map((s) => `  - ${s}`).join('\n')}`
+      : '';
 
   // Phase 6.6.6: Build detected patterns section
   let patternsSection = '';
   if (node.raw.patterns && node.raw.patterns.length > 0) {
-    const patternLines = node.raw.patterns.map(p => {
+    const patternLines = node.raw.patterns.map((p) => {
       const evidenceStr = p.evidence.join(', ');
       return `  - ${p.name.toUpperCase()} pattern at ${p.location} (confidence: ${p.confidence})\n    Evidence: ${evidenceStr}`;
     });
@@ -275,17 +284,20 @@ Remember:
 function buildModulePrompt(node: WikiNode, childSummaries?: Map<string, string>): string {
   // Get child files from contains edges
   const childFiles = node.edges
-    .filter(edge => edge.type === 'contains')
-    .map(edge => edge.target);
+    .filter((edge) => edge.type === 'contains')
+    .map((edge) => edge.target);
 
   // Build files section with summaries
-  const filesSection = childFiles.length > 0
-    ? childFiles.map(filePath => {
-        const fileName = filePath.split('/').pop() || filePath;
-        const summary = childSummaries?.get(filePath) || '(no summary yet)';
-        return `  - ${fileName}: ${summary}`;
-      }).join('\n')
-    : '(none)';
+  const filesSection =
+    childFiles.length > 0
+      ? childFiles
+          .map((filePath) => {
+            const fileName = filePath.split('/').pop() || filePath;
+            const summary = childSummaries?.get(filePath) || '(no summary yet)';
+            return `  - ${fileName}: ${summary}`;
+          })
+          .join('\n')
+      : '(none)';
 
   // Build README section
   const readmeSection = node.raw.readme || '(none)';
@@ -349,7 +361,7 @@ export function parseLLMResponse(response: string): ProseData {
 
   // Handle markdown code blocks
   const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlockMatch) {
+  if (codeBlockMatch?.[1]) {
     jsonStr = codeBlockMatch[1].trim();
   }
 
@@ -379,8 +391,11 @@ export function parseLLMResponse(response: string): ProseData {
   let gotchasDetailed: Gotcha[] | undefined;
   if (Array.isArray(parsed.gotchasDetailed)) {
     gotchasDetailed = parsed.gotchasDetailed
-      .filter((g: unknown): g is Record<string, unknown> =>
-        typeof g === 'object' && g !== null && typeof (g as Record<string, unknown>).warning === 'string'
+      .filter(
+        (g: unknown): g is Record<string, unknown> =>
+          typeof g === 'object' &&
+          g !== null &&
+          typeof (g as Record<string, unknown>).warning === 'string'
       )
       .map((g: Record<string, unknown>) => ({
         warning: g.warning as string,
@@ -394,8 +409,12 @@ export function parseLLMResponse(response: string): ProseData {
   if (parsed.debugging && typeof parsed.debugging === 'object') {
     const dbg = parsed.debugging as Record<string, unknown>;
     debugging = {
-      errorPatterns: Array.isArray(dbg.errorPatterns) ? dbg.errorPatterns.filter((e): e is string => typeof e === 'string') : undefined,
-      keyLocations: Array.isArray(dbg.keyLocations) ? dbg.keyLocations.filter((e): e is string => typeof e === 'string') : undefined,
+      errorPatterns: Array.isArray(dbg.errorPatterns)
+        ? dbg.errorPatterns.filter((e): e is string => typeof e === 'string')
+        : undefined,
+      keyLocations: Array.isArray(dbg.keyLocations)
+        ? dbg.keyLocations.filter((e): e is string => typeof e === 'string')
+        : undefined,
     };
     // Only include if at least one field is present
     if (!debugging.errorPatterns && !debugging.keyLocations) {
@@ -445,23 +464,114 @@ export function extractIdentifiers(text: string): string[] {
 
   // Filter out common English words and short words
   const commonWords = new Set([
-    'the', 'is', 'at', 'which', 'on', 'a', 'an', 'as', 'are', 'was', 'were',
-    'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
-    'will', 'would', 'should', 'could', 'may', 'might', 'must',
-    'can', 'to', 'of', 'in', 'for', 'with', 'this', 'that', 'from',
-    'by', 'or', 'and', 'but', 'not', 'it', 'if', 'then', 'else',
-    'function', 'requires', 'calls', 'returns', 'uses', 'needs',
-    'when', 'where', 'what', 'why', 'how', 'who', 'which',
-    'all', 'some', 'any', 'each', 'every', 'other', 'another',
-    'var', 'env', 'does', 'exist', 'intensive', 'return', 'null',
-    'their', 'about', 'after', 'also', 'before', 'between', 'both',
-    'during', 'into', 'over', 'through', 'under', 'against', 'along',
-    'among', 'around', 'because', 'before', 'behind', 'below', 'beneath',
-    'beside', 'besides', 'beyond', 'down', 'inside', 'outside', 'since',
-    'than', 'toward', 'upon', 'within', 'without'
+    'the',
+    'is',
+    'at',
+    'which',
+    'on',
+    'a',
+    'an',
+    'as',
+    'are',
+    'was',
+    'were',
+    'be',
+    'been',
+    'being',
+    'have',
+    'has',
+    'had',
+    'do',
+    'does',
+    'did',
+    'will',
+    'would',
+    'should',
+    'could',
+    'may',
+    'might',
+    'must',
+    'can',
+    'to',
+    'of',
+    'in',
+    'for',
+    'with',
+    'this',
+    'that',
+    'from',
+    'by',
+    'or',
+    'and',
+    'but',
+    'not',
+    'it',
+    'if',
+    'then',
+    'else',
+    'function',
+    'requires',
+    'calls',
+    'returns',
+    'uses',
+    'needs',
+    'when',
+    'where',
+    'what',
+    'why',
+    'how',
+    'who',
+    'which',
+    'all',
+    'some',
+    'any',
+    'each',
+    'every',
+    'other',
+    'another',
+    'var',
+    'env',
+    'does',
+    'exist',
+    'intensive',
+    'return',
+    'null',
+    'their',
+    'about',
+    'after',
+    'also',
+    'before',
+    'between',
+    'both',
+    'during',
+    'into',
+    'over',
+    'through',
+    'under',
+    'against',
+    'along',
+    'among',
+    'around',
+    'because',
+    'before',
+    'behind',
+    'below',
+    'beneath',
+    'beside',
+    'besides',
+    'beyond',
+    'down',
+    'inside',
+    'outside',
+    'since',
+    'than',
+    'toward',
+    'upon',
+    'within',
+    'without',
   ]);
 
-  return matches.filter(match => {
+  return matches.filter((match) => {
     // Filter out single letters and common words
     if (match.length <= 2 || commonWords.has(match.toLowerCase())) {
       return false;
@@ -530,7 +640,7 @@ export function validateGotcha(gotcha: string, node: WikiNode): ValidatedGotcha 
     for (const sig of node.raw.signature) {
       // Extract function name from signature (e.g., "login(..." or "function login(..." or "async function login(...)")
       const match = sig.match(/(?:async\s+)?(?:function\s+)?(\w+)\s*\(/);
-      if (match) {
+      if (match?.[1]) {
         knownNames.add(match[1]);
       }
     }
@@ -548,7 +658,7 @@ export function validateGotcha(gotcha: string, node: WikiNode): ValidatedGotcha 
   }
 
   // Check which identifiers are verified
-  const verifiedNames = identifiers.filter(id => knownNames.has(id));
+  const verifiedNames = identifiers.filter((id) => knownNames.has(id));
 
   // Determine confidence level
   let confidence: 'high' | 'medium' | 'low';
@@ -577,14 +687,14 @@ export function validateGotcha(gotcha: string, node: WikiNode): ValidatedGotcha 
  * @returns Array of validation results
  */
 export function validateGotchas(gotchas: string[], node: WikiNode): ValidatedGotcha[] {
-  return gotchas.map(gotcha => validateGotcha(gotcha, node));
+  return gotchas.map((gotcha) => validateGotcha(gotcha, node));
 }
 
 /**
  * Sleep for a given number of milliseconds
  */
 async function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -601,10 +711,12 @@ function isRetryableError(error: Error, status?: number): boolean {
   if (error.name === 'AbortError') return true;
 
   // Retry on network/timeout errors
-  if (error.message.includes('timeout') ||
-      error.message.includes('network') ||
-      error.message.includes('ECONNRESET') ||
-      error.message.includes('aborted')) {
+  if (
+    error.message.includes('timeout') ||
+    error.message.includes('network') ||
+    error.message.includes('ECONNRESET') ||
+    error.message.includes('aborted')
+  ) {
     return true;
   }
 
@@ -628,9 +740,7 @@ export async function callLLM(
 
   const body = {
     model: config.model,
-    messages: [
-      { role: 'user', content: prompt }
-    ],
+    messages: [{ role: 'user', content: prompt }],
     max_tokens: config.maxTokens ?? 1024,
     temperature: config.temperature ?? 0.3,
   };
@@ -652,14 +762,13 @@ export async function callLLM(
         const response = await fetchFn(url, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${config.apiKey}`,
+            Authorization: `Bearer ${config.apiKey}`,
             'Content-Type': 'application/json',
             'HTTP-Referer': 'https://github.com/pith-wiki/pith',
             'X-Title': 'Pith Codebase Wiki',
           },
           body: JSON.stringify(body),
           signal: controller.signal,
-          // @ts-expect-error - dispatcher is a valid undici option but not in standard fetch types
           dispatcher,
         });
 
@@ -668,9 +777,13 @@ export async function callLLM(
           lastStatus = response.status;
 
           if (response.status === 429) {
-            lastError = new Error(`Rate limited by OpenRouter. Please wait and try again. ${errorText}`);
+            lastError = new Error(
+              `Rate limited by OpenRouter. Please wait and try again. ${errorText}`
+            );
           } else {
-            lastError = new Error(`OpenRouter API error: ${response.status} ${response.statusText}. ${errorText}`);
+            lastError = new Error(
+              `OpenRouter API error: ${response.status} ${response.statusText}. ${errorText}`
+            );
           }
 
           // Check if we should retry
@@ -684,15 +797,16 @@ export async function callLLM(
           throw lastError;
         }
 
-        const data = await response.json() as {
+        const data = (await response.json()) as {
           choices: Array<{ message: { content: string } }>;
         };
 
-        if (!data.choices || data.choices.length === 0) {
+        const firstChoice = data.choices?.[0];
+        if (!firstChoice) {
           throw new Error('Empty response from OpenRouter');
         }
 
-        return data.choices[0].message.content;
+        return firstChoice.message.content;
       } finally {
         clearTimeout(timeoutId);
       }
@@ -719,8 +833,8 @@ export async function callLLM(
  * Options for generateProse
  */
 export interface GenerateProseOptions {
-  childSummaries?: Map<string, string>;  // For module nodes
-  fetchFn?: typeof fetch;                // For testing
+  childSummaries?: Map<string, string>; // For module nodes
+  fetchFn?: typeof fetch; // For testing
 }
 
 /**
@@ -748,7 +862,7 @@ export async function generateProse(
   // Validate gotchas and add confidence levels (Phase 6.5)
   if (prose.gotchas.length > 0) {
     const validatedGotchas = validateGotchas(prose.gotchas, node);
-    prose.gotchaConfidence = validatedGotchas.map(v => v.confidence);
+    prose.gotchaConfidence = validatedGotchas.map((v) => v.confidence);
   }
 
   return prose;
@@ -768,10 +882,7 @@ export async function updateNodeWithProse(
 ): Promise<boolean> {
   const nodes = db.collection<WikiNode>('nodes');
 
-  const result = await nodes.updateOne(
-    { id: nodeId },
-    { $set: { prose } }
-  );
+  const result = await nodes.updateOne({ id: nodeId }, { $set: { prose } });
 
   return result.modifiedCount > 0;
 }
@@ -783,7 +894,7 @@ export async function updateNodeWithProse(
  */
 export function isStale(node: WikiNode): boolean {
   if (!node.prose) {
-    return false;  // No prose = nothing to be stale
+    return false; // No prose = nothing to be stale
   }
 
   const lastModified = new Date(node.metadata.lastModified);
@@ -807,10 +918,7 @@ export async function markStaleNodes(db: MangoDb): Promise<number> {
 
   for (const node of nodesWithProse) {
     if (isStale(node)) {
-      await nodes.updateOne(
-        { id: node.id },
-        { $set: { 'prose.stale': true } }
-      );
+      await nodes.updateOne({ id: node.id }, { $set: { 'prose.stale': true } });
       staleCount++;
     }
   }
@@ -843,18 +951,12 @@ export async function generateProseForNode(
   // For module nodes, gather child summaries
   let childSummaries: Map<string, string> | undefined;
   if (node.type === 'module') {
-    const childIds = node.edges
-      .filter(e => e.type === 'contains')
-      .map(e => e.target);
+    const childIds = node.edges.filter((e) => e.type === 'contains').map((e) => e.target);
 
-    const children = await nodes
-      .find({ id: { $in: childIds } })
-      .toArray();
+    const children = await nodes.find({ id: { $in: childIds } }).toArray();
 
     childSummaries = new Map(
-      children
-        .filter(c => c.prose?.summary)
-        .map(c => [c.id, c.prose!.summary])
+      children.filter((c) => c.prose?.summary).map((c) => [c.id, c.prose!.summary])
     );
   }
 

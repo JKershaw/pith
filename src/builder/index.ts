@@ -1,6 +1,12 @@
 import { basename } from 'node:path';
 import type { MangoDb } from '@jkershaw/mangodb';
-import type { ExtractedFile, Import, Export, FunctionData, KeyStatement } from '../extractor/ast.ts';
+import type {
+  ExtractedFile,
+  Import,
+  Export,
+  FunctionData,
+  KeyStatement,
+} from '../extractor/ast.ts';
 import type { Commit } from '../extractor/git.ts';
 import type { JSDoc } from '../extractor/docs.ts';
 import type { ProseData } from '../generator/index.ts';
@@ -61,19 +67,21 @@ export interface FunctionDetails {
   endLine: number;
   isAsync: boolean;
   isExported: boolean;
-  codeSnippet: string;  // First N lines of function source (Phase 6.6.1.2)
-  keyStatements: KeyStatement[];  // Important statements extracted via AST (Phase 6.6.1.3)
-  calls: string[];  // Names of functions called within this function (Phase 6.6.7a.3)
-  calledBy: string[];  // Names of functions that call this function (Phase 6.6.7a.4)
-  crossFileCalls: string[];  // Cross-file calls (file:function format) (Phase 6.6.7b.3)
-  crossFileCalledBy: string[];  // Cross-file callers (file:function format) (Phase 6.6.7b.3)
-  errorPaths: ErrorPath[];  // Error handling paths (Phase 6.6.8)
+  isDefaultExport: boolean;
+  codeSnippet: string; // First N lines of function source (Phase 6.6.1.2)
+  keyStatements: KeyStatement[]; // Important statements extracted via AST (Phase 6.6.1.3)
+  calls: string[]; // Names of functions called within this function (Phase 6.6.7a.3)
+  calledBy: string[]; // Names of functions that call this function (Phase 6.6.7a.4)
+  crossFileCalls: string[]; // Cross-file calls (file:function format) (Phase 6.6.7b.3)
+  crossFileCalledBy: string[]; // Cross-file callers (file:function format) (Phase 6.6.7b.3)
+  errorPaths: ErrorPath[]; // Error handling paths (Phase 6.6.8)
 }
 
 /**
  * Wiki node representing a file, function, or module.
  */
 export interface WikiNode {
+  [key: string]: unknown; // Index signature for MangoDB Document compatibility
   id: string;
   type: 'file' | 'function' | 'module';
   path: string;
@@ -103,10 +111,10 @@ export interface WikiNode {
     exports?: Export[];
     recentCommits?: Commit[];
     readme?: string;
-    functions?: FunctionDetails[];  // Phase 6.6.1 - function details with line numbers
-    patterns?: import('../extractor/patterns.ts').DetectedPattern[];  // Phase 6.6.6 - detected design patterns
+    functions?: FunctionDetails[]; // Phase 6.6.1 - function details with line numbers
+    patterns?: import('../extractor/patterns.ts').DetectedPattern[]; // Phase 6.6.6 - detected design patterns
   };
-  prose?: ProseData;  // Generated prose from LLM
+  prose?: ProseData; // Generated prose from LLM
 }
 
 /**
@@ -149,13 +157,14 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
     endLine: f.endLine,
     isAsync: f.isAsync,
     isExported: f.isExported,
+    isDefaultExport: f.isDefaultExport,
     codeSnippet: f.codeSnippet,
     keyStatements: f.keyStatements,
-    calls: f.calls,  // Phase 6.6.7a.3
-    calledBy: [],  // Will be computed below
-    crossFileCalls: [],  // Phase 6.6.7b.3 (computed later)
-    crossFileCalledBy: [],  // Phase 6.6.7b.3 (computed later)
-    errorPaths: f.errorPaths,  // Phase 6.6.8
+    calls: f.calls, // Phase 6.6.7a.3
+    calledBy: [], // Will be computed below
+    crossFileCalls: [], // Phase 6.6.7b.3 (computed later)
+    crossFileCalledBy: [], // Phase 6.6.7b.3 (computed later)
+    errorPaths: f.errorPaths, // Phase 6.6.8
   }));
 
   // Phase 6.6.7a.4: Compute calledBy from calls using Map for O(n) lookup
@@ -198,7 +207,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
       imports: imports.length > 0 ? imports : undefined,
       exports: exports.length > 0 ? exports : undefined,
       recentCommits,
-      patterns,  // Phase 6.6.6
+      patterns, // Phase 6.6.6
     },
   };
 }
@@ -255,10 +264,10 @@ export function buildFunctionNode(extracted: ExtractedFile, func: FunctionData):
   const signature = [func.signature];
 
   // Step 2.2.5: Copy function's JSDoc if exists
-  const jsdoc =
-    extracted.docs?.jsdoc && extracted.docs.jsdoc[func.name]
-      ? { [func.name]: extracted.docs.jsdoc[func.name] }
-      : undefined;
+  const funcJsdoc = extracted.docs?.jsdoc?.[func.name];
+  const jsdoc: Record<string, JSDoc> | undefined = funcJsdoc
+    ? { [func.name]: funcJsdoc }
+    : undefined;
 
   return {
     id,
@@ -307,7 +316,7 @@ export function shouldCreateModuleNode(files: string[]): boolean {
  * @param readme - Optional README content
  * @returns A WikiNode for the module
  */
-export function buildModuleNode(dirPath: string, files: string[], readme?: string): WikiNode {
+export function buildModuleNode(dirPath: string, _files: string[], readme?: string): WikiNode {
   // Step 2.3.3: Generate ID from directory path
   const id = dirPath;
 
@@ -360,7 +369,7 @@ export async function storeModuleNodes(db: MangoDb, nodes: WikiNode[]): Promise<
  * @param childNodes - Array of child nodes (files or functions)
  * @returns Array of contains edges
  */
-export function buildContainsEdges(parentNode: WikiNode, childNodes: WikiNode[]): Edge[] {
+export function buildContainsEdges(_parentNode: WikiNode, childNodes: WikiNode[]): Edge[] {
   return childNodes.map((child) => ({
     type: 'contains' as const,
     target: child.id,
@@ -408,7 +417,11 @@ export function buildImportEdges(fileNode: WikiNode, allFilePaths: string[]): Ed
  * @param allFilePaths - Array of all file paths in the project
  * @returns Resolved file path or null if not found
  */
-function resolveImportPath(fileDir: string, importFrom: string, allFilePaths: string[]): string | null {
+function resolveImportPath(
+  fileDir: string,
+  importFrom: string,
+  allFilePaths: string[]
+): string | null {
   // Handle relative paths
   let candidatePath: string;
 
@@ -465,7 +478,7 @@ function resolveImportPath(fileDir: string, importFrom: string, allFilePaths: st
  * @param moduleNode - The parent module node
  * @returns Parent edge
  */
-export function buildParentEdge(fileNode: WikiNode, moduleNode: WikiNode): Edge {
+export function buildParentEdge(_fileNode: WikiNode, moduleNode: WikiNode): Edge {
   return {
     type: 'parent',
     target: moduleNode.id,
@@ -668,7 +681,7 @@ export function buildDependentEdges(fileNodes: WikiNode[]): Array<Edge & { sourc
 
       // Check if importingNode imports importedNode
       const hasImportEdge = importingNode.edges.some(
-        edge => edge.type === 'imports' && edge.target === importedNode.id
+        (edge) => edge.type === 'imports' && edge.target === importedNode.id
       );
 
       if (hasImportEdge) {
@@ -728,7 +741,7 @@ export function buildImpactTree(
   visited.add(sourceFileId);
 
   // Find direct dependents (depth 1)
-  const importedByEdges = sourceNode.edges.filter(e => e.type === 'importedBy');
+  const importedByEdges = sourceNode.edges.filter((e) => e.type === 'importedBy');
   for (const edge of importedByEdges) {
     if (!visited.has(edge.target)) {
       queue.push({ nodeId: edge.target, depth: 1 });
@@ -761,7 +774,7 @@ export function buildImpactTree(
     // Find this node's dependents
     const dependentNode = nodeMap.get(nodeId);
     if (dependentNode) {
-      const theirDependents = dependentNode.edges.filter(e => e.type === 'importedBy');
+      const theirDependents = dependentNode.edges.filter((e) => e.type === 'importedBy');
       for (const edge of theirDependents) {
         if (!visited.has(edge.target)) {
           queue.push({ nodeId: edge.target, depth: depth + 1 });
@@ -852,7 +865,7 @@ export function getTestFilesForImpact(
     if (!node) continue;
 
     // Find testFile edges
-    const testEdges = node.edges.filter(e => e.type === 'testFile');
+    const testEdges = node.edges.filter((e) => e.type === 'testFile');
     for (const edge of testEdges) {
       // Avoid duplicates
       if (seenTestFiles.has(edge.target)) continue;

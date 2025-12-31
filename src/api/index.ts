@@ -211,15 +211,16 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       }
 
       lines.push(`3. **Run tests** - Verify changes don't break consumers`);
-      if (testFileEdges.length > 0) {
-        lines.push(`   - Test file: \`${testFileEdges[0].target}\``);
+      const firstTestEdge = testFileEdges[0];
+      if (firstTestEdge) {
+        lines.push(`   - Test file: \`${firstTestEdge.target}\``);
         // Look for the test file node in context to get the test command
-        const testFileNode = context.nodes.find((n) => n.id === testFileEdges[0].target);
+        const testFileNode = context.nodes.find((n) => n.id === firstTestEdge.target);
         if (testFileNode?.metadata.testCommand) {
           lines.push(`   - Run: \`${testFileNode.metadata.testCommand}\``);
         } else {
           // Fallback to a default npm test command
-          lines.push(`   - Run: \`npm test -- ${testFileEdges[0].target}\``);
+          lines.push(`   - Run: \`npm test -- ${firstTestEdge.target}\``);
         }
       }
       lines.push('');
@@ -249,6 +250,7 @@ export function formatContextAsMarkdown(context: BundledContext): string {
             const snippetLines = func.codeSnippet.split('\n');
             for (let i = 0; i < snippetLines.length; i++) {
               const snippetLine = snippetLines[i];
+              if (snippetLine === undefined) continue;
               if (
                 snippetLine.includes('.use(') ||
                 snippetLine.includes('app.use') ||

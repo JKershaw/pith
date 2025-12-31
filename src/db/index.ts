@@ -45,7 +45,7 @@ export async function closeDb(): Promise<void> {
  * @param name - Collection name
  * @returns The collection
  */
-export async function getCollection<T extends object>(name: string) {
+export async function getCollection<T extends Record<string, unknown>>(name: string) {
   const database = await getDb();
   return database.collection<T>(name);
 }

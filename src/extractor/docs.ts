@@ -69,7 +69,7 @@ export interface DocsInfo {
  * @returns JSDoc data or null if no JSDoc is present
  */
 export function extractJSDoc(
-  node: FunctionDeclaration | MethodDeclaration | ClassDeclaration,
+  node: FunctionDeclaration | MethodDeclaration | ClassDeclaration
 ): JSDoc | null {
   const jsDocs = node.getJsDocs();
 
@@ -143,7 +143,9 @@ export function extractJSDoc(
 
   // Extract @returns tag
   let returns: string | undefined;
-  const returnsTag = tags.find((tag) => tag.getTagName() === 'returns' || tag.getTagName() === 'return');
+  const returnsTag = tags.find(
+    (tag) => tag.getTagName() === 'returns' || tag.getTagName() === 'return'
+  );
   if (returnsTag) {
     const comment = returnsTag.getComment();
     returns = typeof comment === 'string' ? comment : undefined;
@@ -395,7 +397,7 @@ export function extractDeprecations(ctx: ProjectContext, relativePath: string): 
 export async function extractDocs(
   ctx: ProjectContext,
   relativePath: string,
-  dirPath: string,
+  dirPath: string
 ): Promise<DocsInfo> {
   const fullPath = join(ctx.rootDir, relativePath);
   const sourceFile = ctx.project.addSourceFileAtPath(fullPath);
