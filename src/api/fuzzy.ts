@@ -80,6 +80,13 @@ export function levenshteinDistance(a: string, b: string): number {
  * - Each matching path segment: +10 points
  * - Segment is prefix of candidate: +5 points
  * - Levenshtein penalty: -1 per edit distance
+ * - Cross-module penalty: -30 points (when filenames match but modules differ)
+ *
+ * The cross-module penalty prevents false positives where files like
+ * src/extractor/index.ts would incorrectly match src/generator/index.ts
+ * due to the shared filename. The penalty is NOT applied when:
+ * - One module is a prefix of the other (extract -> extractor)
+ * - Modules are similar (Levenshtein distance <= 2 and <= length/3)
  *
  * @param query - The requested path
  * @param candidate - A candidate path to compare
@@ -135,6 +142,36 @@ export function scoreSimilarity(query: string, candidate: string): number {
   // Penalty for different directory depth
   const depthDiff = Math.abs(queryDirs.length - candidateDirs.length);
   score -= depthDiff * 5;
+
+  // Heavy penalty for cross-module matches with same filename
+  // This prevents false positives like extractor/index.ts -> generator/index.ts
+  // The problem only occurs when filenames match (inflating score via +50 bonus)
+  // but modules are completely different
+  if (queryDirs.length >= 2 && candidateDirs.length >= 2) {
+    const queryModule = queryDirs[1]!;
+    const candidateModule = candidateDirs[1]!;
+    const filenamesMatch = queryFilename === candidateFilename;
+
+    if (queryModule !== candidateModule && filenamesMatch) {
+      // Check if one is a prefix of the other (e.g., "extract" -> "extractor" is OK)
+      const isPrefix =
+        candidateModule.startsWith(queryModule) || queryModule.startsWith(candidateModule);
+
+      // Check if modules are similar enough (typo tolerance, e.g., "generate" -> "generator")
+      // Use relative threshold: distance must be small relative to module length
+      // This prevents "api" -> "cli" (distance 2, but 66% of 3-char word) while allowing
+      // "generate" -> "generator" (distance 2, but only 25% of 8-char word)
+      const moduleDistance = levenshteinDistance(queryModule, candidateModule);
+      const minModuleLen = Math.min(queryModule.length, candidateModule.length);
+      const isSimilarModule = moduleDistance <= 2 && moduleDistance <= minModuleLen / 3;
+
+      if (!isPrefix && !isSimilarModule) {
+        // Completely different modules with same filename - apply heavy penalty
+        // This ensures cross-module matches score below AUTO_MATCH_THRESHOLD
+        score -= 30;
+      }
+    }
+  }
 
   return score;
 }

@@ -60,12 +60,15 @@ describe('scoreSimilarity', () => {
     assert.ok(score < 30, `Expected score < 30, got ${score}`);
   });
 
-  it('prefers same filename over similar directory', () => {
-    const scoreExactFilename = scoreSimilarity('src/foo/index.ts', 'src/bar/index.ts');
-    const scoreSimilarDir = scoreSimilarity('src/foo/index.ts', 'src/foo/other.ts');
+  it('prefers same module over same filename when modules differ', () => {
+    // After the cross-module penalty fix, same module with different filename
+    // should score higher than same filename with different module
+    // This prevents false positives like extractor/index.ts -> generator/index.ts
+    const scoreDiffModuleSameFile = scoreSimilarity('src/foo/index.ts', 'src/bar/index.ts');
+    const scoreSameModuleDiffFile = scoreSimilarity('src/foo/index.ts', 'src/foo/other.ts');
     assert.ok(
-      scoreExactFilename > scoreSimilarDir,
-      `Expected ${scoreExactFilename} > ${scoreSimilarDir}`
+      scoreSameModuleDiffFile > scoreDiffModuleSameFile,
+      `Expected same module (${scoreSameModuleDiffFile}) > diff module (${scoreDiffModuleSameFile})`
     );
   });
 
