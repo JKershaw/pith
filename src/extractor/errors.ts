@@ -11,7 +11,8 @@ export interface ErrorPath {
   condition?: string; // The condition that triggers this path (for guards and conditional returns)
   action: string; // What happens (return value, error thrown, etc.)
   // Phase 6.8.4 additions:
-  conditionChain?: string[]; // Full chain of nested conditions (6.8.4.1)
+  // TODO: Implement condition chain extraction by walking ancestor if-statements (6.8.4.1)
+  conditionChain?: string[]; // Full chain of nested conditions - not yet populated
   httpStatus?: number; // Detected HTTP status code (6.8.4.2)
 }
 
@@ -33,12 +34,19 @@ const HTTP_STATUS_DESCRIPTIONS: Record<number, string> = {
   401: 'Unauthorized',
   403: 'Forbidden',
   404: 'Not Found',
+  405: 'Method Not Allowed',
+  408: 'Request Timeout',
   409: 'Conflict',
+  410: 'Gone',
+  413: 'Payload Too Large',
+  415: 'Unsupported Media Type',
   422: 'Unprocessable Entity',
   429: 'Too Many Requests',
   500: 'Internal Server Error',
+  501: 'Not Implemented',
   502: 'Bad Gateway',
   503: 'Service Unavailable',
+  504: 'Gateway Timeout',
 };
 
 /**
@@ -354,7 +362,7 @@ function detectHttpStatus(path: ErrorPath): number | undefined {
   if (textToSearch.match(/forbidden|Forbidden/i)) {
     return 403;
   }
-  if (textToSearch.match(/bad\s*request|BadRequest|invalid/i)) {
+  if (textToSearch.match(/bad\s*request|BadRequest|InvalidRequest|ValidationError/i)) {
     return 400;
   }
   if (textToSearch.match(/too\s*many\s*requests|rate\s*limit/i)) {

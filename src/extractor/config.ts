@@ -1,5 +1,6 @@
 import { join } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, access } from 'node:fs/promises';
+import { constants } from 'node:fs';
 
 /**
  * Extracted package.json data.
@@ -63,14 +64,27 @@ export interface ConfigData {
 
 /**
  * Read and parse a JSON file safely.
+ * Distinguishes between missing files (returns null silently) and
+ * parse errors (logs warning, returns null).
  * @param filePath - Path to the JSON file
  * @returns Parsed JSON or null if file doesn't exist or is invalid
  */
 async function readJsonFile<T>(filePath: string): Promise<T | null> {
+  // Check if file exists first
+  try {
+    await access(filePath, constants.R_OK);
+  } catch {
+    // File doesn't exist or isn't readable - this is expected, return null silently
+    return null;
+  }
+
+  // File exists, try to read and parse
   try {
     const content = await readFile(filePath, 'utf-8');
     return JSON.parse(content) as T;
-  } catch {
+  } catch (error) {
+    // File exists but couldn't be parsed - this is a problem, log it
+    console.warn(`Warning: Failed to parse ${filePath}: ${(error as Error).message}`);
     return null;
   }
 }

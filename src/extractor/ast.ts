@@ -157,10 +157,15 @@ const KEY_STATEMENT_CONTEXT_LINES = 3; // Phase 6.8.2.2: Lines to preserve aroun
  * - Truncation indicator shows remaining lines AND remaining key statements
  *
  * @param getText - Function that returns the full source text
- * @param keyStatements - Key statements with line numbers (for smart truncation)
+ * @param keyStatements - Key statements with file-level line numbers (for smart truncation)
+ * @param funcStartLine - The function's start line in the file (for computing snippet-relative indices)
  * @returns The code snippet string
  */
-function getCodeSnippet(getText: () => string, keyStatements: KeyStatement[] = []): string {
+function getCodeSnippet(
+  getText: () => string,
+  keyStatements: KeyStatement[] = [],
+  funcStartLine: number = 1
+): string {
   const fullText = getText();
   const lines = fullText.split('\n');
   const totalLines = lines.length;
@@ -186,14 +191,19 @@ function getCodeSnippet(getText: () => string, keyStatements: KeyStatement[] = [
 
     // Add context around each key statement
     for (const stmt of keyStatements) {
-      const funcStartLine = 1; // In snippet, lines are 1-indexed within function
-      // Key statement line is relative to the function, not the file
-      // We need to find which line in the snippet this corresponds to
-      // For now, we'll use a simpler approach - include based on snippet context
+      // Convert file-level line number to snippet-relative line number
+      // stmt.line is 1-indexed file line, funcStartLine is 1-indexed file line
+      // Snippet line 1 corresponds to funcStartLine
+      const snippetLineNum = stmt.line - funcStartLine + 1;
+
+      // Skip if the key statement is outside the function body (shouldn't happen)
+      if (snippetLineNum < 1 || snippetLineNum > totalLines) {
+        continue;
+      }
 
       for (
-        let i = Math.max(1, stmt.line - funcStartLine - KEY_STATEMENT_CONTEXT_LINES);
-        i <= Math.min(totalLines, stmt.line - funcStartLine + KEY_STATEMENT_CONTEXT_LINES + 1);
+        let i = Math.max(1, snippetLineNum - KEY_STATEMENT_CONTEXT_LINES);
+        i <= Math.min(totalLines, snippetLineNum + KEY_STATEMENT_CONTEXT_LINES);
         i++
       ) {
         linesToInclude.add(i);
@@ -220,8 +230,8 @@ function getCodeSnippet(getText: () => string, keyStatements: KeyStatement[] = [
       // Add final ellipsis if needed
       const remainingLines = totalLines - lastLine;
       const remainingKeyStatements = keyStatements.filter((s) => {
-        const lineInSnippet = s.line;
-        return !includedLineNumbers.includes(lineInSnippet);
+        const snippetLine = s.line - funcStartLine + 1;
+        return !includedLineNumbers.includes(snippetLine);
       }).length;
 
       if (remainingLines > 0) {
@@ -237,8 +247,11 @@ function getCodeSnippet(getText: () => string, keyStatements: KeyStatement[] = [
 
   // Fallback: simple truncation with enhanced indicator
   const remainingLines = totalLines - maxLines;
-  // Phase 6.8.2.3: Count key statements beyond the snippet (approximate)
-  const remainingKeyStatements = keyStatements.filter((stmt) => stmt.line > maxLines).length;
+  // Phase 6.8.2.3: Count key statements beyond the snippet
+  const remainingKeyStatements = keyStatements.filter((stmt) => {
+    const snippetLine = stmt.line - funcStartLine + 1;
+    return snippetLine > maxLines;
+  }).length;
 
   const keyStmtInfo =
     remainingKeyStatements > 0 ? `, ${remainingKeyStatements} more key statements` : '';
@@ -608,7 +621,7 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
       isDefaultExport: func.isDefaultExport(), // Phase 6.6: Explicit default export detection
       startLine: func.getStartLineNumber(),
       endLine: func.getEndLineNumber(),
-      codeSnippet: getCodeSnippet(() => func.getText(), keyStatements), // Phase 6.8.2
+      codeSnippet: getCodeSnippet(() => func.getText(), keyStatements, func.getStartLineNumber()), // Phase 6.8.2
       keyStatements,
       calls: extractFunctionCalls(func, allCallableNames), // Phase 6.6.7a.1
       calledBy: [], // Phase 6.6.7a.4: Computed later in builder
@@ -637,7 +650,11 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
         isDefaultExport: false, // Methods aren't default exported
         startLine: method.getStartLineNumber(),
         endLine: method.getEndLineNumber(),
-        codeSnippet: getCodeSnippet(() => method.getText(), keyStatements), // Phase 6.8.2
+        codeSnippet: getCodeSnippet(
+          () => method.getText(),
+          keyStatements,
+          method.getStartLineNumber()
+        ), // Phase 6.8.2
         keyStatements,
         calls: extractFunctionCalls(method, allCallableNames), // Phase 6.6.7a.1: Use global callable set
         calledBy: [], // Phase 6.6.7a.4: Computed later in builder
@@ -703,10 +720,17 @@ function extractSymbolUsages(
   const usages: SymbolUsage[] = [];
 
   for (const imp of imports) {
+    // Skip external/bare module imports (e.g., 'react', 'express')
+    // These won't have corresponding WikiNodes in the graph
+    const isRelativeImport = imp.from.startsWith('.') || imp.from.startsWith('/');
+    if (!isRelativeImport) {
+      continue;
+    }
+
     // Resolve the source file path
     let sourceFilePath = imp.from;
-    // Simple path normalization - strip .ts extension if missing, add it
-    if (!sourceFilePath.endsWith('.ts') && !sourceFilePath.includes('/node_modules/')) {
+    // Simple path normalization - add .ts extension if missing
+    if (!sourceFilePath.endsWith('.ts')) {
       sourceFilePath = sourceFilePath + '.ts';
     }
 

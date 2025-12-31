@@ -901,6 +901,7 @@ export function getUsedSymbolsFromFile(
 
 /**
  * Normalize an import path for comparison.
+ * Handles .ts extension, ./ prefix, and ../ parent directory components.
  */
 function normalizeImportPath(path: string): string {
   // Remove .ts extension if present
@@ -908,6 +909,11 @@ function normalizeImportPath(path: string): string {
   // Normalize ./ prefix
   if (normalized.startsWith('./')) {
     normalized = normalized.slice(2);
+  }
+  // Strip leading ../ components to get the trailing project-relative segment
+  // e.g., "../types/foo" -> "types/foo"
+  while (normalized.startsWith('../')) {
+    normalized = normalized.slice(3);
   }
   return normalized;
 }
