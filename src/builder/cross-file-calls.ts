@@ -3,8 +3,8 @@
  * Resolves imported symbols and builds call graphs across files.
  */
 
-import type { WikiNode } from './index.js';
-import type { Import } from '../extractor/ast.js';
+import type { WikiNode } from './index.ts';
+import type { Import } from '../extractor/ast.ts';
 import { join, dirname } from 'node:path';
 
 /**

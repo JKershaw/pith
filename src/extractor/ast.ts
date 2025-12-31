@@ -3,11 +3,11 @@ import { join, relative } from 'node:path';
 import { Project, SyntaxKind, type FunctionDeclaration, type MethodDeclaration } from 'ts-morph';
 import { minimatch } from 'minimatch';
 import type { MangoDb } from '@jkershaw/mangodb';
-import type { GitInfo } from './git.js';
-import type { DocsInfo } from './docs.js';
-import type { ErrorPath } from './errors.js';
-import { extractErrorPaths } from './errors.js';
-import type { DetectedPattern } from './patterns.js';
+import type { GitInfo } from './git.ts';
+import type { DocsInfo } from './docs.ts';
+import type { ErrorPath } from './errors.ts';
+import { extractErrorPaths } from './errors.ts';
+import type { DetectedPattern } from './patterns.ts';
 
 /**
  * Import declaration data.

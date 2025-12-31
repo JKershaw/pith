@@ -1,7 +1,7 @@
 import type { FunctionDeclaration, MethodDeclaration, ClassDeclaration } from 'ts-morph';
 import { join } from 'node:path';
 import { readFile, readdir } from 'node:fs/promises';
-import type { ProjectContext } from './ast.js';
+import type { ProjectContext } from './ast.ts';
 
 /**
  * JSDoc parameter information.

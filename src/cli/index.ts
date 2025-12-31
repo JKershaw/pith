@@ -2,7 +2,7 @@
 
 import 'dotenv/config';
 import { Command } from 'commander';
-import { version } from '../index.js';
+import { version } from '../index.ts';
 import { resolve, dirname, join } from 'node:path';
 import { stat } from 'node:fs/promises';
 import {
@@ -11,18 +11,18 @@ import {
   extractFile,
   storeExtracted,
   type ExtractedFile,
-} from '../extractor/ast.js';
-import { extractGitInfo } from '../extractor/git.js';
-import { extractDocs } from '../extractor/docs.js';
-import { addPatternsToExtractedFile } from '../extractor/patterns.js';
+} from '../extractor/ast.ts';
+import { extractGitInfo } from '../extractor/git.ts';
+import { extractDocs } from '../extractor/docs.ts';
+import { addPatternsToExtractedFile } from '../extractor/patterns.ts';
 import {
   loadExtractionCache,
   saveExtractionCache,
   shouldExtract,
   getFileHash,
   type ExtractionCache,
-} from '../extractor/cache.js';
-import { getDb, closeDb } from '../db/index.js';
+} from '../extractor/cache.ts';
+import { getDb, closeDb } from '../db/index.ts';
 import {
   buildFileNode,
   buildFunctionNode,
@@ -37,11 +37,11 @@ import {
   computeMetadata,
   updateCrossFileCalls,
   type WikiNode,
-} from '../builder/index.js';
-import { generateProse, updateNodeWithProse, type GeneratorConfig } from '../generator/index.js';
-import { createApp } from '../api/index.js';
-import { loadConfig } from '../config/index.js';
-import { PithError, formatError, groupErrorsBySeverity } from '../errors/index.js';
+} from '../builder/index.ts';
+import { generateProse, updateNodeWithProse, type GeneratorConfig } from '../generator/index.ts';
+import { createApp } from '../api/index.ts';
+import { loadConfig } from '../config/index.ts';
+import { PithError, formatError, groupErrorsBySeverity } from '../errors/index.ts';
 
 const program = new Command();
 

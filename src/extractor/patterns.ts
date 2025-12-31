@@ -1,4 +1,4 @@
-import type { ExtractedFile } from './ast.js';
+import type { ExtractedFile } from './ast.ts';
 
 /**
  * A detected design pattern in the code.

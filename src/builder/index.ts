@@ -6,12 +6,12 @@ import type {
   Export,
   FunctionData,
   KeyStatement,
-} from '../extractor/ast.js';
-import type { Commit } from '../extractor/git.js';
-import type { JSDoc } from '../extractor/docs.js';
-import type { ProseData } from '../generator/index.js';
-import type { ErrorPath } from '../extractor/errors.js';
-import { buildCrossFileCallGraph, getCrossFileCallsForFunction } from './cross-file-calls.js';
+} from '../extractor/ast.ts';
+import type { Commit } from '../extractor/git.ts';
+import type { JSDoc } from '../extractor/docs.ts';
+import type { ProseData } from '../generator/index.ts';
+import type { ErrorPath } from '../extractor/errors.ts';
+import { buildCrossFileCallGraph, getCrossFileCallsForFunction } from './cross-file-calls.ts';
 
 // Re-export types for testing
 export type { FunctionData };

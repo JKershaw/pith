@@ -9,7 +9,8 @@
     "pith": "dist/cli/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
+    "typecheck": "tsc",
     "test": "node --experimental-strip-types --test 'src/**/*.test.ts'",
     "lint": "eslint src/",
     "format": "prettier --write src/",
@@ -46,6 +47,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "prettier": "^3.7.4",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.50.1"
   },
