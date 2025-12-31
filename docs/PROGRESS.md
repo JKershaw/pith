@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.7 (Enhanced Output Integration) - ALL COMPLETE ✅
-**Current step**: Phase 6.8 - Deterministic Gap Closure
+**Last completed phase**: Phase 6.8 (Deterministic Gap Closure) - ALL COMPLETE ✅
+**Current step**: Ready for next phase
 **Date**: 2025-12-31
 
 ### Latest Benchmark: 2025-12-31
@@ -601,51 +601,100 @@ Prior changes to this file (for reference):
 
 ---
 
-## Phase 6.8: Deterministic Gap Closure ⬅️ CURRENT
+## Phase 6.8: Deterministic Gap Closure ✅ COMPLETE
 
 **Goal**: Close remaining gaps identified in 2025-12-31 benchmark through deterministic improvements before adding MCP delivery layer.
 
 **Rationale**: MCP server is a delivery mechanism, not a quality improvement. Prioritize closing the 3.5-point gap through extraction/output enhancements.
 
-### 6.8.1 Symbol-Level Import Tracking
+### 6.8.1 Symbol-Level Import Tracking - COMPLETE ✅
 
-| Step    | What                                                      | Status  |
-| ------- | --------------------------------------------------------- | ------- |
-| 6.8.1.1 | Track which specific symbols are used from imports        | Pending |
-| 6.8.1.2 | Filter impact analysis to only files using changed symbol | Pending |
-| 6.8.1.3 | Show symbol usage in dependent file context               | Pending |
+| Step    | What                                                      | Status   |
+| ------- | --------------------------------------------------------- | -------- |
+| 6.8.1.1 | Track which specific symbols are used from imports        | **Done** |
+| 6.8.1.2 | Filter impact analysis to only files using changed symbol | **Done** |
+| 6.8.1.3 | Show symbol usage in dependent file context               | **Done** |
+
+**Implementation Summary (2025-12-31)**:
+
+- Added `SymbolUsage` interface to track imported symbol usages with line numbers
+- Implemented `extractSymbolUsages()` in AST extractor to find all usages of imported symbols
+- Added `symbolUsages` field to `ExtractedFile` and `WikiNode.raw`
+- Added `getUsedSymbolsFromFile()` and `dependentUsesExports()` for symbol-level filtering
+- Updated `/impact` API to show symbol-level usage with line numbers
 
 **Benchmark target**: R3: 11/25 → 18/25 (fixes 69% false positives)
 
-### 6.8.2 Full Content Preservation
+### 6.8.2 Full Content Preservation - COMPLETE ✅
 
-| Step    | What                                                  | Status  |
-| ------- | ----------------------------------------------------- | ------- |
-| 6.8.2.1 | Increase code snippet limit for complex functions     | Pending |
-| 6.8.2.2 | Smart truncation that preserves key statement context | Pending |
-| 6.8.2.3 | Add "full source available" indicator when truncated  | Pending |
+| Step    | What                                                  | Status   |
+| ------- | ----------------------------------------------------- | -------- |
+| 6.8.2.1 | Increase code snippet limit for complex functions     | **Done** |
+| 6.8.2.2 | Smart truncation that preserves key statement context | **Done** |
+| 6.8.2.3 | Add "full source available" indicator when truncated  | **Done** |
+
+**Implementation Summary (2025-12-31)**:
+
+- Complex functions (>5 key statements) now get 30 lines instead of 15
+- Smart truncation preserves 3 lines of context around each key statement
+- Truncation indicator now shows remaining lines AND remaining key statements
+- Key statements extracted before code snippet generation for informed truncation
 
 **Benchmark target**: B2: 17/25 → 21/25
 
-### 6.8.3 Config File Extraction
+### 6.8.3 Config File Extraction - COMPLETE ✅
 
-| Step    | What                                          | Status  |
-| ------- | --------------------------------------------- | ------- |
-| 6.8.3.1 | Extract package.json scripts and dependencies | Pending |
-| 6.8.3.2 | Extract tsconfig.json compiler options        | Pending |
-| 6.8.3.3 | Extract pith.config.json if present           | Pending |
+| Step    | What                                          | Status   |
+| ------- | --------------------------------------------- | -------- |
+| 6.8.3.1 | Extract package.json scripts and dependencies | **Done** |
+| 6.8.3.2 | Extract tsconfig.json compiler options        | **Done** |
+| 6.8.3.3 | Extract pith.config.json if present           | **Done** |
+
+**Implementation Summary (2025-12-31)**:
+
+- Created new `src/extractor/config.ts` with extraction functions
+- `extractPackageJson()`: Extracts scripts, dependencies, name, version
+- `extractTsConfig()`: Extracts compilerOptions, include, exclude
+- `extractPithConfig()`: Extracts pith-specific configuration
+- `extractConfigFiles()`: Combines all config file extraction
 
 **Benchmark target**: Improves context for all task categories
 
-### 6.8.4 Enhanced Debugging Output
+### 6.8.4 Enhanced Debugging Output - COMPLETE ✅
 
-| Step    | What                                               | Status  |
-| ------- | -------------------------------------------------- | ------- |
-| 6.8.4.1 | Show full condition chain for each error path      | Pending |
-| 6.8.4.2 | Group error causes by HTTP status code             | Pending |
-| 6.8.4.3 | Include stack trace hints (error propagation path) | Pending |
+| Step    | What                                               | Status   |
+| ------- | -------------------------------------------------- | -------- |
+| 6.8.4.1 | Show full condition chain for each error path      | **Done** |
+| 6.8.4.2 | Group error causes by HTTP status code             | **Done** |
+| 6.8.4.3 | Include stack trace hints (error propagation path) | **Done** |
+
+**Implementation Summary (2025-12-31)**:
+
+- Added `conditionChain` and `httpStatus` fields to `ErrorPath` interface
+- Implemented `detectHttpStatus()` to extract HTTP status codes from error messages
+- Added `groupErrorsByStatus()` to group error paths by HTTP status
+- Added `formatConditionChain()` for readable condition chain display
+- Added `formatErrorPathsForDebugging()` for enhanced markdown output
 
 **Benchmark target**: D1-D3: 16/25 → 20/25
+
+### Phase 6.8 Summary - ALL COMPLETE ✅
+
+| Phase | Description                  | Status      |
+| ----- | ---------------------------- | ----------- |
+| 6.8.1 | Symbol-Level Import Tracking | ✅ Complete |
+| 6.8.2 | Full Content Preservation    | ✅ Complete |
+| 6.8.3 | Config File Extraction       | ✅ Complete |
+| 6.8.4 | Enhanced Debugging Output    | ✅ Complete |
+
+**Total tests**: 399
+**New capabilities added**:
+
+- Symbol-level import tracking with line numbers
+- Smart code snippet truncation for complex functions
+- Config file extraction (package.json, tsconfig.json, pith.config.json)
+- HTTP status code grouping for error paths
+- Enhanced condition chain display for debugging
 
 ### Phase 6.8 Success Criteria
 
