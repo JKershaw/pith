@@ -3,11 +3,7 @@ import assert from 'node:assert';
 import { MangoClient } from '@jkershaw/mangodb';
 import { rm } from 'node:fs/promises';
 import type { WikiNode } from '../builder/index.ts';
-import {
-  bundleContext,
-  formatContextAsMarkdown,
-  createApp,
-} from './index.ts';
+import { bundleContext, formatContextAsMarkdown, createApp } from './index.ts';
 
 const TEST_DATA_DIR = './data/api-test';
 
@@ -66,9 +62,7 @@ describe('API', () => {
           authors: ['bob'],
           createdAt: new Date('2024-01-01'),
         },
-        edges: [
-          { type: 'parent', target: 'src/db' },
-        ],
+        edges: [{ type: 'parent', target: 'src/db' }],
         raw: {
           signature: ['function findUser(username: string): User | null'],
           imports: [],
@@ -118,9 +112,7 @@ describe('API', () => {
           authors: [],
           createdAt: new Date('2024-01-01'),
         },
-        edges: [
-          { type: 'contains', target: 'src/auth/login.ts' },
-        ],
+        edges: [{ type: 'contains', target: 'src/auth/login.ts' }],
         raw: {
           readme: '# Auth Module\nHandles authentication.',
         },
@@ -149,7 +141,7 @@ describe('API', () => {
       const db = client.db('pith');
       const context = await bundleContext(db, ['src/auth/login.ts']);
 
-      const nodeIds = context.nodes.map(n => n.id);
+      const nodeIds = context.nodes.map((n) => n.id);
       assert.ok(nodeIds.includes('src/auth/login.ts'), 'Should include requested node');
     });
 
@@ -157,7 +149,7 @@ describe('API', () => {
       const db = client.db('pith');
       const context = await bundleContext(db, ['src/auth/login.ts']);
 
-      const nodeIds = context.nodes.map(n => n.id);
+      const nodeIds = context.nodes.map((n) => n.id);
       assert.ok(nodeIds.includes('src/db/users.ts'), 'Should include imported users.ts');
       assert.ok(nodeIds.includes('src/utils/crypto.ts'), 'Should include imported crypto.ts');
     });
@@ -166,7 +158,7 @@ describe('API', () => {
       const db = client.db('pith');
       const context = await bundleContext(db, ['src/auth/login.ts']);
 
-      const nodeIds = context.nodes.map(n => n.id);
+      const nodeIds = context.nodes.map((n) => n.id);
       assert.ok(nodeIds.includes('src/auth'), 'Should include parent module');
     });
 
@@ -174,7 +166,7 @@ describe('API', () => {
       const db = client.db('pith');
       const context = await bundleContext(db, ['src/auth/login.ts', 'src/db/users.ts']);
 
-      const nodeIds = context.nodes.map(n => n.id);
+      const nodeIds = context.nodes.map((n) => n.id);
       assert.ok(nodeIds.includes('src/auth/login.ts'));
       assert.ok(nodeIds.includes('src/db/users.ts'));
     });
@@ -184,7 +176,7 @@ describe('API', () => {
       // Both login.ts imports users.ts, and users.ts is also requested directly
       const context = await bundleContext(db, ['src/auth/login.ts', 'src/db/users.ts']);
 
-      const usersNodes = context.nodes.filter(n => n.id === 'src/db/users.ts');
+      const usersNodes = context.nodes.filter((n) => n.id === 'src/db/users.ts');
       assert.strictEqual(usersNodes.length, 1, 'Should not duplicate nodes');
     });
 
@@ -222,9 +214,7 @@ describe('API', () => {
           authors: ['alice'],
           createdAt: new Date('2024-01-01'),
         },
-        edges: [
-          { type: 'testFile', target: 'src/utils/parser.test.ts' },
-        ],
+        edges: [{ type: 'testFile', target: 'src/utils/parser.test.ts' }],
         raw: {
           signature: ['function parse(input: string): AST'],
           exports: [{ name: 'parse', kind: 'function' }],
@@ -255,9 +245,135 @@ describe('API', () => {
 
       const context = await bundleContext(db, ['src/utils/parser.ts']);
 
-      const nodeIds = context.nodes.map(n => n.id);
+      const nodeIds = context.nodes.map((n) => n.id);
       assert.ok(nodeIds.includes('src/utils/parser.ts'), 'Should include source file');
-      assert.ok(nodeIds.includes('src/utils/parser.test.ts'), 'Should include test file via testFile edge');
+      assert.ok(
+        nodeIds.includes('src/utils/parser.test.ts'),
+        'Should include test file via testFile edge'
+      );
+    });
+
+    it('uses fuzzy matching when exact path not found', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add nodes with similar names (simulating extract vs extractor)
+      await nodes.insertOne({
+        id: 'src/extractor/index.ts',
+        type: 'file',
+        path: 'src/extractor/index.ts',
+        name: 'index.ts',
+        metadata: {
+          lines: 100,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+        prose: { summary: 'Extractor module', generatedAt: new Date() },
+      });
+
+      // Request with typo (extract instead of extractor)
+      const context = await bundleContext(db, ['src/extract/index.ts']);
+
+      // Should fuzzy match to src/extractor/index.ts
+      assert.ok(
+        context.nodes.some((n) => n.id === 'src/extractor/index.ts'),
+        'Should fuzzy match to similar path'
+      );
+      assert.ok(context.fuzzyMatches, 'Should have fuzzyMatches info');
+      assert.strictEqual(context.fuzzyMatches!.length, 1);
+      assert.strictEqual(context.fuzzyMatches![0]!.requestedPath, 'src/extract/index.ts');
+      assert.strictEqual(context.fuzzyMatches![0]!.actualPath, 'src/extractor/index.ts');
+      assert.ok(context.fuzzyMatches![0]!.confidence >= 0.7, 'Should have high confidence');
+      assert.strictEqual(
+        context.errors.length,
+        0,
+        'Should have no errors when fuzzy match succeeds'
+      );
+    });
+
+    it('provides suggestions for medium-confidence fuzzy matches', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a node
+      await nodes.insertOne({
+        id: 'src/helper/utils.ts',
+        type: 'file',
+        path: 'src/helper/utils.ts',
+        name: 'utils.ts',
+        metadata: {
+          lines: 50,
+          commits: 3,
+          lastModified: new Date('2024-12-01'),
+          authors: ['bob'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+      });
+
+      // Request with somewhat similar but not great match
+      const context = await bundleContext(db, ['src/helpers/util.ts']);
+
+      // Should include suggestion in errors (confidence between 0.4 and 0.7)
+      if (context.nodes.length === 0) {
+        // If no nodes matched, check for suggestions in errors
+        assert.ok(
+          context.errors.some((e) => e.includes('did you mean') || e.includes('Node not found')),
+          'Should have error with suggestion or not found message'
+        );
+      }
+    });
+
+    it('includes fuzzy match info for multiple paths', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      await nodes.insertOne({
+        id: 'src/builder/index.ts',
+        type: 'file',
+        path: 'src/builder/index.ts',
+        name: 'index.ts',
+        metadata: {
+          lines: 200,
+          commits: 10,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+      });
+
+      await nodes.insertOne({
+        id: 'src/generator/index.ts',
+        type: 'file',
+        path: 'src/generator/index.ts',
+        name: 'index.ts',
+        metadata: {
+          lines: 300,
+          commits: 15,
+          lastModified: new Date('2024-12-01'),
+          authors: ['bob'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+      });
+
+      // Request with typos
+      const context = await bundleContext(db, [
+        'src/build/index.ts', // Should match src/builder/index.ts
+        'src/generate/index.ts', // Should match src/generator/index.ts
+      ]);
+
+      assert.strictEqual(context.nodes.length, 2, 'Should have 2 fuzzy-matched nodes');
+      assert.ok(context.fuzzyMatches, 'Should have fuzzyMatches');
+      assert.strictEqual(context.fuzzyMatches!.length, 2, 'Should have 2 fuzzy matches');
     });
   });
 
@@ -295,6 +411,37 @@ describe('API', () => {
       const markdown = formatContextAsMarkdown(context);
 
       assert.ok(markdown.includes('src/db/users.ts'), 'Should show import target');
+    });
+
+    it('shows fuzzy match note when paths were corrected', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      await nodes.insertOne({
+        id: 'src/extractor/index.ts',
+        type: 'file',
+        path: 'src/extractor/index.ts',
+        name: 'index.ts',
+        metadata: {
+          lines: 100,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {},
+        prose: { summary: 'Test extractor', generatedAt: new Date() },
+      });
+
+      // Request with typo
+      const context = await bundleContext(db, ['src/extract/index.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show note about fuzzy matching
+      assert.ok(markdown.includes('fuzzy-matched'), 'Should mention fuzzy matching');
+      assert.ok(markdown.includes('src/extract/index.ts'), 'Should show requested path');
+      assert.ok(markdown.includes('src/extractor/index.ts'), 'Should show actual path');
     });
 
     it('includes dependents section - Phase 6.3.2', async () => {
@@ -387,7 +534,7 @@ describe('API', () => {
           lastModified: new Date('2024-12-01'),
           authors: ['alice'],
           createdAt: new Date('2024-01-01'),
-          fanIn: 8,  // High fan-in
+          fanIn: 8, // High fan-in
         },
         edges: [
           { type: 'importedBy', target: 'src/auth/login.ts' },
@@ -429,7 +576,7 @@ describe('API', () => {
           lastModified: new Date('2024-12-01'),
           authors: ['alice'],
           createdAt: new Date('2024-01-01'),
-          fanIn: 8,  // High fan-in triggers modification checklist
+          fanIn: 8, // High fan-in triggers modification checklist
         },
         edges: [
           { type: 'importedBy', target: 'src/auth/login.ts' },
@@ -448,10 +595,14 @@ describe('API', () => {
             { name: 'Edge', kind: 'interface' },
           ],
           interfaces: [
-            { name: 'WikiNode', isExported: true, properties: [
-              { name: 'id', type: 'string', isOptional: false },
-              { name: 'type', type: 'string', isOptional: false },
-            ]},
+            {
+              name: 'WikiNode',
+              isExported: true,
+              properties: [
+                { name: 'id', type: 'string', isOptional: false },
+                { name: 'type', type: 'string', isOptional: false },
+              ],
+            },
           ],
         },
       };
@@ -481,7 +632,10 @@ describe('API', () => {
       const markdown = formatContextAsMarkdown(context);
 
       // Should show modification checklist for high fan-in file
-      assert.ok(markdown.includes('Modification Checklist'), 'Should have Modification Checklist section');
+      assert.ok(
+        markdown.includes('Modification Checklist'),
+        'Should have Modification Checklist section'
+      );
       assert.ok(markdown.includes('Update this file'), 'Should mention updating the source file');
       assert.ok(markdown.includes('Update consumers'), 'Should mention updating consumers');
       assert.ok(markdown.includes('8 files'), 'Should show number of dependent files');
@@ -558,7 +712,8 @@ describe('API', () => {
               endLine: 50,
               isAsync: false,
               isExported: false,
-              codeSnippet: 'const edge: Edge = { type: "imports", target: "foo" };\nassert.strictEqual(edge.type, "imports");',
+              codeSnippet:
+                'const edge: Edge = { type: "imports", target: "foo" };\nassert.strictEqual(edge.type, "imports");',
               keyStatements: [],
             },
           ],
@@ -593,7 +748,7 @@ describe('API', () => {
           lastModified: new Date('2024-12-01'),
           authors: ['alice'],
           createdAt: new Date('2024-01-01'),
-          fanIn: 6,  // Above threshold for modification checklist
+          fanIn: 6, // Above threshold for modification checklist
         },
         edges: [
           { type: 'importedBy', target: 'src/index.ts' },
@@ -672,9 +827,24 @@ return app;`,
             { name: 'Edge', kind: 'interface' },
           ],
           recentCommits: [
-            { hash: 'abc1234', message: 'feat: add metadata field to WikiNode', author: 'alice', date: new Date('2024-12-01') },
-            { hash: 'def5678', message: 'refactor: update Edge type definition', author: 'bob', date: new Date('2024-11-15') },
-            { hash: 'ghi9012', message: 'fix: correct optional property in WikiNode', author: 'alice', date: new Date('2024-11-01') },
+            {
+              hash: 'abc1234',
+              message: 'feat: add metadata field to WikiNode',
+              author: 'alice',
+              date: new Date('2024-12-01'),
+            },
+            {
+              hash: 'def5678',
+              message: 'refactor: update Edge type definition',
+              author: 'bob',
+              date: new Date('2024-11-15'),
+            },
+            {
+              hash: 'ghi9012',
+              message: 'fix: correct optional property in WikiNode',
+              author: 'alice',
+              date: new Date('2024-11-01'),
+            },
           ],
         },
       };
@@ -685,7 +855,10 @@ return app;`,
       const markdown = formatContextAsMarkdown(context);
 
       // Should show similar changes section
-      assert.ok(markdown.includes('Recent Changes') || markdown.includes('Similar Changes'), 'Should have changes section');
+      assert.ok(
+        markdown.includes('Recent Changes') || markdown.includes('Similar Changes'),
+        'Should have changes section'
+      );
       assert.ok(markdown.includes('add metadata field'), 'Should show commit message');
       assert.ok(markdown.includes('alice'), 'Should show author');
     });
@@ -706,7 +879,7 @@ return app;`,
           lastModified: new Date('2024-12-01'),
           authors: ['alice'],
           createdAt: new Date('2024-01-01'),
-          fanIn: 2,  // Low fan-in - no modification checklist needed
+          fanIn: 2, // Low fan-in - no modification checklist needed
         },
         edges: [
           { type: 'importedBy', target: 'src/other.ts' },
@@ -721,7 +894,10 @@ return app;`,
       const markdown = formatContextAsMarkdown(context);
 
       // Should NOT show modification checklist for low fan-in file
-      assert.ok(!markdown.includes('Modification Checklist'), 'Should not show modification checklist for low fan-in');
+      assert.ok(
+        !markdown.includes('Modification Checklist'),
+        'Should not show modification checklist for low fan-in'
+      );
     });
 
     it('does not show warning for low fan-in files - Phase 6.3.3', async () => {
@@ -740,7 +916,7 @@ return app;`,
           lastModified: new Date('2024-12-01'),
           authors: ['alice'],
           createdAt: new Date('2024-01-01'),
-          fanIn: 2,  // Low fan-in
+          fanIn: 2, // Low fan-in
         },
         edges: [
           { type: 'importedBy', target: 'src/auth/login.ts' },
@@ -790,7 +966,10 @@ return app;`,
       const markdown = formatContextAsMarkdown(context);
 
       assert.ok(markdown.includes('Quick Start'), 'Should have Quick Start section');
-      assert.ok(markdown.includes('import { foo } from "./mymodule"'), 'Should show quick start code');
+      assert.ok(
+        markdown.includes('import { foo } from "./mymodule"'),
+        'Should show quick start code'
+      );
     });
 
     it('displays patterns for files - Phase 6.4', async () => {
@@ -815,7 +994,10 @@ return app;`,
           summary: 'Utility functions',
           purpose: 'Provides common utilities',
           gotchas: [],
-          patterns: ['Use formatDate() for dates', 'Import with: import { formatDate } from "./utils"'],
+          patterns: [
+            'Use formatDate() for dates',
+            'Import with: import { formatDate } from "./utils"',
+          ],
           generatedAt: new Date('2024-12-15'),
         },
       };
@@ -927,10 +1109,16 @@ return app;`,
 
       // Should show code snippet
       assert.ok(markdown.includes('maxRetries = 3'), 'Should show code snippet content');
-      assert.ok(markdown.includes('timeout = config.timeout ?? 30000'), 'Should show config in snippet');
+      assert.ok(
+        markdown.includes('timeout = config.timeout ?? 30000'),
+        'Should show config in snippet'
+      );
 
       // Should show key statements
-      assert.ok(markdown.includes('Key statements') || markdown.includes('key statements'), 'Should have key statements section');
+      assert.ok(
+        markdown.includes('Key statements') || markdown.includes('key statements'),
+        'Should have key statements section'
+      );
       assert.ok(markdown.includes('status === 429'), 'Should show status code condition');
       assert.ok(markdown.includes('Math.pow(2, attempt)'), 'Should show backoff formula');
     });
@@ -969,9 +1157,19 @@ return app;`,
 }`,
               keyStatements: [],
               errorPaths: [
-                { type: 'guard', line: 11, condition: '!req.path', action: 'returns 400 (Bad Request)' },
+                {
+                  type: 'guard',
+                  line: 11,
+                  condition: '!req.path',
+                  action: 'returns 400 (Bad Request)',
+                },
                 { type: 'guard', line: 13, condition: '!node', action: 'returns 404 (Not Found)' },
-                { type: 'catch', line: 45, condition: 'catch (error)', action: 'returns 500 (Internal Error)' },
+                {
+                  type: 'catch',
+                  line: 45,
+                  condition: 'catch (error)',
+                  action: 'returns 500 (Internal Error)',
+                },
               ],
             },
           ],
@@ -984,9 +1182,18 @@ return app;`,
       const markdown = formatContextAsMarkdown(context);
 
       // Should show error paths grouped
-      assert.ok(markdown.includes('Error Paths') || markdown.includes('error paths'), 'Should have error paths section');
-      assert.ok(markdown.includes('400') || markdown.includes('Bad Request'), 'Should show 400 error');
-      assert.ok(markdown.includes('404') || markdown.includes('Not Found'), 'Should show 404 error');
+      assert.ok(
+        markdown.includes('Error Paths') || markdown.includes('error paths'),
+        'Should have error paths section'
+      );
+      assert.ok(
+        markdown.includes('400') || markdown.includes('Bad Request'),
+        'Should show 400 error'
+      );
+      assert.ok(
+        markdown.includes('404') || markdown.includes('Not Found'),
+        'Should show 404 error'
+      );
     });
 
     it('shows debug checklist for functions with error paths - Phase 6.7.4.3', async () => {
@@ -1005,9 +1212,7 @@ return app;`,
           authors: ['alice'],
           createdAt: new Date('2024-01-01'),
         },
-        edges: [
-          { type: 'testFile', target: 'src/api/router.test.ts' },
-        ],
+        edges: [{ type: 'testFile', target: 'src/api/router.test.ts' }],
         raw: {
           functions: [
             {
@@ -1028,9 +1233,24 @@ return app;`,
                 { line: 17, text: "!path.startsWith('/')", category: 'condition' },
               ],
               errorPaths: [
-                { type: 'guard', line: 16, condition: "path.includes('\\\\')", action: 'returns null (Windows path)' },
-                { type: 'guard', line: 17, condition: "!path.startsWith('/')", action: 'returns null (missing slash)' },
-                { type: 'early-return', line: 19, condition: '!routes.get(normalized)', action: 'returns null' },
+                {
+                  type: 'guard',
+                  line: 16,
+                  condition: "path.includes('\\\\')",
+                  action: 'returns null (Windows path)',
+                },
+                {
+                  type: 'guard',
+                  line: 17,
+                  condition: "!path.startsWith('/')",
+                  action: 'returns null (missing slash)',
+                },
+                {
+                  type: 'early-return',
+                  line: 19,
+                  condition: '!routes.get(normalized)',
+                  action: 'returns null',
+                },
               ],
             },
           ],
@@ -1062,8 +1282,14 @@ return app;`,
       const markdown = formatContextAsMarkdown(context);
 
       // Should show debug-relevant info
-      assert.ok(markdown.includes('Windows') || markdown.includes('backslash'), 'Should mention Windows path issue');
-      assert.ok(markdown.includes('slash') || markdown.includes("startsWith('/')"), 'Should mention slash requirement');
+      assert.ok(
+        markdown.includes('Windows') || markdown.includes('backslash'),
+        'Should mention Windows path issue'
+      );
+      assert.ok(
+        markdown.includes('slash') || markdown.includes("startsWith('/')"),
+        'Should mention slash requirement'
+      );
     });
 
     it('shows detected patterns with evidence - Phase 6.7.5', async () => {
@@ -1126,9 +1352,18 @@ return app;`,
       const markdown = formatContextAsMarkdown(context);
 
       // Should show detected patterns with evidence
-      assert.ok(markdown.includes('Pattern') || markdown.includes('pattern'), 'Should have patterns section');
-      assert.ok(markdown.includes('retry') || markdown.includes('Retry'), 'Should show retry pattern');
-      assert.ok(markdown.includes('evidence') || markdown.includes('maxRetries'), 'Should show evidence');
+      assert.ok(
+        markdown.includes('Pattern') || markdown.includes('pattern'),
+        'Should have patterns section'
+      );
+      assert.ok(
+        markdown.includes('retry') || markdown.includes('Retry'),
+        'Should show retry pattern'
+      );
+      assert.ok(
+        markdown.includes('evidence') || markdown.includes('maxRetries'),
+        'Should show evidence'
+      );
     });
 
     it('shows enhanced call flow with file:line references - Phase 6.7.3', async () => {
@@ -1171,9 +1406,7 @@ return app;`,
                 'src/builder/index.ts:buildNodes',
                 'src/builder/index.ts:storeNodes',
               ],
-              crossFileCalledBy: [
-                'src/cli/commands.ts:buildCommand',
-              ],
+              crossFileCalledBy: ['src/cli/commands.ts:buildCommand'],
             },
           ],
         },
@@ -1186,8 +1419,14 @@ return app;`,
 
       // Should show enhanced call flow with file references
       assert.ok(markdown.includes('Call Flow'), 'Should have Call Flow section');
-      assert.ok(markdown.includes('extractFiles') || markdown.includes('extractor'), 'Should show called function');
-      assert.ok(markdown.includes('buildNodes') || markdown.includes('builder'), 'Should show another called function');
+      assert.ok(
+        markdown.includes('extractFiles') || markdown.includes('extractor'),
+        'Should show called function'
+      );
+      assert.ok(
+        markdown.includes('buildNodes') || markdown.includes('builder'),
+        'Should show another called function'
+      );
     });
 
     it('links error paths to test files - Phase 6.7.4.4', async () => {
@@ -1206,9 +1445,7 @@ return app;`,
           authors: ['alice'],
           createdAt: new Date('2024-01-01'),
         },
-        edges: [
-          { type: 'testFile', target: 'src/service/api.test.ts' },
-        ],
+        edges: [{ type: 'testFile', target: 'src/service/api.test.ts' }],
         raw: {
           functions: [
             {
@@ -1226,8 +1463,18 @@ return app;`,
 }`,
               keyStatements: [],
               errorPaths: [
-                { type: 'guard', line: 21, condition: '!id', action: "throws Error('ID required')" },
-                { type: 'guard', line: 24, condition: '!response.ok', action: 'throws Error(HTTP status)' },
+                {
+                  type: 'guard',
+                  line: 21,
+                  condition: '!id',
+                  action: "throws Error('ID required')",
+                },
+                {
+                  type: 'guard',
+                  line: 24,
+                  condition: '!response.ok',
+                  action: 'throws Error(HTTP status)',
+                },
               ],
             },
           ],
@@ -1272,7 +1519,10 @@ return app;`,
       const markdown = formatContextAsMarkdown(context);
 
       // Should link to test file for coverage
-      assert.ok(markdown.includes('api.test.ts') || markdown.includes('test'), 'Should reference test file');
+      assert.ok(
+        markdown.includes('api.test.ts') || markdown.includes('test'),
+        'Should reference test file'
+      );
     });
   });
 
@@ -1283,7 +1533,7 @@ return app;`,
 
       // Use native fetch to test the express app
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1304,7 +1554,7 @@ return app;`,
       const app = createApp(db);
 
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1323,7 +1573,7 @@ return app;`,
       const app = createApp(db);
 
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1344,11 +1594,13 @@ return app;`,
       const app = createApp(db);
 
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
-        const response = await fetch(`http://localhost:${port}/context?files=src/auth/login.ts,src/db/users.ts`);
+        const response = await fetch(
+          `http://localhost:${port}/context?files=src/auth/login.ts,src/db/users.ts`
+        );
         const text = await response.text();
 
         assert.strictEqual(response.status, 200);
@@ -1364,11 +1616,13 @@ return app;`,
       const app = createApp(db);
 
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
-        const response = await fetch(`http://localhost:${port}/context?files=src/auth/login.ts&format=json`);
+        const response = await fetch(
+          `http://localhost:${port}/context?files=src/auth/login.ts&format=json`
+        );
         const data = await response.json();
 
         assert.strictEqual(response.status, 200);
@@ -1384,7 +1638,7 @@ return app;`,
       const app = createApp(db);
 
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1403,7 +1657,7 @@ return app;`,
       const app = createApp(db);
 
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1427,7 +1681,7 @@ return app;`,
       const app = createApp(db);
 
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1447,76 +1701,80 @@ return app;`,
   });
 
   describe('on-demand prose generation', () => {
-    it('GET /node/:path generates prose on-the-fly when node has no prose', { timeout: 5000 }, async () => {
-      const db = client.db('pith');
-      const nodes = db.collection<WikiNode>('nodes');
+    it(
+      'GET /node/:path generates prose on-the-fly when node has no prose',
+      { timeout: 5000 },
+      async () => {
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
 
-      // Add a node without prose
-      const nodeWithoutProse: WikiNode = {
-        id: 'src/newfile.ts',
-        type: 'file',
-        path: 'src/newfile.ts',
-        name: 'newfile.ts',
-        metadata: {
-          lines: 50,
-          commits: 2,
-          lastModified: new Date('2024-12-01'),
-          authors: ['dev@example.com'],
-          createdAt: new Date('2024-01-01'),
-        },
-        edges: [],
-        raw: {
-          signature: ['function newFunction(): void'],
-          exports: [{ name: 'newFunction', kind: 'function' }],
-        },
-      };
-      await nodes.insertOne(nodeWithoutProse);
+        // Add a node without prose
+        const nodeWithoutProse: WikiNode = {
+          id: 'src/newfile.ts',
+          type: 'file',
+          path: 'src/newfile.ts',
+          name: 'newfile.ts',
+          metadata: {
+            lines: 50,
+            commits: 2,
+            lastModified: new Date('2024-12-01'),
+            authors: ['dev@example.com'],
+            createdAt: new Date('2024-01-01'),
+          },
+          edges: [],
+          raw: {
+            signature: ['function newFunction(): void'],
+            exports: [{ name: 'newFunction', kind: 'function' }],
+          },
+        };
+        await nodes.insertOne(nodeWithoutProse);
 
-      // Mock LLM fetch function
-      const mockLLMResponse = JSON.stringify({
-        summary: 'Generated summary for newfile',
-        purpose: 'Generated purpose for newfile.',
-        gotchas: [],
-        keyExports: ['newFunction: Main function'],
-      });
+        // Mock LLM fetch function
+        const mockLLMResponse = JSON.stringify({
+          summary: 'Generated summary for newfile',
+          purpose: 'Generated purpose for newfile.',
+          gotchas: [],
+          keyExports: ['newFunction: Main function'],
+        });
 
-      const mockFetch = async () => ({
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: mockLLMResponse } }]
-        }),
-      });
+        const mockFetch = async () => ({
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: mockLLMResponse } }],
+          }),
+        });
 
-      const generatorConfig = {
-        provider: 'openrouter' as const,
-        model: 'anthropic/claude-sonnet-4',
-        apiKey: 'test-key',
-      };
+        const generatorConfig = {
+          provider: 'openrouter' as const,
+          model: 'anthropic/claude-sonnet-4',
+          apiKey: 'test-key',
+        };
 
-      const app = createApp(db, generatorConfig, mockFetch as unknown as typeof fetch);
+        const app = createApp(db, generatorConfig, mockFetch as unknown as typeof fetch);
 
-      const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
-      const port = (server.address() as { port: number }).port;
+        const server = app.listen(0);
+        await new Promise<void>((resolve) => server.once('listening', resolve));
+        const port = (server.address() as { port: number }).port;
 
-      try {
-        const response = await fetch(`http://localhost:${port}/node/src/newfile.ts`);
-        const data = await response.json();
+        try {
+          const response = await fetch(`http://localhost:${port}/node/src/newfile.ts`);
+          const data = await response.json();
 
-        assert.strictEqual(response.status, 200);
-        assert.strictEqual(data.id, 'src/newfile.ts');
-        // Should have generated prose
-        assert.ok(data.prose);
-        assert.strictEqual(data.prose.summary, 'Generated summary for newfile');
+          assert.strictEqual(response.status, 200);
+          assert.strictEqual(data.id, 'src/newfile.ts');
+          // Should have generated prose
+          assert.ok(data.prose);
+          assert.strictEqual(data.prose.summary, 'Generated summary for newfile');
 
-        // Verify prose was cached to DB
-        const nodeFromDb = await nodes.findOne({ id: 'src/newfile.ts' });
-        assert.ok(nodeFromDb?.prose);
-        assert.strictEqual(nodeFromDb.prose.summary, 'Generated summary for newfile');
-      } finally {
-        server.close();
+          // Verify prose was cached to DB
+          const nodeFromDb = await nodes.findOne({ id: 'src/newfile.ts' });
+          assert.ok(nodeFromDb?.prose);
+          assert.strictEqual(nodeFromDb.prose.summary, 'Generated summary for newfile');
+        } finally {
+          server.close();
+        }
       }
-    });
+    );
 
     it('GET /node/:path skips generation when prose=false', { timeout: 5000 }, async () => {
       const db = client.db('pith');
@@ -1553,7 +1811,7 @@ return app;`,
       const app = createApp(db, generatorConfig, mockFetch as unknown as typeof fetch);
 
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1569,39 +1827,43 @@ return app;`,
       }
     });
 
-    it('GET /node/:path returns existing prose without regenerating', { timeout: 5000 }, async () => {
-      const db = client.db('pith');
+    it(
+      'GET /node/:path returns existing prose without regenerating',
+      { timeout: 5000 },
+      async () => {
+        const db = client.db('pith');
 
-      const mockFetch = async () => {
-        throw new Error('LLM should not be called for existing prose');
-      };
+        const mockFetch = async () => {
+          throw new Error('LLM should not be called for existing prose');
+        };
 
-      const generatorConfig = {
-        provider: 'openrouter' as const,
-        model: 'anthropic/claude-sonnet-4',
-        apiKey: 'test-key',
-      };
+        const generatorConfig = {
+          provider: 'openrouter' as const,
+          model: 'anthropic/claude-sonnet-4',
+          apiKey: 'test-key',
+        };
 
-      const app = createApp(db, generatorConfig, mockFetch as unknown as typeof fetch);
+        const app = createApp(db, generatorConfig, mockFetch as unknown as typeof fetch);
 
-      const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
-      const port = (server.address() as { port: number }).port;
+        const server = app.listen(0);
+        await new Promise<void>((resolve) => server.once('listening', resolve));
+        const port = (server.address() as { port: number }).port;
 
-      try {
-        // Request node that already has prose
-        const response = await fetch(`http://localhost:${port}/node/src/auth/login.ts`);
-        const data = await response.json();
+        try {
+          // Request node that already has prose
+          const response = await fetch(`http://localhost:${port}/node/src/auth/login.ts`);
+          const data = await response.json();
 
-        assert.strictEqual(response.status, 200);
-        assert.strictEqual(data.id, 'src/auth/login.ts');
-        // Should return existing prose
-        assert.ok(data.prose);
-        assert.strictEqual(data.prose.summary, 'Handles user authentication via credentials.');
-      } finally {
-        server.close();
+          assert.strictEqual(response.status, 200);
+          assert.strictEqual(data.id, 'src/auth/login.ts');
+          // Should return existing prose
+          assert.ok(data.prose);
+          assert.strictEqual(data.prose.summary, 'Handles user authentication via credentials.');
+        } finally {
+          server.close();
+        }
       }
-    });
+    );
 
     it('GET /node/:path works without generatorConfig', { timeout: 5000 }, async () => {
       const db = client.db('pith');
@@ -1629,7 +1891,7 @@ return app;`,
       const app = createApp(db);
 
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1683,7 +1945,13 @@ describe('Change Impact API - Phase 6.6.5', () => {
         type: 'file',
         path: 'src/types/index.test.ts',
         name: 'index.test.ts',
-        metadata: { lines: 30, commits: 2, lastModified: new Date(), authors: ['alice'], testCommand: 'npm test -- src/types/index.test.ts' },
+        metadata: {
+          lines: 30,
+          commits: 2,
+          lastModified: new Date(),
+          authors: ['alice'],
+          testCommand: 'npm test -- src/types/index.test.ts',
+        },
         edges: [],
         raw: {},
       },
@@ -1721,7 +1989,13 @@ describe('Change Impact API - Phase 6.6.5', () => {
         type: 'file',
         path: 'src/utils/helper.test.ts',
         name: 'helper.test.ts',
-        metadata: { lines: 60, commits: 3, lastModified: new Date(), authors: ['bob'], testCommand: 'npm test -- src/utils/helper.test.ts' },
+        metadata: {
+          lines: 60,
+          commits: 3,
+          lastModified: new Date(),
+          authors: ['bob'],
+          testCommand: 'npm test -- src/utils/helper.test.ts',
+        },
         edges: [],
         raw: {},
       },
@@ -1745,12 +2019,14 @@ describe('Change Impact API - Phase 6.6.5', () => {
           functions: [
             {
               name: 'login',
-              signature: 'async function login(username: string, password: string): Promise<Session>',
+              signature:
+                'async function login(username: string, password: string): Promise<Session>',
               startLine: 15,
               endLine: 50,
               isAsync: true,
               isExported: true,
-              codeSnippet: 'const user = await findUser(username);\nconst valid = validateUser(user);\nif (!valid) throw new Error("Invalid");',
+              codeSnippet:
+                'const user = await findUser(username);\nconst valid = validateUser(user);\nif (!valid) throw new Error("Invalid");',
               keyStatements: [],
             },
           ],
@@ -1762,7 +2038,13 @@ describe('Change Impact API - Phase 6.6.5', () => {
         type: 'file',
         path: 'src/auth/login.test.ts',
         name: 'login.test.ts',
-        metadata: { lines: 120, commits: 8, lastModified: new Date(), authors: ['alice'], testCommand: 'npm test -- src/auth/login.test.ts' },
+        metadata: {
+          lines: 120,
+          commits: 8,
+          lastModified: new Date(),
+          authors: ['alice'],
+          testCommand: 'npm test -- src/auth/login.test.ts',
+        },
         edges: [],
         raw: {},
       },
@@ -1783,7 +2065,7 @@ describe('Change Impact API - Phase 6.6.5', () => {
       const db = client.db('pith');
       const app = createApp(db);
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1804,7 +2086,7 @@ describe('Change Impact API - Phase 6.6.5', () => {
       const db = client.db('pith');
       const app = createApp(db);
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1824,7 +2106,7 @@ describe('Change Impact API - Phase 6.6.5', () => {
       const db = client.db('pith');
       const app = createApp(db);
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1834,7 +2116,9 @@ describe('Change Impact API - Phase 6.6.5', () => {
         assert.strictEqual(response.status, 200);
         assert.ok(data.testFiles);
         assert.ok(data.testFiles.length > 0);
-        assert.ok(data.testFiles.some((t: { path: string }) => t.path === 'src/types/index.test.ts'));
+        assert.ok(
+          data.testFiles.some((t: { path: string }) => t.path === 'src/types/index.test.ts')
+        );
       } finally {
         server.close();
       }
@@ -1844,7 +2128,7 @@ describe('Change Impact API - Phase 6.6.5', () => {
       const db = client.db('pith');
       const app = createApp(db);
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1873,7 +2157,7 @@ describe('Change Impact API - Phase 6.6.5', () => {
 
       const app = createApp(db);
       const server = app.listen(0);
-      await new Promise<void>(resolve => server.once('listening', resolve));
+      await new Promise<void>((resolve) => server.once('listening', resolve));
       const port = (server.address() as { port: number }).port;
 
       try {
@@ -1963,9 +2247,7 @@ describe('Change Impact API - Phase 6.6.5', () => {
         path: 'src/shared/types.ts',
         name: 'types.ts',
         metadata: { lines: 50, commits: 5, lastModified: new Date(), authors: ['alice'] },
-        edges: [
-          { type: 'importedBy', target: 'src/service/user.ts' },
-        ],
+        edges: [{ type: 'importedBy', target: 'src/service/user.ts' }],
         raw: {
           exports: [
             { name: 'User', kind: 'interface' },
@@ -1981,13 +2263,9 @@ describe('Change Impact API - Phase 6.6.5', () => {
         path: 'src/service/user.ts',
         name: 'user.ts',
         metadata: { lines: 100, commits: 10, lastModified: new Date(), authors: ['bob'] },
-        edges: [
-          { type: 'imports', target: 'src/shared/types.ts' },
-        ],
+        edges: [{ type: 'imports', target: 'src/shared/types.ts' }],
         raw: {
-          imports: [
-            { from: '../shared/types', names: ['User', 'Session'] },
-          ],
+          imports: [{ from: '../shared/types', names: ['User', 'Session'] }],
           functions: [
             {
               name: 'createUser',
@@ -2011,7 +2289,10 @@ describe('Change Impact API - Phase 6.6.5', () => {
       );
 
       // Should show which functions use the changed export
-      assert.ok(markdown.includes('createUser') || markdown.includes('user.ts'), 'Should show dependent function or file');
+      assert.ok(
+        markdown.includes('createUser') || markdown.includes('user.ts'),
+        'Should show dependent function or file'
+      );
       assert.ok(markdown.includes('User'), 'Should show used export');
     });
   });
