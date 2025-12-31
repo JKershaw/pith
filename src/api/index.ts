@@ -175,6 +175,49 @@ export function formatContextAsMarkdown(context: BundledContext): string {
         }
       }
       lines.push('');
+
+      // Phase 6.7.2.2: Detect middleware patterns for Express-style apps
+      const middlewarePatterns: Array<{ line: number; text: string }> = [];
+      if (node.raw.functions) {
+        for (const func of node.raw.functions) {
+          // Check key statements for app.use or router.use patterns
+          if (func.keyStatements) {
+            for (const stmt of func.keyStatements) {
+              if (stmt.text.includes('.use(') || stmt.text.includes('app.use') || stmt.text.includes('router.use')) {
+                middlewarePatterns.push({ line: stmt.line, text: stmt.text });
+              }
+            }
+          }
+          // Also check code snippet for middleware patterns
+          if (func.codeSnippet && (func.codeSnippet.includes('.use(') || func.codeSnippet.includes('app.use'))) {
+            // Extract app.use lines from code snippet
+            const snippetLines = func.codeSnippet.split('\n');
+            for (let i = 0; i < snippetLines.length; i++) {
+              const snippetLine = snippetLines[i];
+              if (snippetLine.includes('.use(') || snippetLine.includes('app.use') || snippetLine.includes('router.use')) {
+                // Check if we already captured this from key statements
+                const alreadyFound = middlewarePatterns.some(p => p.text === snippetLine.trim());
+                if (!alreadyFound) {
+                  middlewarePatterns.push({ line: func.startLine + i, text: snippetLine.trim() });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (middlewarePatterns.length > 0) {
+        lines.push('**Middleware Insertion Points:**');
+        lines.push('');
+        lines.push('Add new middleware after existing `.use()` calls:');
+        for (const pattern of middlewarePatterns.slice(0, 5)) {
+          lines.push(`- Line ${pattern.line}: \`${pattern.text}\``);
+        }
+        if (middlewarePatterns.length > 5) {
+          lines.push(`- ... and ${middlewarePatterns.length - 5} more middleware calls`);
+        }
+        lines.push('');
+      }
     }
 
     // Prose summary and purpose

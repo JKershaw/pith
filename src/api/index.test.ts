@@ -577,6 +577,67 @@ describe('API', () => {
       assert.ok(markdown.includes('npm test'), 'Should show test command');
     });
 
+    it('shows middleware insertion points for Express-style apps - Phase 6.7.2.2', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add an Express-style server file with middleware
+      const serverNode: WikiNode = {
+        id: 'src/api/server.ts',
+        type: 'file',
+        path: 'src/api/server.ts',
+        name: 'server.ts',
+        metadata: {
+          lines: 100,
+          commits: 10,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 6,  // Above threshold for modification checklist
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/index.ts' },
+          { type: 'importedBy', target: 'src/cli/serve.ts' },
+          { type: 'importedBy', target: 'src/api/routes.ts' },
+          { type: 'importedBy', target: 'src/api/middleware.ts' },
+          { type: 'importedBy', target: 'src/api/auth.ts' },
+          { type: 'importedBy', target: 'src/api/handlers.ts' },
+        ],
+        raw: {
+          functions: [
+            {
+              name: 'createApp',
+              signature: 'function createApp(): Express',
+              startLine: 15,
+              endLine: 80,
+              isAsync: false,
+              isExported: true,
+              codeSnippet: `const app = express();
+app.use(express.json());
+app.use(cors());
+app.use('/api', routes);
+return app;`,
+              keyStatements: [
+                { line: 16, text: 'app = express()', category: 'config' },
+                { line: 17, text: 'app.use(express.json())', category: 'config' },
+                { line: 18, text: 'app.use(cors())', category: 'config' },
+                { line: 19, text: "app.use('/api', routes)", category: 'config' },
+              ],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(serverNode);
+
+      const context = await bundleContext(db, ['src/api/server.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show middleware insertion point
+      assert.ok(markdown.includes('Middleware'), 'Should mention middleware');
+      assert.ok(markdown.includes('app.use'), 'Should show app.use pattern');
+    });
+
     it('does not show modification checklist for low fan-in files - Phase 6.7.2.1', async () => {
       const db = client.db('pith');
       const nodes = db.collection<WikiNode>('nodes');
