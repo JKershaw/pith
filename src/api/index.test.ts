@@ -1066,6 +1066,71 @@ return app;`,
       assert.ok(markdown.includes('slash') || markdown.includes("startsWith('/')"), 'Should mention slash requirement');
     });
 
+    it('shows detected patterns with evidence - Phase 6.7.5', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithPatterns: WikiNode = {
+        id: 'src/api/client.ts',
+        type: 'file',
+        path: 'src/api/client.ts',
+        name: 'client.ts',
+        metadata: {
+          lines: 200,
+          commits: 15,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {
+          patterns: [
+            {
+              name: 'retry',
+              confidence: 'high',
+              evidence: [
+                'line 45: maxRetries = 3',
+                'line 60: catch block with retry logic',
+                'line 65: exponential backoff',
+              ],
+              location: 'src/api/client.ts:fetchWithRetry',
+            },
+          ],
+          functions: [
+            {
+              name: 'fetchWithRetry',
+              signature: 'async function fetchWithRetry(url: string): Promise<Response>',
+              startLine: 40,
+              endLine: 80,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: `async function fetchWithRetry(url: string): Promise<Response> {
+  const maxRetries = 3;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try { return await fetch(url); }
+    catch (e) { await sleep(Math.pow(2, attempt) * 1000); }
+  }
+}`,
+              keyStatements: [
+                { line: 45, text: 'maxRetries = 3', category: 'config' },
+                { line: 65, text: 'Math.pow(2, attempt) * 1000', category: 'math' },
+              ],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(fileWithPatterns);
+
+      const context = await bundleContext(db, ['src/api/client.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show detected patterns with evidence
+      assert.ok(markdown.includes('Pattern') || markdown.includes('pattern'), 'Should have patterns section');
+      assert.ok(markdown.includes('retry') || markdown.includes('Retry'), 'Should show retry pattern');
+      assert.ok(markdown.includes('evidence') || markdown.includes('maxRetries'), 'Should show evidence');
+    });
+
     it('shows enhanced call flow with file:line references - Phase 6.7.3', async () => {
       const db = client.db('pith');
       const nodes = db.collection<WikiNode>('nodes');

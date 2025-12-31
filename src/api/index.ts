@@ -319,6 +319,36 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       }
     }
 
+    // Phase 6.7.5: Detected Patterns with evidence
+    if (node.type === 'file' && node.raw.patterns && node.raw.patterns.length > 0) {
+      lines.push('');
+      lines.push('**Detected Patterns:**');
+      for (const pattern of node.raw.patterns) {
+        const patternName = pattern.name.charAt(0).toUpperCase() + pattern.name.slice(1);
+        lines.push('');
+        lines.push(`*${patternName} Pattern* (${pattern.confidence} confidence)`);
+        lines.push(`- Location: \`${pattern.location}\``);
+
+        if (pattern.evidence && pattern.evidence.length > 0) {
+          lines.push('- Evidence:');
+          for (const ev of pattern.evidence) {
+            lines.push(`  - ${ev}`);
+          }
+        }
+
+        // Phase 6.7.5.3: Pattern-specific usage guidance
+        if (pattern.name === 'retry') {
+          lines.push('- Usage: To customize retry behavior, modify maxRetries and backoff formula');
+        } else if (pattern.name === 'cache') {
+          lines.push('- Usage: Use get/set/has methods; check cache invalidation logic');
+        } else if (pattern.name === 'singleton') {
+          lines.push('- Usage: Access via getInstance(); don\'t instantiate directly');
+        } else if (pattern.name === 'builder') {
+          lines.push('- Usage: Chain method calls; call build() at the end');
+        }
+      }
+    }
+
     // Functions with details (Phase 6.6.1) - preferred over signatures when available
     if (node.type === 'file' && node.raw.functions && node.raw.functions.length > 0) {
       lines.push('');
