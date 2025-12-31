@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.6.7b (Cross-File Call Graph)
-**Current step**: Phase 6.7 - Enhanced Output Integration
+**Last completed phase**: Phase 6.7.2 (Modification Guides)
+**Current step**: Phase 6.7 - Enhanced Output Integration (continuing 6.7.1, 6.7.3-6.7.5)
 **Date**: 2025-12-31
 
 ---
@@ -437,14 +437,64 @@ Phase 6.6 is complete, but v7 benchmark shows gaps remain. Analysis of why:
 | 6.7.1.2 | Group usages by type (import, property access, call) | Pending |
 | 6.7.1.3 | Find property access sites for interfaces/types | Pending |
 
-### 6.7.2 Modification Guides ⬅️ PRIORITY (M gap: -9.7)
+### 6.7.2 Modification Guides - COMPLETE ✅
 
 | Step | What | Status |
 |------|------|--------|
-| 6.7.2.1 | Include "Modification Checklist" for high-fanIn types | Pending |
-| 6.7.2.2 | Identify insertion points for middleware patterns | Pending |
-| 6.7.2.3 | Include test update requirements in guides | Pending |
-| 6.7.2.4 | Add "Similar Changes" section from git history | Pending |
+| 6.7.2.1 | Include "Modification Checklist" for high-fanIn types | **Done** |
+| 6.7.2.2 | Identify insertion points for middleware patterns | **Done** |
+| 6.7.2.3 | Include test update requirements in guides | **Done** |
+| 6.7.2.4 | Add "Similar Changes" section from git history | **Done** |
+
+**Implementation Summary (2025-12-31)**:
+
+**API additions** (`src/api/index.ts`):
+For high fan-in files (>5 dependents), the `/context` markdown now includes:
+
+1. **Modification Checklist** (6.7.2.1):
+   - Step 1: Update this file - shows file path and exported types
+   - Step 2: Update consumers - lists dependent files (up to 10)
+   - Step 3: Run tests - links to test file if available
+
+2. **Test Update Requirements** (6.7.2.3):
+   - Shows test file path from testFile edges
+   - Shows test command from metadata or generates default
+
+3. **Middleware Insertion Points** (6.7.2.2):
+   - Detects Express-style middleware patterns (app.use, router.use)
+   - Shows line numbers for existing middleware calls
+   - Guides where to add new middleware
+
+4. **Recent Changes** (6.7.2.4):
+   - Shows last 5 commits from git history
+   - Includes hash, message, author, date
+
+**Example output for high-fanIn file**:
+```markdown
+**Modification Checklist:**
+
+1. **Update this file** - Make changes to `src/types/index.ts`
+   - Exported types: WikiNode, Edge
+2. **Update consumers** - 8 files depend on this:
+   - `src/api/index.ts`
+   - `src/builder/index.ts`
+   - ... and 6 more files
+3. **Run tests** - Verify changes don't break consumers
+   - Test file: `src/types/index.test.ts`
+   - Run: `npm test -- src/types/index.test.ts`
+
+**Recent Changes:**
+Prior changes to this file (for reference):
+- `abc1234` feat: add metadata field to WikiNode (alice, 2024-12-01)
+- `def5678` refactor: update Edge type definition (bob, 2024-11-15)
+```
+
+**Tests**: 357 total (4 new for Phase 6.7.2)
+
+**What this enables**:
+- Benchmark M1-M3 (Modification tasks): Expected improvement via actionable checklists
+- Shows developers exactly what needs updating when modifying widely-used types
+- Includes historical context and test requirements
 
 ### 6.7.3 Enhanced Call Flow Presentation
 
