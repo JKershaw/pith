@@ -10,16 +10,64 @@ import {
 } from '../builder/index.ts';
 import type { GeneratorConfig } from '../generator/index.ts';
 import { generateProseForNode } from '../generator/index.ts';
+import type { ErrorPath } from '../extractor/errors.ts';
 import express, { type Express, type Request, type Response } from 'express';
 import { stat } from 'node:fs/promises';
+
+/**
+ * Pattern-specific usage guidance for detected design patterns.
+ * Maps pattern name to usage hint string.
+ */
+const PATTERN_GUIDANCE: Record<string, string> = {
+  retry: 'To customize retry behavior, modify maxRetries and backoff formula',
+  cache: 'Use get/set/has methods; check cache invalidation logic',
+  singleton: "Access via getInstance(); don't instantiate directly",
+  builder: 'Chain method calls; call build() at the end',
+};
+
+/**
+ * Format a cross-file call reference for display.
+ * @param reference - The call reference in "file:funcName" format
+ * @param arrow - The arrow direction ('→' for calls, '←' for called by)
+ * @returns Formatted markdown string
+ */
+function formatCallReference(reference: string, arrow: string): string {
+  const [filePath, funcName] = reference.includes(':') ? reference.split(':') : [reference, ''];
+  if (funcName) {
+    return `- \`${filePath}\` ${arrow} \`${funcName}()\``;
+  }
+  return `- \`${reference}\``;
+}
+
+/**
+ * Format test file links for a node.
+ * @param node - The wiki node containing test file edges
+ * @param context - The bundled context to look up test file nodes
+ * @returns Array of formatted test file link strings
+ */
+function formatTestFileLinks(node: WikiNode, context: BundledContext): string[] {
+  const lines: string[] = [];
+  const testFileEdges = node.edges.filter((e) => e.type === 'testFile');
+
+  for (const edge of testFileEdges) {
+    const testFileNode = context.nodes.find((n) => n.id === edge.target);
+    if (testFileNode?.metadata.testCommand) {
+      lines.push(`- Run: \`${testFileNode.metadata.testCommand}\``);
+    } else {
+      lines.push(`- See: \`${edge.target}\``);
+    }
+  }
+
+  return lines;
+}
 
 /**
  * Bundled context for LLM consumption
  */
 export interface BundledContext {
-  nodes: WikiNode[];     // All relevant nodes
-  errors: string[];      // Any errors during bundling
-  depth: number;         // Maximum traversal depth used
+  nodes: WikiNode[]; // All relevant nodes
+  errors: string[]; // Any errors during bundling
+  depth: number; // Maximum traversal depth used
 }
 
 /**
@@ -42,7 +90,7 @@ export async function bundleContext(
 
   // Fetch requested nodes in parallel
   const requestedNodes = await Promise.all(
-    paths.map(path => nodesCollection.findOne({ id: path }))
+    paths.map((path) => nodesCollection.findOne({ id: path }))
   );
 
   for (let i = 0; i < paths.length; i++) {
@@ -63,7 +111,7 @@ export async function bundleContext(
 
     for (const node of initialNodes) {
       // Collect import targets
-      const importEdges = node.edges.filter(e => e.type === 'imports');
+      const importEdges = node.edges.filter((e) => e.type === 'imports');
       for (const edge of importEdges) {
         if (!nodeMap.has(edge.target)) {
           targetsToFetch.add(edge.target);
@@ -71,13 +119,13 @@ export async function bundleContext(
       }
 
       // Collect parent target
-      const parentEdge = node.edges.find(e => e.type === 'parent');
+      const parentEdge = node.edges.find((e) => e.type === 'parent');
       if (parentEdge && !nodeMap.has(parentEdge.target)) {
         targetsToFetch.add(parentEdge.target);
       }
 
       // Collect test file targets (Phase 6.2.3)
-      const testFileEdges = node.edges.filter(e => e.type === 'testFile');
+      const testFileEdges = node.edges.filter((e) => e.type === 'testFile');
       for (const edge of testFileEdges) {
         if (!nodeMap.has(edge.target)) {
           targetsToFetch.add(edge.target);
@@ -87,7 +135,7 @@ export async function bundleContext(
 
     // Fetch all related nodes in parallel
     const relatedNodes = await Promise.all(
-      [...targetsToFetch].map(target => nodesCollection.findOne({ id: target }))
+      [...targetsToFetch].map((target) => nodesCollection.findOne({ id: target }))
     );
 
     for (const node of relatedNodes) {
@@ -134,6 +182,122 @@ export function formatContextAsMarkdown(context: BundledContext): string {
     if (node.metadata.fanIn !== undefined && node.metadata.fanIn > 5) {
       lines.push('');
       lines.push(`> **Warning:** Widely used (${node.metadata.fanIn} files depend on this)`);
+    }
+
+    // Phase 6.7.2.1: Modification Checklist for high-fanIn files
+    if (node.type === 'file' && node.metadata.fanIn !== undefined && node.metadata.fanIn > 5) {
+      const dependentEdges = node.edges.filter((e) => e.type === 'importedBy');
+      const testFileEdges = node.edges.filter((e) => e.type === 'testFile');
+
+      lines.push('');
+      lines.push('**Modification Checklist:**');
+      lines.push('');
+      lines.push(`1. **Update this file** - Make changes to \`${node.path}\``);
+
+      // List exported types/interfaces if available
+      if (node.raw.exports && node.raw.exports.length > 0) {
+        const types = node.raw.exports.filter((e) => e.kind === 'interface' || e.kind === 'type');
+        if (types.length > 0) {
+          lines.push(`   - Exported types: ${types.map((t) => t.name).join(', ')}`);
+        }
+      }
+
+      lines.push(`2. **Update consumers** - ${node.metadata.fanIn} files depend on this:`);
+      for (const edge of dependentEdges.slice(0, 10)) {
+        lines.push(`   - \`${edge.target}\``);
+      }
+      if (dependentEdges.length > 10) {
+        lines.push(`   - ... and ${dependentEdges.length - 10} more files`);
+      }
+
+      lines.push(`3. **Run tests** - Verify changes don't break consumers`);
+      if (testFileEdges.length > 0) {
+        lines.push(`   - Test file: \`${testFileEdges[0].target}\``);
+        // Look for the test file node in context to get the test command
+        const testFileNode = context.nodes.find((n) => n.id === testFileEdges[0].target);
+        if (testFileNode?.metadata.testCommand) {
+          lines.push(`   - Run: \`${testFileNode.metadata.testCommand}\``);
+        } else {
+          // Fallback to a default npm test command
+          lines.push(`   - Run: \`npm test -- ${testFileEdges[0].target}\``);
+        }
+      }
+      lines.push('');
+
+      // Phase 6.7.2.2: Detect middleware patterns for Express-style apps
+      const middlewarePatterns: Array<{ line: number; text: string }> = [];
+      if (node.raw.functions) {
+        for (const func of node.raw.functions) {
+          // Check key statements for app.use or router.use patterns
+          if (func.keyStatements) {
+            for (const stmt of func.keyStatements) {
+              if (
+                stmt.text.includes('.use(') ||
+                stmt.text.includes('app.use') ||
+                stmt.text.includes('router.use')
+              ) {
+                middlewarePatterns.push({ line: stmt.line, text: stmt.text });
+              }
+            }
+          }
+          // Also check code snippet for middleware patterns
+          if (
+            func.codeSnippet &&
+            (func.codeSnippet.includes('.use(') || func.codeSnippet.includes('app.use'))
+          ) {
+            // Extract app.use lines from code snippet
+            const snippetLines = func.codeSnippet.split('\n');
+            for (let i = 0; i < snippetLines.length; i++) {
+              const snippetLine = snippetLines[i];
+              if (
+                snippetLine.includes('.use(') ||
+                snippetLine.includes('app.use') ||
+                snippetLine.includes('router.use')
+              ) {
+                // Check if we already captured this from key statements
+                const alreadyFound = middlewarePatterns.some((p) => p.text === snippetLine.trim());
+                if (!alreadyFound) {
+                  middlewarePatterns.push({ line: func.startLine + i, text: snippetLine.trim() });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (middlewarePatterns.length > 0) {
+        lines.push('**Middleware Insertion Points:**');
+        lines.push('');
+        lines.push('Add new middleware after existing `.use()` calls:');
+        for (const pattern of middlewarePatterns.slice(0, 5)) {
+          lines.push(`- Line ${pattern.line}: \`${pattern.text}\``);
+        }
+        if (middlewarePatterns.length > 5) {
+          lines.push(`- ... and ${middlewarePatterns.length - 5} more middleware calls`);
+        }
+        lines.push('');
+      }
+
+      // Phase 6.7.2.4: Show recent changes from git history
+      if (node.raw.recentCommits && node.raw.recentCommits.length > 0) {
+        lines.push('**Recent Changes:**');
+        lines.push('');
+        lines.push('Prior changes to this file (for reference):');
+        for (const commit of node.raw.recentCommits.slice(0, 5)) {
+          const hash = commit.hash?.substring(0, 7) ?? 'unknown';
+          const message = commit.message ?? 'No message';
+          const author = commit.author ?? 'Unknown author';
+          const dateStr =
+            commit.date instanceof Date
+              ? commit.date.toISOString().split('T')[0]
+              : String(commit.date ?? 'unknown date').split('T')[0];
+          lines.push(`- \`${hash}\` ${message} (${author}, ${dateStr})`);
+        }
+        if (node.raw.recentCommits.length > 5) {
+          lines.push(`- ... and ${node.raw.recentCommits.length - 5} more commits`);
+        }
+        lines.push('');
+      }
     }
 
     // Prose summary and purpose
@@ -220,6 +384,31 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       }
     }
 
+    // Phase 6.7.5: Detected Patterns with evidence
+    if (node.type === 'file' && node.raw.patterns && node.raw.patterns.length > 0) {
+      lines.push('');
+      lines.push('**Detected Patterns:**');
+      for (const pattern of node.raw.patterns) {
+        const patternName = pattern.name.charAt(0).toUpperCase() + pattern.name.slice(1);
+        lines.push('');
+        lines.push(`*${patternName} Pattern* (${pattern.confidence} confidence)`);
+        lines.push(`- Location: \`${pattern.location}\``);
+
+        if (pattern.evidence && pattern.evidence.length > 0) {
+          lines.push('- Evidence:');
+          for (const ev of pattern.evidence) {
+            lines.push(`  - ${ev}`);
+          }
+        }
+
+        // Phase 6.7.5.3: Pattern-specific usage guidance
+        const guidance = PATTERN_GUIDANCE[pattern.name];
+        if (guidance) {
+          lines.push(`- Usage: ${guidance}`);
+        }
+      }
+    }
+
     // Functions with details (Phase 6.6.1) - preferred over signatures when available
     if (node.type === 'file' && node.raw.functions && node.raw.functions.length > 0) {
       lines.push('');
@@ -240,9 +429,68 @@ export function formatContextAsMarkdown(context: BundledContext): string {
           }
         }
 
-        // Call Flow (Phase 6.6.7b.4) - show for functions with >3 cross-file calls
-        const totalCrossFileCalls = (func.crossFileCalls?.length || 0) + (func.crossFileCalledBy?.length || 0);
-        if (totalCrossFileCalls > 3) {
+        // Phase 6.7.4.1: Error Paths grouped by symptom
+        if (func.errorPaths && func.errorPaths.length > 0) {
+          lines.push('');
+          lines.push('**Error Paths:**');
+
+          // Group by type for better organization
+          const errorPaths = func.errorPaths as ErrorPath[];
+          const guards = errorPaths.filter((e) => e.type === 'guard');
+          const earlyReturns = errorPaths.filter((e) => e.type === 'early-return');
+          const throws = errorPaths.filter((e) => e.type === 'throw');
+          const catches = errorPaths.filter((e) => e.type === 'catch');
+
+          // Show validation guards first (most important for debugging)
+          if (guards.length > 0) {
+            lines.push('');
+            lines.push('*Validation guards:*');
+            for (const g of guards) {
+              lines.push(`- Line ${g.line}: \`${g.condition}\` → ${g.action}`);
+            }
+          }
+
+          // Show early returns
+          if (earlyReturns.length > 0) {
+            lines.push('');
+            lines.push('*Early returns:*');
+            for (const r of earlyReturns) {
+              lines.push(`- Line ${r.line}: \`${r.condition}\` → ${r.action}`);
+            }
+          }
+
+          // Show throws
+          if (throws.length > 0) {
+            lines.push('');
+            lines.push('*Throws:*');
+            for (const t of throws) {
+              const condText = t.condition ? `\`${t.condition}\` → ` : '';
+              lines.push(`- Line ${t.line}: ${condText}${t.action}`);
+            }
+          }
+
+          // Show catch handlers
+          if (catches.length > 0) {
+            lines.push('');
+            lines.push('*Error handlers:*');
+            for (const c of catches) {
+              lines.push(`- Line ${c.line}: \`${c.condition}\` → ${c.action}`);
+            }
+          }
+
+          // Phase 6.7.4.4: Link to test files that cover error paths
+          const testLinks = formatTestFileLinks(node, context);
+          if (testLinks.length > 0) {
+            lines.push('');
+            lines.push('*Test coverage:*');
+            lines.push(...testLinks);
+          }
+        }
+
+        // Phase 6.7.3: Enhanced Call Flow - show for functions with cross-file calls
+        const hasCrossCalls = (func.crossFileCalls?.length || 0) > 0;
+        const hasCallers = (func.crossFileCalledBy?.length || 0) > 0;
+        if (hasCrossCalls || hasCallers) {
           lines.push('');
           lines.push('**Call Flow:**');
 
@@ -251,7 +499,7 @@ export function formatContextAsMarkdown(context: BundledContext): string {
             lines.push('');
             lines.push('*Calls:*');
             for (const callee of func.crossFileCalls) {
-              lines.push(`- ${callee}`);
+              lines.push(formatCallReference(callee, '→'));
             }
           }
 
@@ -260,7 +508,7 @@ export function formatContextAsMarkdown(context: BundledContext): string {
             lines.push('');
             lines.push('*Called by:*');
             for (const caller of func.crossFileCalledBy) {
-              lines.push(`- ${caller}`);
+              lines.push(formatCallReference(caller, '←'));
             }
           }
         }
@@ -287,7 +535,7 @@ export function formatContextAsMarkdown(context: BundledContext): string {
     }
 
     // Edges (imports)
-    const importEdges = node.edges.filter(e => e.type === 'imports');
+    const importEdges = node.edges.filter((e) => e.type === 'imports');
     if (importEdges.length > 0) {
       lines.push('');
       lines.push('**Imports (resolved):**');
@@ -297,7 +545,7 @@ export function formatContextAsMarkdown(context: BundledContext): string {
     }
 
     // Phase 6.3.2: Dependents (importedBy edges)
-    const dependentEdges = node.edges.filter(e => e.type === 'importedBy');
+    const dependentEdges = node.edges.filter((e) => e.type === 'importedBy');
     if (dependentEdges.length > 0) {
       lines.push('');
       lines.push('**Dependents:**');
@@ -435,7 +683,11 @@ export function formatChangeImpactAsMarkdown(
   }
 
   // Test files to run
-  const allAffectedFiles = [sourceFileId, ...impact.directDependents, ...impact.transitiveDependents];
+  const allAffectedFiles = [
+    sourceFileId,
+    ...impact.directDependents,
+    ...impact.transitiveDependents,
+  ];
   const testFiles = getTestFilesForImpact(allAffectedFiles, allNodes);
 
   if (testFiles.length > 0) {
@@ -544,7 +796,10 @@ export function createApp(
         return;
       }
 
-      const filePaths = files.split(',').map(f => f.trim()).filter(f => f.length > 0);
+      const filePaths = files
+        .split(',')
+        .map((f) => f.trim())
+        .filter((f) => f.length > 0);
 
       if (filePaths.length === 0) {
         res.status(400).json({
@@ -599,13 +854,15 @@ export function createApp(
       const impact = buildImpactTree(nodePath, allNodes);
 
       // Get changed exports if provided
-      const changedExports = exportsParam ? exportsParam.split(',').map(e => e.trim()) : undefined;
+      const changedExports = exportsParam
+        ? exportsParam.split(',').map((e) => e.trim())
+        : undefined;
 
       // Find affected functions for each dependent
       const affectedFunctions: Record<string, AffectedFunction[]> = {};
       if (changedExports && changedExports.length > 0) {
         for (const depId of [...impact.directDependents, ...impact.transitiveDependents]) {
-          const depNode = allNodes.find(n => n.id === depId);
+          const depNode = allNodes.find((n) => n.id === depId);
           if (depNode) {
             const affected = findAffectedFunctions(depNode, changedExports);
             if (affected.length > 0) {
@@ -616,7 +873,11 @@ export function createApp(
       }
 
       // Get test files
-      const allAffectedFiles = [nodePath, ...impact.directDependents, ...impact.transitiveDependents];
+      const allAffectedFiles = [
+        nodePath,
+        ...impact.directDependents,
+        ...impact.transitiveDependents,
+      ];
       const testFiles = getTestFilesForImpact(allAffectedFiles, allNodes);
 
       // Build result
