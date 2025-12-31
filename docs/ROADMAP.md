@@ -2,20 +2,26 @@
 
 ## Current Status
 
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 1-5 | ✅ Complete | MVP: Extraction, Build, Generate, API, Polish |
-| 6.1-6.5 | ✅ Complete | On-demand generation, test files, modification impact, patterns, gotcha validation |
-| 6.6.1-6.6.8 | ✅ Complete | Line numbers, code snippets, key statements, change impact, patterns, call graphs, error paths |
-| **6.7.1-6.7.5** | **⬅️ Next** | **Enhanced output: consumer locations, modification guides, call flow, debugging hints, pattern evidence** |
-| 7+ | Planned | Advanced relationships, integrations |
+| Phase       | Status      | Description                                                                                            |
+| ----------- | ----------- | ------------------------------------------------------------------------------------------------------ |
+| 1-5         | ✅ Complete | MVP: Extraction, Build, Generate, API, Polish                                                          |
+| 6.1-6.5     | ✅ Complete | On-demand generation, test files, modification impact, patterns, gotcha validation                     |
+| 6.6.1-6.6.8 | ✅ Complete | Line numbers, code snippets, key statements, change impact, patterns, call graphs, error paths         |
+| 6.7.1-6.7.5 | ✅ Complete | Enhanced output: consumer locations, modification guides, call flow, debugging hints, pattern evidence |
+| **6.8**     | **⬅️ Next** | **Deterministic Gap Closure - Symbol tracking, content preservation, config extraction**               |
+| 9           | Planned     | MCP Server integration                                                                                 |
+| 7-8, 10     | Planned     | Advanced relationships, intelligence, scale                                                            |
 
-**Current focus**: Phase 6.7 - Enhanced Output Integration (close actionability/completeness gaps from v7 benchmark).
+**Current focus**: Phase 6.8 - Close remaining deterministic gaps before adding MCP server delivery layer.
 
-**Latest benchmark** (2025-12-30 v7, 15 tasks): Pith 16.3/25 (65%) vs Control 23.9/25 (96%). Gap: 7.6 points.
-- Worst criteria: Actionability (2.1/5), Completeness (2.3/5)
-- Worst category: Modification tasks (14/25)
-- See [v7 benchmark results](benchmark-results/2025-12-30-self-test-v7.md) for analysis.
+**Latest benchmark** (2025-12-31, 15 tasks): Pith 19.4/25 (78%) vs Control 22.9/25 (92%). Gap: 3.5 points.
+
+- Pith wins: 5 tasks (A1, A2, B1, M3 + tie on A3)
+- Best category: Architecture (22.7/25) - Pith wins this category
+- Remaining gaps: Debugging (16/25), Relationship precision (R3: 69% false positives)
+- See [2025-12-31 benchmark results](benchmark-results/2025-12-31-self-test.md) for full analysis.
+
+**Progress**: Phase 6.6-6.7 closed the gap from 7.6 to 3.5 points (+13% improvement).
 
 ---
 
@@ -33,19 +39,20 @@ See [EXTRACTION.md](EXTRACTION.md) for complete data definitions and types.
 
 Complete these before any extraction work:
 
-| Step | Test | Implementation |
-|------|------|----------------|
-| 1.0.1 | - | Initialize TypeScript project with ESM, strict mode |
-| 1.0.2 | - | Add dependencies: ts-morph, simple-git, commander, @jkershaw/mangodb |
-| 1.0.3 | `node --test` runs | Configure Node test runner |
-| 1.0.4 | `npm run lint` passes | Set up ESLint + Prettier |
-| 1.0.5 | CI passes on push | Set up GitHub Actions workflow |
-| 1.0.6 | - | Create `test/fixtures/simple-project/` with sample .ts files |
-| 1.0.7 | - | Initialize fixture as git repo with sample commits |
-| 1.0.8 | CLI shows help | Scaffold CLI with `pith extract <path>` command |
-| 1.0.9 | Can connect/query | Set up MangoDB connection helper |
+| Step  | Test                  | Implementation                                                       |
+| ----- | --------------------- | -------------------------------------------------------------------- |
+| 1.0.1 | -                     | Initialize TypeScript project with ESM, strict mode                  |
+| 1.0.2 | -                     | Add dependencies: ts-morph, simple-git, commander, @jkershaw/mangodb |
+| 1.0.3 | `node --test` runs    | Configure Node test runner                                           |
+| 1.0.4 | `npm run lint` passes | Set up ESLint + Prettier                                             |
+| 1.0.5 | CI passes on push     | Set up GitHub Actions workflow                                       |
+| 1.0.6 | -                     | Create `test/fixtures/simple-project/` with sample .ts files         |
+| 1.0.7 | -                     | Initialize fixture as git repo with sample commits                   |
+| 1.0.8 | CLI shows help        | Scaffold CLI with `pith extract <path>` command                      |
+| 1.0.9 | Can connect/query     | Set up MangoDB connection helper                                     |
 
 **GitHub Actions workflow** (`.github/workflows/ci.yml`):
+
 ```yaml
 name: CI
 on: [push, pull_request]
@@ -66,58 +73,58 @@ jobs:
 
 One data point at a time. Each row = one test + one implementation.
 
-| Step | Data | Test | Implementation |
-|------|------|------|----------------|
-| 1.1.1 | File discovery | `findFiles()` returns all .ts paths in fixture | Glob for .ts files |
-| 1.1.2 | File path (A1) | `extractFile()` returns correct path | Store relative path |
-| 1.1.3 | Line count (A2) | Returns correct line count | Count newlines |
-| 1.1.4 | Imports (A3) | Returns import list with `from` and `names` | Parse ImportDeclaration |
-| 1.1.5 | Exports (A4) | Returns export list with `name` and `kind` | Parse ExportDeclaration |
-| 1.1.6 | Functions basic (A5) | Returns function name and signature | Parse FunctionDeclaration |
-| 1.1.7 | Classes basic (A6) | Returns class name and method names | Parse ClassDeclaration |
-| 1.1.8 | Interfaces (A7) | Returns interface names and properties | Parse InterfaceDeclaration |
-| 1.1.9 | Function params (A8) | Returns parameter names and types | Extract from signature |
-| 1.1.10 | Return types (A9) | Returns function return types | Extract from signature |
-| 1.1.11 | Async markers (A10) | Correctly identifies async functions | Check async modifier |
-| 1.1.12 | Store AST | Data persists in MangoDB | Insert to `extracted` collection |
+| Step   | Data                 | Test                                           | Implementation                   |
+| ------ | -------------------- | ---------------------------------------------- | -------------------------------- |
+| 1.1.1  | File discovery       | `findFiles()` returns all .ts paths in fixture | Glob for .ts files               |
+| 1.1.2  | File path (A1)       | `extractFile()` returns correct path           | Store relative path              |
+| 1.1.3  | Line count (A2)      | Returns correct line count                     | Count newlines                   |
+| 1.1.4  | Imports (A3)         | Returns import list with `from` and `names`    | Parse ImportDeclaration          |
+| 1.1.5  | Exports (A4)         | Returns export list with `name` and `kind`     | Parse ExportDeclaration          |
+| 1.1.6  | Functions basic (A5) | Returns function name and signature            | Parse FunctionDeclaration        |
+| 1.1.7  | Classes basic (A6)   | Returns class name and method names            | Parse ClassDeclaration           |
+| 1.1.8  | Interfaces (A7)      | Returns interface names and properties         | Parse InterfaceDeclaration       |
+| 1.1.9  | Function params (A8) | Returns parameter names and types              | Extract from signature           |
+| 1.1.10 | Return types (A9)    | Returns function return types                  | Extract from signature           |
+| 1.1.11 | Async markers (A10)  | Correctly identifies async functions           | Check async modifier             |
+| 1.1.12 | Store AST            | Data persists in MangoDB                       | Insert to `extracted` collection |
 
 **Checkpoint**: `pith extract ./fixture` stores all AST data. Can query functions, imports.
 
 ### 1.2 Git Extraction
 
-| Step | Data | Test | Implementation |
-|------|------|------|----------------|
-| 1.2.1 | Commit count (G1) | Returns correct count for fixture file | `git log --follow` |
-| 1.2.2 | Last modified (G2) | Returns correct date | Parse most recent commit |
-| 1.2.3 | Created date (G3) | Returns date of first commit | `git log --diff-filter=A` |
-| 1.2.4 | Authors (G4) | Returns unique author list | Collect from commits |
-| 1.2.5 | Recent commits (G5) | Returns last 5 commit messages | `git log -n 5` |
-| 1.2.6 | Primary author (G6) | Returns author with most commits | Count and sort |
-| 1.2.7 | Store Git | Git data persists in MangoDB | Update `extracted` docs |
+| Step  | Data                | Test                                   | Implementation            |
+| ----- | ------------------- | -------------------------------------- | ------------------------- |
+| 1.2.1 | Commit count (G1)   | Returns correct count for fixture file | `git log --follow`        |
+| 1.2.2 | Last modified (G2)  | Returns correct date                   | Parse most recent commit  |
+| 1.2.3 | Created date (G3)   | Returns date of first commit           | `git log --diff-filter=A` |
+| 1.2.4 | Authors (G4)        | Returns unique author list             | Collect from commits      |
+| 1.2.5 | Recent commits (G5) | Returns last 5 commit messages         | `git log -n 5`            |
+| 1.2.6 | Primary author (G6) | Returns author with most commits       | Count and sort            |
+| 1.2.7 | Store Git           | Git data persists in MangoDB           | Update `extracted` docs   |
 
 **Checkpoint**: Each extracted file has complete git metadata.
 
 ### 1.3 Documentation Extraction
 
-| Step | Data | Test | Implementation |
-|------|------|------|----------------|
-| 1.3.1 | JSDoc (D1) | Extracts description, @param, @returns | Parse JSDoc comments |
-| 1.3.2 | Inline comments (D2) | Extracts comments near functions | Find comment nodes |
-| 1.3.3 | README (D3) | Extracts README.md per directory | Read file if exists |
-| 1.3.4 | TODO comments (D4) | Finds TODO/FIXME with line numbers | Regex scan |
-| 1.3.5 | Deprecations (D5) | Extracts @deprecated messages | Parse JSDoc tag |
-| 1.3.6 | Store Docs | Doc data persists in MangoDB | Update `extracted` docs |
+| Step  | Data                 | Test                                   | Implementation          |
+| ----- | -------------------- | -------------------------------------- | ----------------------- |
+| 1.3.1 | JSDoc (D1)           | Extracts description, @param, @returns | Parse JSDoc comments    |
+| 1.3.2 | Inline comments (D2) | Extracts comments near functions       | Find comment nodes      |
+| 1.3.3 | README (D3)          | Extracts README.md per directory       | Read file if exists     |
+| 1.3.4 | TODO comments (D4)   | Finds TODO/FIXME with line numbers     | Regex scan              |
+| 1.3.5 | Deprecations (D5)    | Extracts @deprecated messages          | Parse JSDoc tag         |
+| 1.3.6 | Store Docs           | Doc data persists in MangoDB           | Update `extracted` docs |
 
 **Checkpoint**: Full extraction complete. All data queryable.
 
 ### 1.4 CLI Integration
 
-| Step | Test | Implementation |
-|------|------|----------------|
+| Step  | Test                                      | Implementation            |
+| ----- | ----------------------------------------- | ------------------------- |
 | 1.4.1 | `pith extract ./path` runs all extractors | Wire up CLI to extractors |
-| 1.4.2 | Handles missing path gracefully | Error handling |
-| 1.4.3 | Handles parse errors gracefully | Try/catch per file |
-| 1.4.4 | Shows progress | Console output |
+| 1.4.2 | Handles missing path gracefully           | Error handling            |
+| 1.4.3 | Handles parse errors gracefully           | Try/catch per file        |
+| 1.4.4 | Shows progress                            | Console output            |
 
 ### Phase 1 Exit Criteria
 
@@ -144,72 +151,72 @@ Run extraction on a real public TypeScript repo and review:
 
 ### 2.1 File Nodes
 
-| Step | Test | Implementation |
-|------|------|----------------|
-| 2.1.1 | `buildFileNode()` returns correct structure | Create basic file node from extracted data |
-| 2.1.2 | Node has correct `id` (path-based) | Generate deterministic ID |
-| 2.1.3 | Node has correct `name` (basename) | Extract filename |
-| 2.1.4 | Node has `metadata.lines` | Copy from extracted |
-| 2.1.5 | Node has `metadata.commits` | Copy from git data |
-| 2.1.6 | Node has `metadata.lastModified` | Copy from git data |
-| 2.1.7 | Node has `metadata.authors` | Copy from git data |
-| 2.1.8 | Node has `raw.signature` | Copy function signatures |
-| 2.1.9 | Node has `raw.jsdoc` | Copy JSDoc |
-| 2.1.10 | Node has `raw.imports` | Copy import list |
-| 2.1.11 | Node has `raw.exports` | Copy export list |
-| 2.1.12 | Node has `raw.recentCommits` | Copy recent commits |
-| 2.1.13 | Store file nodes | Insert to `nodes` collection |
+| Step   | Test                                        | Implementation                             |
+| ------ | ------------------------------------------- | ------------------------------------------ |
+| 2.1.1  | `buildFileNode()` returns correct structure | Create basic file node from extracted data |
+| 2.1.2  | Node has correct `id` (path-based)          | Generate deterministic ID                  |
+| 2.1.3  | Node has correct `name` (basename)          | Extract filename                           |
+| 2.1.4  | Node has `metadata.lines`                   | Copy from extracted                        |
+| 2.1.5  | Node has `metadata.commits`                 | Copy from git data                         |
+| 2.1.6  | Node has `metadata.lastModified`            | Copy from git data                         |
+| 2.1.7  | Node has `metadata.authors`                 | Copy from git data                         |
+| 2.1.8  | Node has `raw.signature`                    | Copy function signatures                   |
+| 2.1.9  | Node has `raw.jsdoc`                        | Copy JSDoc                                 |
+| 2.1.10 | Node has `raw.imports`                      | Copy import list                           |
+| 2.1.11 | Node has `raw.exports`                      | Copy export list                           |
+| 2.1.12 | Node has `raw.recentCommits`                | Copy recent commits                        |
+| 2.1.13 | Store file nodes                            | Insert to `nodes` collection               |
 
 **Checkpoint**: All files have nodes with complete metadata and raw data.
 
 ### 2.2 Function Nodes
 
-| Step | Test | Implementation |
-|------|------|----------------|
-| 2.2.1 | `shouldCreateFunctionNode()` returns true for exported functions | Heuristic check |
-| 2.2.2 | `buildFunctionNode()` returns correct structure | Create function node |
-| 2.2.3 | Node has correct `id` (file:function) | Generate ID |
-| 2.2.4 | Node has `raw.signature` | Copy signature |
-| 2.2.5 | Node has `raw.jsdoc` | Copy function's JSDoc |
-| 2.2.6 | Store function nodes | Insert to `nodes` collection |
+| Step  | Test                                                             | Implementation               |
+| ----- | ---------------------------------------------------------------- | ---------------------------- |
+| 2.2.1 | `shouldCreateFunctionNode()` returns true for exported functions | Heuristic check              |
+| 2.2.2 | `buildFunctionNode()` returns correct structure                  | Create function node         |
+| 2.2.3 | Node has correct `id` (file:function)                            | Generate ID                  |
+| 2.2.4 | Node has `raw.signature`                                         | Copy signature               |
+| 2.2.5 | Node has `raw.jsdoc`                                             | Copy function's JSDoc        |
+| 2.2.6 | Store function nodes                                             | Insert to `nodes` collection |
 
 ### 2.3 Module Nodes
 
-| Step | Test | Implementation |
-|------|------|----------------|
-| 2.3.1 | `shouldCreateModuleNode()` true for dirs with index.ts | Heuristic check |
-| 2.3.2 | `shouldCreateModuleNode()` true for dirs with 3+ files | Heuristic check |
-| 2.3.3 | `buildModuleNode()` returns correct structure | Create module node |
-| 2.3.4 | Node has `raw.readme` | Copy README if exists |
-| 2.3.5 | Store module nodes | Insert to `nodes` collection |
+| Step  | Test                                                   | Implementation               |
+| ----- | ------------------------------------------------------ | ---------------------------- |
+| 2.3.1 | `shouldCreateModuleNode()` true for dirs with index.ts | Heuristic check              |
+| 2.3.2 | `shouldCreateModuleNode()` true for dirs with 3+ files | Heuristic check              |
+| 2.3.3 | `buildModuleNode()` returns correct structure          | Create module node           |
+| 2.3.4 | Node has `raw.readme`                                  | Copy README if exists        |
+| 2.3.5 | Store module nodes                                     | Insert to `nodes` collection |
 
 ### 2.4 Edges
 
-| Step | Test | Implementation |
-|------|------|----------------|
-| 2.4.1 | `contains` edge: module → file | Create edge for each file in module |
-| 2.4.2 | `contains` edge: file → function | Create edge for each function node |
-| 2.4.3 | `imports` edge: file → file | Create edge for each import |
-| 2.4.4 | `parent` edge: file → module | Reverse of contains |
-| 2.4.5 | Edges stored on nodes | Add to `edges` array |
+| Step  | Test                             | Implementation                      |
+| ----- | -------------------------------- | ----------------------------------- |
+| 2.4.1 | `contains` edge: module → file   | Create edge for each file in module |
+| 2.4.2 | `contains` edge: file → function | Create edge for each function node  |
+| 2.4.3 | `imports` edge: file → file      | Create edge for each import         |
+| 2.4.4 | `parent` edge: file → module     | Reverse of contains                 |
+| 2.4.5 | Edges stored on nodes            | Add to `edges` array                |
 
 ### 2.5 Computed Metadata
 
-| Step | Data | Test | Implementation |
-|------|------|------|----------------|
-| 2.5.1 | Fan-in (C1) | Correct count of incoming imports | Count `imports` edges targeting node |
-| 2.5.2 | Fan-out (C2) | Correct count of outgoing imports | Count node's import edges |
-| 2.5.3 | Age (C3) | Correct days since creation | Calculate from createdAt |
-| 2.5.4 | Recency (C4) | Correct days since last change | Calculate from lastModified |
-| 2.5.5 | Update nodes | Computed data persists | Update nodes in collection |
+| Step  | Data         | Test                              | Implementation                       |
+| ----- | ------------ | --------------------------------- | ------------------------------------ |
+| 2.5.1 | Fan-in (C1)  | Correct count of incoming imports | Count `imports` edges targeting node |
+| 2.5.2 | Fan-out (C2) | Correct count of outgoing imports | Count node's import edges            |
+| 2.5.3 | Age (C3)     | Correct days since creation       | Calculate from createdAt             |
+| 2.5.4 | Recency (C4) | Correct days since last change    | Calculate from lastModified          |
+| 2.5.5 | Update nodes | Computed data persists            | Update nodes in collection           |
 
 ### 2.6 CLI Integration
 
-| Step | Test | Implementation |
-|------|------|----------------|
-| 2.6.1 | `pith build` creates all nodes | Wire up CLI |
-| 2.6.2 | Build requires extract first | Check extracted data exists |
-| 2.6.3 | Shows progress | Console output |
+| Step  | Test                           | Implementation              |
+| ----- | ------------------------------ | --------------------------- |
+| 2.6.1 | `pith build` creates all nodes | Wire up CLI                 |
+| 2.6.2 | Build requires extract first   | Check extracted data exists |
+| 2.6.3 | Shows progress                 | Console output              |
 
 ### Phase 2 Exit Criteria
 
@@ -272,7 +279,7 @@ Run build on the same real repo and review:
 Generate prose for the real repo and review quality:
 
 - [ ] Are summaries accurate and concise?
-- [ ] Does "purpose" explain *why*, not just *what*?
+- [ ] Does "purpose" explain _why_, not just _what_?
 - [ ] Are gotchas actionable? (Not generic warnings)
 - [ ] Do module summaries coherently describe their children?
 - [ ] Is anything misleading or wrong?
@@ -365,73 +372,74 @@ Works smoothly on a 100+ file codebase. Clear feedback during operations.
 **Goal**: Make output more useful for LLM task context, reduce upfront costs.
 
 Based on testing (see `docs/testing-plan.md`), the current output scores 3.3-4/5 vs control agent's 5/5. Key gaps:
+
 - Lacks specificity (function names, line numbers)
 - Gotchas can contain factual errors (LLM hallucination)
 - Missing task-oriented context (test files, patterns, modification impact)
 
-| Feature | Impact | Effort | Priority |
-|---------|--------|--------|----------|
-| **On-demand prose generation** | HIGH | Medium | 1 |
-| **Test file mapping** | HIGH | Low | 2 |
-| **Modification impact** | HIGH | Low | 3 |
-| **Pattern examples (code snippets)** | HIGH | Medium | 4 |
-| **Gotcha validation** | HIGH | High | 5 |
+| Feature                              | Impact | Effort | Priority |
+| ------------------------------------ | ------ | ------ | -------- |
+| **On-demand prose generation**       | HIGH   | Medium | 1        |
+| **Test file mapping**                | HIGH   | Low    | 2        |
+| **Modification impact**              | HIGH   | Low    | 3        |
+| **Pattern examples (code snippets)** | HIGH   | Medium | 4        |
+| **Gotcha validation**                | HIGH   | High   | 5        |
 
 #### 6.1 On-Demand Prose Generation
 
 Current: `extract → build → generate ALL → serve` (slow, expensive upfront)
 Target: `extract → build → serve` (instant), generate prose on first API request
 
-| Step | Implementation |
-|------|----------------|
-| 6.1.1 | Modify `/node/:path` to check for prose, generate if missing |
+| Step  | Implementation                                                 |
+| ----- | -------------------------------------------------------------- |
+| 6.1.1 | Modify `/node/:path` to check for prose, generate if missing   |
 | 6.1.2 | Add `generateProseForNode()` function (single node, not batch) |
-| 6.1.3 | Cache generated prose in DB (already exists) |
-| 6.1.4 | Add `--lazy` flag to `pith serve` (default behavior) |
-| 6.1.5 | Keep `pith generate` for batch pre-generation |
-| 6.1.6 | Add `/node/:path?prose=false` option to skip generation |
+| 6.1.3 | Cache generated prose in DB (already exists)                   |
+| 6.1.4 | Add `--lazy` flag to `pith serve` (default behavior)           |
+| 6.1.5 | Keep `pith generate` for batch pre-generation                  |
+| 6.1.6 | Add `/node/:path?prose=false` option to skip generation        |
 
 #### 6.2 Test File Mapping
 
 Add relationship between source files and their tests.
 
-| Step | Implementation |
-|------|----------------|
+| Step  | Implementation                                                        |
+| ----- | --------------------------------------------------------------------- |
 | 6.2.1 | Detect test files by pattern (`*.test.ts`, `*.spec.ts`, `__tests__/`) |
-| 6.2.2 | Add `testFile` edge type: `src/foo.ts → src/foo.test.ts` |
-| 6.2.3 | Include test file in `/context` bundle |
-| 6.2.4 | Add `testCommand` to node metadata (infer from package.json) |
+| 6.2.2 | Add `testFile` edge type: `src/foo.ts → src/foo.test.ts`              |
+| 6.2.3 | Include test file in `/context` bundle                                |
+| 6.2.4 | Add `testCommand` to node metadata (infer from package.json)          |
 
 #### 6.3 Modification Impact
 
 Show "what breaks if I change this".
 
-| Step | Implementation |
-|------|----------------|
+| Step  | Implementation                                                   |
+| ----- | ---------------------------------------------------------------- |
 | 6.3.1 | Add `dependents` field (reverse of imports) - already have fanIn |
-| 6.3.2 | List dependent file paths in context output |
-| 6.3.3 | Add warning if fanIn > 5 ("widely used, be careful") |
+| 6.3.2 | List dependent file paths in context output                      |
+| 6.3.3 | Add warning if fanIn > 5 ("widely used, be careful")             |
 
 #### 6.4 Pattern Examples
 
 Include actual code snippets showing patterns.
 
-| Step | Implementation |
-|------|----------------|
-| 6.4.1 | In module prose, include "Quick Start" section |
-| 6.4.2 | LLM prompt asks for example pattern from actual code |
+| Step  | Implementation                                                |
+| ----- | ------------------------------------------------------------- |
+| 6.4.1 | In module prose, include "Quick Start" section                |
+| 6.4.2 | LLM prompt asks for example pattern from actual code          |
 | 6.4.3 | Include similar file references ("follows same pattern as X") |
 
 #### 6.5 Gotcha Validation
 
 Cross-check LLM claims against code to reduce hallucinations.
 
-| Step | Implementation |
-|------|----------------|
-| 6.5.1 | After LLM generates gotchas, validate claims |
+| Step  | Implementation                                   |
+| ----- | ------------------------------------------------ |
+| 6.5.1 | After LLM generates gotchas, validate claims     |
 | 6.5.2 | Check if mentioned function/variable names exist |
-| 6.5.3 | Flag unverifiable claims with low confidence |
-| 6.5.4 | Re-prompt if critical claims don't validate |
+| 6.5.3 | Flag unverifiable claims with low confidence     |
+| 6.5.4 | Re-prompt if critical claims don't validate      |
 
 ---
 
@@ -440,6 +448,7 @@ Cross-check LLM claims against code to reduce hallucinations.
 **Goal**: Close information gaps identified in benchmarking by extracting more facts deterministically, reducing LLM's role to synthesis only.
 
 **Context**: Benchmark run (2025-12-30) showed Pith scoring 12.6/25 vs Control's 24.2/25. Key gaps:
+
 - Missing line numbers (Critical)
 - Missing code snippets (Critical)
 - Missing implementation details like retry counts, timeout values (High)
@@ -453,12 +462,12 @@ See `docs/benchmark-results/2025-12-30-self-test.md` for benchmark results and `
 
 Data already in ts-morph but not included in output.
 
-| Step | What | Implementation | Benchmark After |
-|------|------|----------------|-----------------|
-| 6.6.1.1 | Line numbers | Add `startLine`, `endLine` to function/class nodes | ✓ |
-| 6.6.1.2 | Code snippets | Add `sourceCode` field (first 20 lines) to nodes | ✓ |
-| 6.6.1.3 | Default param values | Extract from `param.getInitializer()` | |
-| 6.6.1.4 | Return types | Add explicit return type to signatures | |
+| Step    | What                 | Implementation                                     | Benchmark After |
+| ------- | -------------------- | -------------------------------------------------- | --------------- |
+| 6.6.1.1 | Line numbers         | Add `startLine`, `endLine` to function/class nodes | ✓               |
+| 6.6.1.2 | Code snippets        | Add `sourceCode` field (first 20 lines) to nodes   | ✓               |
+| 6.6.1.3 | Default param values | Extract from `param.getInitializer()`              |                 |
+| 6.6.1.4 | Return types         | Add explicit return type to signatures             |                 |
 
 **Benchmark checkpoint**: Re-run benchmark, expect Completeness to improve.
 
@@ -466,12 +475,12 @@ Data already in ts-morph but not included in output.
 
 Detect common patterns via AST analysis.
 
-| Step | Pattern | Detection Method | Output |
-|------|---------|------------------|--------|
-| 6.6.2.1 | Retry logic | Find loops containing try/catch + sleep | `{ maxRetries, backoffType, backoffFormula }` |
-| 6.6.2.2 | Error handling | Parse catch clauses, find status checks | `{ catches, throws, statusCodes }` |
-| 6.6.2.3 | Timeout config | Find AbortController, setTimeout patterns | `{ timeout, configurable }` |
-| 6.6.2.4 | Config values | Find const declarations with numeric literals | `{ name, value, line }` |
+| Step    | Pattern        | Detection Method                              | Output                                        |
+| ------- | -------------- | --------------------------------------------- | --------------------------------------------- |
+| 6.6.2.1 | Retry logic    | Find loops containing try/catch + sleep       | `{ maxRetries, backoffType, backoffFormula }` |
+| 6.6.2.2 | Error handling | Parse catch clauses, find status checks       | `{ catches, throws, statusCodes }`            |
+| 6.6.2.3 | Timeout config | Find AbortController, setTimeout patterns     | `{ timeout, configurable }`                   |
+| 6.6.2.4 | Config values  | Find const declarations with numeric literals | `{ name, value, line }`                       |
 
 **Benchmark checkpoint**: Re-run Task 2 (error handling), expect score to improve significantly.
 
@@ -479,22 +488,22 @@ Detect common patterns via AST analysis.
 
 Additional computed metrics.
 
-| Step | Metric | Implementation |
-|------|--------|----------------|
-| 6.6.3.1 | Cyclomatic complexity | Count branches, loops, conditionals |
-| 6.6.3.2 | Lines of code per function | From AST line numbers |
-| 6.6.3.3 | Call graph (intra-file) | Track function calls within file |
+| Step    | Metric                     | Implementation                      |
+| ------- | -------------------------- | ----------------------------------- |
+| 6.6.3.1 | Cyclomatic complexity      | Count branches, loops, conditionals |
+| 6.6.3.2 | Lines of code per function | From AST line numbers               |
+| 6.6.3.3 | Call graph (intra-file)    | Track function calls within file    |
 
 ##### 6.6.4 Feed Facts to LLM ✅ COMPLETE
 
 Update prose prompts to include deterministic facts, so LLM synthesizes rather than discovers.
 
-| Step | Change | Status |
-|------|--------|--------|
-| 6.6.4.1 | Include detected patterns in prompt | Done |
-| 6.6.4.2 | Include line numbers for key functions | Done |
-| 6.6.4.3 | Include config values found | Done |
-| 6.6.4.4 | Ask LLM to explain/synthesize, not discover | Done |
+| Step    | Change                                      | Status |
+| ------- | ------------------------------------------- | ------ |
+| 6.6.4.1 | Include detected patterns in prompt         | Done   |
+| 6.6.4.2 | Include line numbers for key functions      | Done   |
+| 6.6.4.3 | Include config values found                 | Done   |
+| 6.6.4.4 | Ask LLM to explain/synthesize, not discover | Done   |
 
 ---
 
@@ -503,15 +512,16 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 **Problem**: Modification tasks (M1-M3) average 13/25. Control maps all affected files with line references.
 
 **Benchmark Evidence**:
+
 - M1 (Add complexity field): Control listed 8 files, 60+ test fixtures, specific lines
 - Pith showed only interface location
 
-| Step | What | Test |
-|------|------|------|
-| 6.6.5.1 | Traverse `importedBy` edges recursively to build full impact tree | Impact tree includes transitive dependents |
-| 6.6.5.2 | For each affected file, identify functions that use changed entity | List specific function names using the entity |
-| 6.6.5.3 | Add "Change Impact" section to `/context` markdown output | Shows N files, N functions, test files affected |
-| 6.6.5.4 | Include test file impact (which tests touch this code) | Test files listed with relevant test names |
+| Step    | What                                                               | Test                                            |
+| ------- | ------------------------------------------------------------------ | ----------------------------------------------- |
+| 6.6.5.1 | Traverse `importedBy` edges recursively to build full impact tree  | Impact tree includes transitive dependents      |
+| 6.6.5.2 | For each affected file, identify functions that use changed entity | List specific function names using the entity   |
+| 6.6.5.3 | Add "Change Impact" section to `/context` markdown output          | Shows N files, N functions, test files affected |
+| 6.6.5.4 | Include test file impact (which tests touch this code)             | Test files listed with relevant test names      |
 
 **Benchmark checkpoint**: Re-run M1 task, expect Actionability to improve 1→4.
 
@@ -520,6 +530,7 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 **Problem**: A3 (Design Patterns) scored 13/25. Control identified 18 patterns, Pith identified 0.
 
 **Benchmark Evidence**:
+
 - Control found: Pipeline, Singleton, Factory, Strategy, Builder, Retry+Backoff, Cache, etc.
 - Pith mentioned no patterns by name
 
@@ -527,14 +538,14 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 
 **Approach**: Start conservatively with high-confidence patterns, add validation to reduce false positives.
 
-| Step | What | Detection Method | Confidence |
-|------|------|------------------|------------|
-| 6.6.6.1 | Detect Retry pattern | Loop containing try/catch + exponential delay (Math.pow) | High |
-| 6.6.6.2 | Detect Cache pattern | Module with Map/Object + get/set/has functions | High |
-| 6.6.6.3 | Detect Builder pattern | Class/functions with chained methods returning `this` | Medium |
-| 6.6.6.4 | Detect Singleton pattern | Module-level `let x = null` + getter checking null | Medium |
-| 6.6.6.5 | Validate detected patterns | Cross-check with AST evidence before reporting | Required |
-| 6.6.6.6 | Add "Patterns" section to prose prompt | LLM confirms/refines detected patterns with evidence | - |
+| Step    | What                                   | Detection Method                                         | Confidence |
+| ------- | -------------------------------------- | -------------------------------------------------------- | ---------- |
+| 6.6.6.1 | Detect Retry pattern                   | Loop containing try/catch + exponential delay (Math.pow) | High       |
+| 6.6.6.2 | Detect Cache pattern                   | Module with Map/Object + get/set/has functions           | High       |
+| 6.6.6.3 | Detect Builder pattern                 | Class/functions with chained methods returning `this`    | Medium     |
+| 6.6.6.4 | Detect Singleton pattern               | Module-level `let x = null` + getter checking null       | Medium     |
+| 6.6.6.5 | Validate detected patterns             | Cross-check with AST evidence before reporting           | Required   |
+| 6.6.6.6 | Add "Patterns" section to prose prompt | LLM confirms/refines detected patterns with evidence     | -          |
 
 **Note**: Pipeline, Factory, Strategy, Command patterns require call graph (6.6.7) - defer to 6.6.6b.
 
@@ -545,6 +556,7 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 **Problem**: Behavior tasks (B1-B3) average 16/25. Control traces complete call chains across files.
 
 **Benchmark Evidence**:
+
 - B2 (buildPrompt): Control traced dispatcher→buildFilePrompt→formatFunctionForPrompt→formatKeyStatements
 - Pith only listed function names without showing flow
 
@@ -552,12 +564,12 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 
 ###### 6.6.7a Intra-File Call Graph (Simpler)
 
-| Step | What | Output |
-|------|------|--------|
-| 6.6.7a.1 | Track function calls within same file | Map: `function → [called functions]` |
-| 6.6.7a.2 | Identify call chains (A→B→C) within file | Ordered call sequences |
-| 6.6.7a.3 | Add "Calls" field to function nodes | List of functions called |
-| 6.6.7a.4 | Add "Called by" field to function nodes | Reverse lookup within file |
+| Step     | What                                     | Output                               |
+| -------- | ---------------------------------------- | ------------------------------------ |
+| 6.6.7a.1 | Track function calls within same file    | Map: `function → [called functions]` |
+| 6.6.7a.2 | Identify call chains (A→B→C) within file | Ordered call sequences               |
+| 6.6.7a.3 | Add "Calls" field to function nodes      | List of functions called             |
+| 6.6.7a.4 | Add "Called by" field to function nodes  | Reverse lookup within file           |
 
 **Enables**: 6.6.6 (pattern detection), 6.6.8 (error path tracing)
 
@@ -565,12 +577,12 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 
 **Depends on**: 6.6.7a complete
 
-| Step | What | Output |
-|------|------|--------|
-| 6.6.7b.1 | Resolve imported symbols to source files | Map: `import X from './y'` → `y.ts:X` |
-| 6.6.7b.2 | Handle re-exports (`export { X } from './y'`) | Follow re-export chains |
-| 6.6.7b.3 | Build cross-file call graph | Map: `file:function → [file:function, ...]` |
-| 6.6.7b.4 | Add "Call Flow" section for functions with >3 cross-file calls | Show traced path |
+| Step     | What                                                           | Output                                      |
+| -------- | -------------------------------------------------------------- | ------------------------------------------- |
+| 6.6.7b.1 | Resolve imported symbols to source files                       | Map: `import X from './y'` → `y.ts:X`       |
+| 6.6.7b.2 | Handle re-exports (`export { X } from './y'`)                  | Follow re-export chains                     |
+| 6.6.7b.3 | Build cross-file call graph                                    | Map: `file:function → [file:function, ...]` |
+| 6.6.7b.4 | Add "Call Flow" section for functions with >3 cross-file calls | Show traced path                            |
 
 **Benchmark checkpoint**: After 6.6.7a, re-run B1 task, expect partial improvement. After 6.6.7b, expect Completeness 2→4.
 
@@ -579,17 +591,18 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 **Problem**: Debugging tasks (D1-D3) average 15.3/25. Control identifies specific causes and paths.
 
 **Benchmark Evidence**:
+
 - D3 (404 debugging): Control found 13 distinct causes with line numbers
 - Pith was generic: "API module handles requests"
 
 **Depends on**: 6.6.7a (intra-file call graph) to trace error propagation through function calls
 
-| Step | What | Output |
-|------|------|--------|
-| 6.6.8.1 | Find all early return/throw statements | Map: condition → exit location |
-| 6.6.8.2 | Trace error propagation in catch blocks | Which errors are caught, re-thrown, transformed |
-| 6.6.8.3 | Identify validation guards (if checks before main logic) | List conditions that reject input |
-| 6.6.8.4 | Add "Error Paths" section for functions with try/catch | Show caught errors and their handling |
+| Step    | What                                                     | Output                                          |
+| ------- | -------------------------------------------------------- | ----------------------------------------------- |
+| 6.6.8.1 | Find all early return/throw statements                   | Map: condition → exit location                  |
+| 6.6.8.2 | Trace error propagation in catch blocks                  | Which errors are caught, re-thrown, transformed |
+| 6.6.8.3 | Identify validation guards (if checks before main logic) | List conditions that reject input               |
+| 6.6.8.4 | Add "Error Paths" section for functions with try/catch   | Show caught errors and their handling           |
 
 **Benchmark checkpoint**: Re-run D3 task, expect Actionability to improve 1→4.
 
@@ -599,23 +612,23 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 
 **Note**: This requires significant prompt engineering for each modification type. Defer until pattern recognition (6.6.6) is complete.
 
-| Step | What | When |
-|------|------|------|
+| Step    | What                                                          | When                 |
+| ------- | ------------------------------------------------------------- | -------------------- |
 | 6.6.9.1 | For "add middleware" modifications, identify insertion points | After 6.6.6 patterns |
-| 6.6.9.2 | For "add field" modifications, list all type references | After 6.6.5 impact |
-| 6.6.9.3 | Include similar modifications from git history | After git analysis |
+| 6.6.9.2 | For "add field" modifications, list all type references       | After 6.6.5 impact   |
+| 6.6.9.3 | Include similar modifications from git history                | After git analysis   |
 
 ---
 
 ##### Phase 6.6 Success Criteria (Updated)
 
-| Metric | Baseline | After P0 | Target | Gap |
-|--------|----------|----------|--------|-----|
-| Relevance | 2.4/5 | 3.0/5 | ≥4/5 | -1.0 |
-| Completeness | 1.8/5 | 1.8/5 | ≥4/5 | -2.2 |
-| Accuracy | 3.6/5 | 4.0/5 | ≥4.5/5 | -0.5 |
-| Actionability | 1.8/5 | 1.8/5 | ≥4/5 | -2.2 |
-| Overall score | 12.6/25 | 15.5/25 | ≥20/25 | -4.5 |
+| Metric        | Baseline | After P0 | Target | Gap  |
+| ------------- | -------- | -------- | ------ | ---- |
+| Relevance     | 2.4/5    | 3.0/5    | ≥4/5   | -1.0 |
+| Completeness  | 1.8/5    | 1.8/5    | ≥4/5   | -2.2 |
+| Accuracy      | 3.6/5    | 4.0/5    | ≥4.5/5 | -0.5 |
+| Actionability | 1.8/5    | 1.8/5    | ≥4/5   | -2.2 |
+| Overall score | 12.6/25  | 15.5/25  | ≥20/25 | -4.5 |
 
 **P0 Impact Analysis**: Line numbers and code snippets improved Relevance (+0.6) and Accuracy (+0.4), but Completeness/Actionability require capabilities delivered by 6.6.5-6.6.8 (change impact, pattern recognition, cross-file tracing, error paths).
 
@@ -631,14 +644,14 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
                                └──► 6.6.7b Cross-File Call Graph ──► 6.6.6b Advanced Patterns
 ```
 
-| Phase | Task | Depends On | Benchmark Target |
-|-------|------|------------|------------------|
-| 1 | 6.6.5 Change Impact | None | M1-M3: 13→18 |
-| 2 | 6.6.7a Intra-File Calls | None | Enables 3-5 |
-| 3 | 6.6.6 Pattern Recognition | 6.6.7a | A3: 13→18 |
-| 4 | 6.6.8 Error Paths | 6.6.7a | D1-D3: 15→20 |
-| 5 | 6.6.7b Cross-File Calls | 6.6.7a | B1-B3: 16→20 |
-| 6 | 6.6.9 Implementation Hints | 6.6.5, 6.6.6 | M2-M3: 13→18 |
+| Phase | Task                       | Depends On   | Benchmark Target |
+| ----- | -------------------------- | ------------ | ---------------- |
+| 1     | 6.6.5 Change Impact        | None         | M1-M3: 13→18     |
+| 2     | 6.6.7a Intra-File Calls    | None         | Enables 3-5      |
+| 3     | 6.6.6 Pattern Recognition  | 6.6.7a       | A3: 13→18        |
+| 4     | 6.6.8 Error Paths          | 6.6.7a       | D1-D3: 15→20     |
+| 5     | 6.6.7b Cross-File Calls    | 6.6.7a       | B1-B3: 16→20     |
+| 6     | 6.6.9 Implementation Hints | 6.6.5, 6.6.6 | M2-M3: 13→18     |
 
 **Note**: Gaps overlap across tasks. Closing these 4-5 capabilities should move overall score from 15.5→20+.
 
@@ -649,6 +662,7 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 **Goal**: Surface extracted data more effectively in API output to close actionability and completeness gaps.
 
 **Context**: v7 benchmark (2025-12-30) shows Phase 6.6 features are implemented but not fully utilized:
+
 - Pith: 16.3/25 (65%) vs Control: 23.9/25 (96%)
 - Worst gaps: Actionability (2.1/5), Completeness (2.3/5)
 - Worst category: Modification tasks (14/25)
@@ -660,14 +674,15 @@ See `docs/benchmark-results/2025-12-30-self-test-v7.md` for full analysis.
 **Problem**: M3 (Add complexity field) scored 16/25. Pith shows "10 files depend on this" but Control mapped 62+ specific usage locations with line numbers.
 
 **Benchmark Evidence**:
+
 - R1 (WikiNode impact): Control found "62+ property access locations"
 - R3 (extractFile consumers): Control found "1 production consumer (cli:181) and 42 test consumers with specific line numbers"
 
-| Step | What | Test |
-|------|------|------|
-| 6.7.1.1 | In `/impact` output, show usage line numbers per dependent | Impact shows `src/api/index.ts:45 - uses WikiNode.metadata` |
+| Step    | What                                                          | Test                                                          |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------------- |
+| 6.7.1.1 | In `/impact` output, show usage line numbers per dependent    | Impact shows `src/api/index.ts:45 - uses WikiNode.metadata`   |
 | 6.7.1.2 | Group usages by type (import, property access, function call) | Output groups: "Imports: 3, Property accesses: 42, Calls: 17" |
-| 6.7.1.3 | For interfaces/types, find all property access sites | Detects `node.metadata.fanIn` patterns in dependents |
+| 6.7.1.3 | For interfaces/types, find all property access sites          | Detects `node.metadata.fanIn` patterns in dependents          |
 
 **Benchmark target**: R1, R3, M3 Actionability: 2/5 → 4/5
 
@@ -676,15 +691,16 @@ See `docs/benchmark-results/2025-12-30-self-test-v7.md` for full analysis.
 **Problem**: M1 (JS support), M2 (Rate limiting) scored 13/25. Control provided step-by-step implementation plans; Pith only showed file locations.
 
 **Benchmark Evidence**:
+
 - M1: Control "identified 7 specific locations requiring changes with implementation plan"
 - M2: Control "provided complete implementation: middleware insertion point, route protection levels, code examples"
 
-| Step | What | Test |
-|------|------|------|
+| Step    | What                                                                 | Test                                                                                             |
+| ------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | 6.7.2.1 | For high-fanIn types, include "Modification Checklist" in `/context` | Shows "To modify WikiNode: 1. Update interface at builder/index.ts:45, 2. Update consumers: ..." |
-| 6.7.2.2 | Identify insertion points for middleware patterns | For Express apps, shows `app.use()` location for new middleware |
-| 6.7.2.3 | Include test update requirements in modification guides | Shows "Tests to update: src/builder/index.test.ts (12 assertions reference WikiNode)" |
-| 6.7.2.4 | Add "Similar Changes" section from git history | If git shows prior interface changes, link to those commits |
+| 6.7.2.2 | Identify insertion points for middleware patterns                    | For Express apps, shows `app.use()` location for new middleware                                  |
+| 6.7.2.3 | Include test update requirements in modification guides              | Shows "Tests to update: src/builder/index.test.ts (12 assertions reference WikiNode)"            |
+| 6.7.2.4 | Add "Similar Changes" section from git history                       | If git shows prior interface changes, link to those commits                                      |
 
 **Benchmark target**: M1-M3 Actionability: 1/5 → 4/5
 
@@ -693,14 +709,15 @@ See `docs/benchmark-results/2025-12-30-self-test-v7.md` for full analysis.
 **Problem**: B2 (buildPrompt) scored 16/25. Control traced "dispatcher→buildFilePrompt→formatFunctionForPrompt→formatKeyStatements"; Pith only listed function names.
 
 **Benchmark Evidence**:
+
 - B1: Control "explained complete SHA-256 logic with all line references"
 - B3: Control provided "maxRetries=3, timeout=30000ms, exponential backoff formula, and all retryable error conditions with line references"
 
-| Step | What | Test |
-|------|------|------|
+| Step    | What                                                           | Test                                                                      |
+| ------- | -------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | 6.7.3.1 | Add "Call Flow" section to function prose showing traced paths | Shows: `callLLM (469) → buildPrompt (120) → formatFunctionForPrompt (89)` |
-| 6.7.3.2 | Include key variable values along call paths | Shows: `maxRetries=3 at line 475, timeout=30000 at line 476` |
-| 6.7.3.3 | For cross-file calls, show full path with file:line references | Shows: `src/cli/index.ts:181 → src/extractor/ast.ts:45 (extractFile)` |
+| 6.7.3.2 | Include key variable values along call paths                   | Shows: `maxRetries=3 at line 475, timeout=30000 at line 476`              |
+| 6.7.3.3 | For cross-file calls, show full path with file:line references | Shows: `src/cli/index.ts:181 → src/extractor/ast.ts:45 (extractFile)`     |
 
 **Benchmark target**: B1-B3 Completeness: 2/5 → 4/5
 
@@ -709,15 +726,16 @@ See `docs/benchmark-results/2025-12-30-self-test-v7.md` for full analysis.
 **Problem**: D3 (404 debugging) scored 16/25. Control found "4 specific causes: Windows path separators, import path resolution, missing normalization, with code evidence."
 
 **Benchmark Evidence**:
+
 - D1: Control "identified 6 specific root causes with line references"
 - D2: Control "identified 8 specific bottlenecks: sequential processing, 30s timeout, exponential backoff, sequential DB updates"
 
-| Step | What | Test |
-|------|------|------|
-| 6.7.4.1 | In error path output, group by symptom category | Groups errors: "404 causes: [path normalization, missing node, ...]" |
+| Step    | What                                                 | Test                                                                   |
+| ------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
+| 6.7.4.1 | In error path output, group by symptom category      | Groups errors: "404 causes: [path normalization, missing node, ...]"   |
 | 6.7.4.2 | Include specific values that trigger each error path | Shows: "Returns 404 when: path contains backslash, path starts with /" |
-| 6.7.4.3 | Add "Debug Checklist" for common symptoms | For debugging questions, provides step-by-step investigation guide |
-| 6.7.4.4 | Link error paths to test files that exercise them | Shows: "Test coverage: src/api/index.test.ts:78 tests 404 path" |
+| 6.7.4.3 | Add "Debug Checklist" for common symptoms            | For debugging questions, provides step-by-step investigation guide     |
+| 6.7.4.4 | Link error paths to test files that exercise them    | Shows: "Test coverage: src/api/index.test.ts:78 tests 404 path"        |
 
 **Benchmark target**: D1-D3 Actionability: 2/5 → 4/5
 
@@ -726,14 +744,15 @@ See `docs/benchmark-results/2025-12-30-self-test-v7.md` for full analysis.
 **Problem**: A3 (Design Patterns) scored 16/25. Control identified 24 patterns with file:line references; Pith detected patterns but showed "partial" evidence.
 
 **Benchmark Evidence**:
+
 - A3: Control found "Pipeline, Singleton, Factory, Strategy, Builder, Retry+Backoff, Cache, etc."
 - Pith shows patterns exist but not with specific instantiation locations
 
-| Step | What | Test |
-|------|------|------|
+| Step    | What                                                 | Test                                                                                  |
+| ------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | 6.7.5.1 | Include all instances of detected patterns in output | Shows: "Retry pattern found in: callLLM (469), fetchWithRetry (would show if exists)" |
-| 6.7.5.2 | For each pattern, show key lines that confirm it | Shows: "Retry evidence: maxRetries=3 (475), catch block (520), backoff formula (528)" |
-| 6.7.5.3 | Add pattern-specific usage guidance | For Retry pattern: "To customize: modify maxRetries at line 475, backoff at line 528" |
+| 6.7.5.2 | For each pattern, show key lines that confirm it     | Shows: "Retry evidence: maxRetries=3 (475), catch block (520), backoff formula (528)" |
+| 6.7.5.3 | Add pattern-specific usage guidance                  | For Retry pattern: "To customize: modify maxRetries at line 475, backoff at line 528" |
 
 **Benchmark target**: A3 Completeness: 2/5 → 4/5
 
@@ -741,17 +760,18 @@ See `docs/benchmark-results/2025-12-30-self-test-v7.md` for full analysis.
 
 ##### Phase 6.7 Success Criteria
 
-| Metric | v7 Baseline | Target | Test |
-|--------|-------------|--------|------|
-| Modification (M1-M3) | 14.0/25 | ≥20/25 | Re-run M tasks after 6.7.2 |
-| Debugging (D1-D3) | 16.0/25 | ≥20/25 | Re-run D tasks after 6.7.4 |
-| Behavior (B1-B3) | 17.0/25 | ≥21/25 | Re-run B tasks after 6.7.3 |
-| Architecture (A1-A3) | 18.0/25 | ≥22/25 | Re-run A tasks after 6.7.5 |
-| **Overall** | **16.3/25** | **≥20/25** | Full 15-task benchmark |
-| Actionability | 2.1/5 | ≥4/5 | Score all tasks |
-| Completeness | 2.3/5 | ≥4/5 | Score all tasks |
+| Metric               | v7 Baseline | Target     | Test                       |
+| -------------------- | ----------- | ---------- | -------------------------- |
+| Modification (M1-M3) | 14.0/25     | ≥20/25     | Re-run M tasks after 6.7.2 |
+| Debugging (D1-D3)    | 16.0/25     | ≥20/25     | Re-run D tasks after 6.7.4 |
+| Behavior (B1-B3)     | 17.0/25     | ≥21/25     | Re-run B tasks after 6.7.3 |
+| Architecture (A1-A3) | 18.0/25     | ≥22/25     | Re-run A tasks after 6.7.5 |
+| **Overall**          | **16.3/25** | **≥20/25** | Full 15-task benchmark     |
+| Actionability        | 2.1/5       | ≥4/5       | Score all tasks            |
+| Completeness         | 2.3/5       | ≥4/5       | Score all tasks            |
 
 **Execution Order** (by gap severity):
+
 1. 6.7.2 Modification Guides (M gap: -9.7 points)
 2. 6.7.4 Root Cause Debugging (D gap: -8.0 points)
 3. 6.7.3 Call Flow Presentation (B gap: -7.0 points)
@@ -760,47 +780,120 @@ See `docs/benchmark-results/2025-12-30-self-test-v7.md` for full analysis.
 
 ---
 
+#### Phase 6.8: Deterministic Gap Closure ⬅️ NEXT
+
+**Goal**: Close remaining gaps identified in 2025-12-31 benchmark through deterministic improvements before adding MCP delivery layer.
+
+**Rationale**: MCP server is a delivery mechanism, not a quality improvement. Current 3.5-point gap should be closed as much as possible with deterministic extraction/output enhancements.
+
+**Benchmark Evidence** (2025-12-31):
+
+- R3 (extractFile consumers): 69% false positives due to import-level (not symbol-level) tracking
+- B2 (buildPrompt): Content truncation loses important details
+- D1-D3 (Debugging): Average 16/25 - need more specific root cause information
+
+##### 6.8.1 Symbol-Level Import Tracking
+
+**Problem**: R3 scored lowest (11/25). Pith reports "file A imports file B" but Control reports "file A uses function X from file B at line N".
+
+| Step    | What                                                      | Test                                                                  |
+| ------- | --------------------------------------------------------- | --------------------------------------------------------------------- |
+| 6.8.1.1 | Track which specific symbols are used from imports        | `getUsedSymbols('src/cli')` returns `['extract']`                     |
+| 6.8.1.2 | Filter impact analysis to only files using changed symbol | Impact for `extractFile` excludes files that only import `extractGit` |
+| 6.8.1.3 | Show symbol usage in dependent file context               | "Uses: extractFile at lines 45, 78"                                   |
+
+**Benchmark target**: R3: 11/25 → 18/25
+
+##### 6.8.2 Full Content Preservation
+
+**Problem**: B2 (buildPrompt) scored 17/25. Code snippets truncate at 15 lines, losing critical details.
+
+| Step    | What                                                  | Test                                               |
+| ------- | ----------------------------------------------------- | -------------------------------------------------- |
+| 6.8.2.1 | Increase code snippet limit for complex functions     | Functions with >5 key statements get 30 lines      |
+| 6.8.2.2 | Smart truncation that preserves key statement context | Truncation keeps 3 lines around each key statement |
+| 6.8.2.3 | Add "full source available" indicator when truncated  | Shows "... (45 more lines, 3 more key statements)" |
+
+**Benchmark target**: B2: 17/25 → 21/25
+
+##### 6.8.3 Config File Extraction
+
+**Problem**: Configuration values in `.json`, `.yaml` files are not extracted, missing important context.
+
+| Step    | What                                          | Test                                            |
+| ------- | --------------------------------------------- | ----------------------------------------------- |
+| 6.8.3.1 | Extract package.json scripts and dependencies | Node with `scripts.test`, `dependencies` fields |
+| 6.8.3.2 | Extract tsconfig.json compiler options        | Node with `compilerOptions.strict` etc.         |
+| 6.8.3.3 | Extract pith.config.json if present           | Node with include/exclude patterns              |
+
+**Benchmark target**: Improves context for all task categories
+
+##### 6.8.4 Enhanced Debugging Output
+
+**Problem**: D1-D3 average 16/25. Error paths extracted but not surfaced with enough specificity.
+
+| Step    | What                                                         | Test                                                 |
+| ------- | ------------------------------------------------------------ | ---------------------------------------------------- |
+| 6.8.4.1 | For each error path, show the full condition chain           | "404 when: !node && path.includes('/')"              |
+| 6.8.4.2 | Group error causes by HTTP status code                       | "Causes of 404: [3 paths], Causes of 500: [2 paths]" |
+| 6.8.4.3 | Include stack trace hints (which functions propagate errors) | "Error propagates: api→builder→extractor"            |
+
+**Benchmark target**: D1-D3: 16/25 → 20/25
+
+---
+
+##### Phase 6.8 Success Criteria
+
+| Metric         | Current (v8)  | Target       |
+| -------------- | ------------- | ------------ |
+| Overall        | 19.4/25 (78%) | ≥21/25 (84%) |
+| Gap to Control | 3.5 points    | ≤2 points    |
+| R3 (worst)     | 11/25         | ≥18/25       |
+| D1-D3 avg      | 16/25         | ≥20/25       |
+
+---
+
 ### Phase 7: Advanced Relationships
 
 **Lower priority** - nice to have but not critical for task context.
 
-| Feature | Priority | Notes |
-|---------|----------|-------|
-| Co-change analysis | MEDIUM | "Files that change together" - useful |
-| Domain nodes | LOW | High-level grouping - less actionable |
-| Concept nodes | LOW | Cross-cutting patterns - hard to generate accurately |
-| Collection nodes | LOW | "All handlers" - rarely needed |
+| Feature            | Priority | Notes                                                |
+| ------------------ | -------- | ---------------------------------------------------- |
+| Co-change analysis | MEDIUM   | "Files that change together" - useful                |
+| Domain nodes       | LOW      | High-level grouping - less actionable                |
+| Concept nodes      | LOW      | Cross-cutting patterns - hard to generate accurately |
+| Collection nodes   | LOW      | "All handlers" - rarely needed                       |
 
 ### Phase 8: Intelligence (DEPRIORITIZED)
 
 These provide interesting metrics but don't directly improve task context.
 
-| Feature | Priority | Notes |
-|---------|----------|-------|
-| Complexity scoring | LOW | Interesting but not actionable for tasks |
-| Churn analysis | MEDIUM | Identifies hotspots |
-| Hotspot detection | MEDIUM | Useful for code review, not task context |
-| Coupling analysis | MEDIUM | Already have via import edges |
+| Feature            | Priority | Notes                                    |
+| ------------------ | -------- | ---------------------------------------- |
+| Complexity scoring | LOW      | Interesting but not actionable for tasks |
+| Churn analysis     | MEDIUM   | Identifies hotspots                      |
+| Hotspot detection  | MEDIUM   | Useful for code review, not task context |
+| Coupling analysis  | MEDIUM   | Already have via import edges            |
 
 ### Phase 9: Integration
 
-| Feature | Priority | Notes |
-|---------|----------|-------|
-| MCP server | HIGH | Enables direct LLM tool use |
-| Git webhooks | LOW | Automation, not output quality |
-| IDE extensions | LOW | Delivery mechanism |
-| GitHub Actions | LOW | CI integration |
+| Feature        | Priority | Notes                          |
+| -------------- | -------- | ------------------------------ |
+| MCP server     | HIGH     | Enables direct LLM tool use    |
+| Git webhooks   | LOW      | Automation, not output quality |
+| IDE extensions | LOW      | Delivery mechanism             |
+| GitHub Actions | LOW      | CI integration                 |
 
 ### Phase 10: Scale (DEPRIORITIZED)
 
 Only needed for very large codebases.
 
-| Feature | Priority | Notes |
-|---------|----------|-------|
-| MongoDB backend | LOW | MangoDB works fine for 100k+ lines |
-| Background generation | LOW | On-demand solves this |
-| Multi-repo | LOW | Scope expansion |
-| Incremental prose | MEDIUM | Handled by staleness detection |
+| Feature               | Priority | Notes                              |
+| --------------------- | -------- | ---------------------------------- |
+| MongoDB backend       | LOW      | MangoDB works fine for 100k+ lines |
+| Background generation | LOW      | On-demand solves this              |
+| Multi-repo            | LOW      | Scope expansion                    |
+| Incremental prose     | MEDIUM   | Handled by staleness detection     |
 
 ---
 
@@ -814,6 +907,7 @@ Based on testing validation, focus on:
 4. **MCP server** - LLM tool integration
 
 Skip for now:
+
 - Advanced node types (domain, concept, collection)
 - Intelligence features (complexity, churn)
 - Scale features (already works on 100+ files)
@@ -838,6 +932,7 @@ Each feature follows this cycle:
 ```
 
 **Test commands**:
+
 ```bash
 node --test                              # Run all tests
 node --test src/extractor/ast.test.ts    # Run specific test
@@ -862,12 +957,14 @@ Unit tests verify correctness. Manual validation verifies usefulness.
 Choose a real public TypeScript repository for validation:
 
 **Criteria**:
+
 - 20-50 source files (enough complexity, not overwhelming)
 - Active git history (multiple authors, meaningful commits)
 - Has JSDoc comments and README files
 - Well-structured (clear module boundaries)
 
 **Good candidates**:
+
 - A small CLI tool
 - A focused library
 - A simple Express/Fastify app
@@ -877,6 +974,7 @@ Use the **same repo** across all phases to track improvement.
 ### Validation Process
 
 After each phase:
+
 1. Run Pith commands on the validation repo
 2. Manually inspect output (extracted data, nodes, prose, API responses)
 3. Check items in the phase's validation checklist
@@ -890,23 +988,27 @@ After each phase:
 Some decisions should be made during implementation, not upfront:
 
 **Shared types (`types/` directory)**:
+
 - Don't create upfront
 - Extract when 2+ modules need the same type
 - Refactor during natural code evolution
 
 **File structure within `src/`**:
+
 - Start flat, add directories when a clear grouping emerges
 - Let the code tell you what belongs together
 
 **Error handling granularity**:
+
 - Start with basic try/catch per file
 - Add more nuanced severity levels if needed during testing
 
 **Function node thresholds**:
+
 - Start with "exported functions only"
 - Adjust based on what proves useful in validation
 
-The atomic steps in this roadmap specify *what* to implement, not *how* to structure the code. Let implementation experience guide organization.
+The atomic steps in this roadmap specify _what_ to implement, not _how_ to structure the code. Let implementation experience guide organization.
 
 ---
 
