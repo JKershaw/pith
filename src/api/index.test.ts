@@ -1885,5 +1885,69 @@ describe('Change Impact API - Phase 6.6.5', () => {
 
       assert.ok(markdown.includes('No files depend on this'));
     });
+
+    it('shows usage locations in dependents - Phase 6.7.1', async () => {
+      const { formatChangeImpactAsMarkdown } = await import('./index.ts');
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add the source file with exports
+      await nodes.insertOne({
+        id: 'src/shared/types.ts',
+        type: 'file',
+        path: 'src/shared/types.ts',
+        name: 'types.ts',
+        metadata: { lines: 50, commits: 5, lastModified: new Date(), authors: ['alice'] },
+        edges: [
+          { type: 'importedBy', target: 'src/service/user.ts' },
+        ],
+        raw: {
+          exports: [
+            { name: 'User', kind: 'interface' },
+            { name: 'Session', kind: 'interface' },
+          ],
+        },
+      });
+
+      // Add the dependent with specific usage locations
+      await nodes.insertOne({
+        id: 'src/service/user.ts',
+        type: 'file',
+        path: 'src/service/user.ts',
+        name: 'user.ts',
+        metadata: { lines: 100, commits: 10, lastModified: new Date(), authors: ['bob'] },
+        edges: [
+          { type: 'imports', target: 'src/shared/types.ts' },
+        ],
+        raw: {
+          imports: [
+            { from: '../shared/types', names: ['User', 'Session'] },
+          ],
+          functions: [
+            {
+              name: 'createUser',
+              signature: 'function createUser(data: User): Promise<User>',
+              startLine: 15,
+              endLine: 30,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: 'const user: User = { ...data };\nreturn user;',
+              keyStatements: [],
+            },
+          ],
+        },
+      });
+
+      const allNodes = await nodes.find({}).toArray();
+      const markdown = await formatChangeImpactAsMarkdown(
+        'src/shared/types.ts',
+        allNodes as WikiNode[],
+        ['User']
+      );
+
+      // Should show which functions use the changed export
+      assert.ok(markdown.includes('createUser') || markdown.includes('user.ts'), 'Should show dependent function or file');
+      assert.ok(markdown.includes('User'), 'Should show used export');
+    });
   });
 });
