@@ -341,20 +341,6 @@ describe('REGRESSION: cross-module false positives (the actual bug)', () => {
 
       const result = fuzzyMatch('src/extractor/index.ts', candidatesWithoutExtractor);
 
-      // Document the bug: this CURRENTLY returns generator with high confidence
-      const currentlyReturnsWrongFile = result.matchedPath === 'src/generator/index.ts';
-      const currentlyHasHighConfidence = result.confidence >= AUTO_MATCH_THRESHOLD;
-
-      // This assertion documents the current buggy behavior
-      // When the bug is fixed, these will flip
-      if (currentlyReturnsWrongFile && currentlyHasHighConfidence) {
-        console.log(
-          `BUG CONFIRMED: extractor/index.ts matched to generator/index.ts ` +
-          `with ${(result.confidence * 100).toFixed(0)}% confidence`
-        );
-      }
-
-      // THE FIX SHOULD MAKE THIS PASS:
       // Either matchedPath should be null, OR confidence should be below threshold
       const isCorrectBehavior =
         result.matchedPath === null ||
@@ -443,9 +429,6 @@ describe('REGRESSION: cross-module false positives (the actual bug)', () => {
 
       const result = fuzzyMatch('src/extractor/index.ts', candidates);
 
-      // Log the current behavior for debugging
-      console.log(`A2/M1 test: query=src/extractor/index.ts, matched=${result.matchedPath}, confidence=${result.confidence}`);
-
       assert.ok(
         result.matchedPath !== 'src/generator/index.ts' || result.confidence < AUTO_MATCH_THRESHOLD,
         `Benchmark regression case A2/M1: Matched wrong file with high confidence`
@@ -474,27 +457,18 @@ describe('REGRESSION: cross-module false positives (the actual bug)', () => {
   });
 
   describe('confidence scoring analysis', () => {
-    it('should show why same-filename different-module gets high score (diagnostic)', () => {
-      // This test documents the scoring that causes the bug
+    it('should score cross-module matches below AUTO_MATCH_THRESHOLD', () => {
       const query = 'src/extractor/index.ts';
       const wrongCandidate = 'src/generator/index.ts';
 
       const score = scoreSimilarity(query, wrongCandidate);
       const confidence = normalizeScore(score);
 
-      console.log(`\nDiagnostic: ${query} vs ${wrongCandidate}`);
-      console.log(`  Raw score: ${score}`);
-      console.log(`  Confidence: ${(confidence * 100).toFixed(0)}%`);
-      console.log(`  AUTO_MATCH_THRESHOLD: ${(AUTO_MATCH_THRESHOLD * 100).toFixed(0)}%`);
-      console.log(`  Would auto-match: ${confidence >= AUTO_MATCH_THRESHOLD ? 'YES (BUG!)' : 'NO (correct)'}`);
-
-      // The bug: confidence is too high for completely different modules
-      // After fix, this should be below threshold
       assert.ok(
         confidence < AUTO_MATCH_THRESHOLD,
         `Different modules should not score ${(confidence * 100).toFixed(0)}% ` +
         `(above ${(AUTO_MATCH_THRESHOLD * 100).toFixed(0)}% threshold). ` +
-        `Current scoring over-weights filename match (+50) vs module mismatch penalty.`
+        `Cross-module penalty should prevent auto-matching.`
       );
     });
 
@@ -506,11 +480,6 @@ describe('REGRESSION: cross-module false positives (the actual bug)', () => {
       const correctScore = scoreSimilarity(query, correctMatch);
       const wrongScore = scoreSimilarity(query, wrongMatch);
 
-      console.log(`\nPrefix match comparison:`);
-      console.log(`  ${query} -> ${correctMatch}: score=${correctScore}`);
-      console.log(`  ${query} -> ${wrongMatch}: score=${wrongScore}`);
-
-      // The correct match should always score higher
       assert.ok(
         correctScore > wrongScore,
         `Prefix match (${correctScore}) should score higher than cross-module (${wrongScore})`
@@ -526,11 +495,6 @@ describe('REGRESSION: cross-module false positives (the actual bug)', () => {
       const sameModuleScore = scoreSimilarity(query, sameModuleDiffFile);
       const diffModuleScore = scoreSimilarity(query, diffModuleSamePattern);
 
-      console.log(`\nModule priority comparison:`);
-      console.log(`  ${query} -> ${sameModuleDiffFile} (same module): score=${sameModuleScore}`);
-      console.log(`  ${query} -> ${diffModuleSamePattern} (diff module): score=${diffModuleScore}`);
-
-      // Same module should be preferred even with different filename
       assert.ok(
         sameModuleScore > diffModuleScore,
         `Same module (${sameModuleScore}) should score higher than different module ` +
@@ -603,7 +567,10 @@ describe('fix validation tests', () => {
       );
 
       // But should still provide alternatives for user to choose
-      // (alternatives can still be populated even if matchedPath is null)
+      assert.ok(
+        result.alternatives.length > 0,
+        'Should provide alternatives even when not auto-matching'
+      );
     });
   });
 });

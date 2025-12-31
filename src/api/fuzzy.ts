@@ -147,6 +147,9 @@ export function scoreSimilarity(query: string, candidate: string): number {
   // This prevents false positives like extractor/index.ts -> generator/index.ts
   // The problem only occurs when filenames match (inflating score via +50 bonus)
   // but modules are completely different
+  //
+  // NOTE: This assumes a src/<module>/file.ts structure where the "module" is at index 1.
+  // For different project layouts (e.g., packages/<pkg>/<module>/), this logic may need adjustment.
   if (queryDirs.length >= 2 && candidateDirs.length >= 2) {
     const queryModule = queryDirs[1]!;
     const candidateModule = candidateDirs[1]!;
