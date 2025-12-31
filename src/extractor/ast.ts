@@ -734,6 +734,7 @@ function extractSymbolUsages(
     // but matching still works because normalizeImportPath in builder/index.ts
     // strips /index suffixes, so 'src/components/index' normalizes to 'src/components'
     // and matches 'components' via the pathsMatch endsWith check.
+    // Limitation: Only handles .ts files. For .tsx/.mts/.cts support, extend this logic.
     if (!sourceFilePath.endsWith('.ts')) {
       sourceFilePath = sourceFilePath + '.ts';
     }
@@ -758,6 +759,9 @@ function extractSymbolUsages(
         usages.push(symbolUsage);
       }
     }
+
+    // Note: Namespace imports (import * as X from '...') are not tracked.
+    // Tracking property accesses like X.foo() would require additional AST traversal.
   }
 
   return usages;
@@ -797,10 +801,10 @@ function findSymbolUsages(
       usageLines.push(line);
     }
 
-    // Check if it's a function call
-    if (parent && parent.getKindName() === 'CallExpression') {
+    // Check if it's a function call - 'call' takes precedence over 'reference'
+    // (a symbol may be both called and referenced, e.g., `foo(); const fn = foo;`)
+    if (usageType !== 'call' && parent && parent.getKindName() === 'CallExpression') {
       // Use getExpression() for robust call expression detection
-      // This is clearer than getChildAtIndex(0) and doesn't depend on AST structure
       const callExpr = parent.asKindOrThrow(SyntaxKind.CallExpression);
       // Check if this identifier is the expression being called (not an argument)
       if (callExpr.getExpression() === identifier) {
