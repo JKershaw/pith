@@ -4,6 +4,7 @@ import {
   buildImpactTree,
   findAffectedFunctions,
   getTestFilesForImpact,
+  getUsedSymbolsFromFile,
   type ImpactTree,
   type AffectedFunction,
   type TestFileImpact,
@@ -648,6 +649,19 @@ export function formatChangeImpactAsMarkdown(
     for (const depId of impact.directDependents) {
       const depNode = nodeMap.get(depId);
       lines.push(`### ${depId}`);
+
+      // Phase 6.8.1.3: Show symbol-level usage with line numbers
+      if (depNode) {
+        const symbolUsages = getUsedSymbolsFromFile(depNode, sourceFileId, changedExports);
+        if (symbolUsages.length > 0) {
+          lines.push('');
+          lines.push('**Symbols used from this file:**');
+          for (const usage of symbolUsages) {
+            const lineRefs = usage.usageLines.map((l) => `L${l}`).join(', ');
+            lines.push(`- \`${usage.symbol}\` at ${lineRefs}`);
+          }
+        }
+      }
 
       // Show affected functions if changedExports provided
       if (changedExports && changedExports.length > 0 && depNode) {

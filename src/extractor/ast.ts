@@ -21,6 +21,21 @@ export interface Import {
 }
 
 /**
+ * Tracks where an imported symbol is actually used in a file.
+ * Phase 6.8.1: Symbol-level import tracking.
+ */
+export interface SymbolUsage {
+  /** The imported symbol name */
+  symbol: string;
+  /** Source file path the symbol is imported from (resolved) */
+  sourceFile: string;
+  /** Line numbers where this symbol is used in the file */
+  usageLines: number[];
+  /** Type of usage: 'call' for function calls, 'reference' for type/variable refs */
+  usageType: 'call' | 'reference' | 'type';
+}
+
+/**
  * Export declaration data.
  */
 export interface Export {
@@ -115,6 +130,7 @@ export interface ExtractedFile {
   git?: GitInfo;
   docs?: DocsInfo;
   patterns?: DetectedPattern[]; // Phase 6.6.6
+  symbolUsages?: SymbolUsage[]; // Phase 6.8.1: Symbol-level import tracking
 }
 
 /**
@@ -574,7 +590,115 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
   // Note: Pattern detection is done separately to avoid circular imports
   // See cli/extract.ts for pattern detection integration
 
+  // Phase 6.8.1: Extract symbol-level import usages
+  extracted.symbolUsages = extractSymbolUsages(sourceFile, imports, relativePath);
+
   return extracted;
+}
+
+/**
+ * Extract where imported symbols are actually used in a file.
+ * Phase 6.8.1: Symbol-level import tracking.
+ *
+ * @param sourceFile - The ts-morph source file
+ * @param imports - The imports extracted from this file
+ * @param filePath - The file path (for context)
+ * @returns Array of symbol usages with line numbers
+ */
+function extractSymbolUsages(
+  sourceFile: ReturnType<Project['addSourceFileAtPath']>,
+  imports: Import[],
+  _filePath: string
+): SymbolUsage[] {
+  const usages: SymbolUsage[] = [];
+
+  for (const imp of imports) {
+    // Resolve the source file path
+    let sourceFilePath = imp.from;
+    // Simple path normalization - strip .ts extension if missing, add it
+    if (!sourceFilePath.endsWith('.ts') && !sourceFilePath.includes('/node_modules/')) {
+      sourceFilePath = sourceFilePath + '.ts';
+    }
+
+    // Track named imports
+    for (const symbolName of imp.names) {
+      const symbolUsage = findSymbolUsages(sourceFile, symbolName, sourceFilePath, imp.isTypeOnly);
+      if (symbolUsage) {
+        usages.push(symbolUsage);
+      }
+    }
+
+    // Track default import
+    if (imp.defaultName) {
+      const symbolUsage = findSymbolUsages(
+        sourceFile,
+        imp.defaultName,
+        sourceFilePath,
+        imp.isTypeOnly
+      );
+      if (symbolUsage) {
+        usages.push(symbolUsage);
+      }
+    }
+  }
+
+  return usages;
+}
+
+/**
+ * Find all usages of a specific symbol in the source file.
+ */
+function findSymbolUsages(
+  sourceFile: ReturnType<Project['addSourceFileAtPath']>,
+  symbolName: string,
+  sourceFilePath: string,
+  isTypeOnly: boolean
+): SymbolUsage | null {
+  const usageLines: number[] = [];
+  let usageType: SymbolUsage['usageType'] = isTypeOnly ? 'type' : 'reference';
+
+  // Find all identifiers with this name in the file
+  const identifiers = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier);
+
+  for (const identifier of identifiers) {
+    if (identifier.getText() !== symbolName) {
+      continue;
+    }
+
+    // Skip the import declaration itself
+    const parent = identifier.getParent();
+    if (
+      parent &&
+      (parent.getKindName() === 'ImportSpecifier' || parent.getKindName() === 'ImportClause')
+    ) {
+      continue;
+    }
+
+    const line = identifier.getStartLineNumber();
+    if (!usageLines.includes(line)) {
+      usageLines.push(line);
+    }
+
+    // Check if it's a function call
+    if (parent && parent.getKindName() === 'CallExpression') {
+      const callExpr = parent;
+      // Check if this identifier is the expression being called (not an argument)
+      if (callExpr.getChildAtIndex(0) === identifier) {
+        usageType = 'call';
+      }
+    }
+  }
+
+  if (usageLines.length === 0) {
+    return null;
+  }
+
+  return {
+    symbol: symbolName,
+    sourceFile: sourceFilePath,
+    usageLines: usageLines.sort((a, b) => a - b),
+    usageType,
+  };
 }
 
 /**

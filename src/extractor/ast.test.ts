@@ -4,7 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { findFiles, extractFile, createProject, storeExtracted, type ExtractedFile } from './ast.ts';
+import {
+  findFiles,
+  extractFile,
+  createProject,
+  storeExtracted,
+  type ExtractedFile,
+} from './ast.ts';
 import { getDb, closeDb } from '../db/index.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -255,8 +261,11 @@ describe('extractFunctionCalls - Phase 6.6.7a.1', () => {
       return callNames.includes(call);
     });
 
-    assert.strictEqual(localCalls.length, createSession.calls.length,
-      'All calls should be to functions defined in the same file');
+    assert.strictEqual(
+      localCalls.length,
+      createSession.calls.length,
+      'All calls should be to functions defined in the same file'
+    );
   });
 
   it('handles functions with no function calls at all', () => {
@@ -280,5 +289,76 @@ describe('extractFunctionCalls - Phase 6.6.7a.1', () => {
     assert.ok(createSession);
     assert.ok(Array.isArray(createSession.calledBy));
     assert.strictEqual(createSession.calledBy.length, 0);
+  });
+});
+
+// Phase 6.8.1: Symbol-level import tracking tests
+describe('extractFile symbol usages (Phase 6.8.1)', () => {
+  it('extracts symbol usages for named imports', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/controller.ts');
+
+    assert.ok(Array.isArray(result.symbolUsages));
+    assert.ok(result.symbolUsages.length > 0, 'Should have symbol usages');
+
+    // Controller imports and uses registerUser from service.ts
+    const registerUserUsage = result.symbolUsages.find((u) => u.symbol === 'registerUser');
+    assert.ok(registerUserUsage, 'Should track registerUser usage');
+    assert.strictEqual(registerUserUsage.sourceFile, './service.ts');
+    assert.ok(registerUserUsage.usageLines.length > 0, 'Should have usage line numbers');
+    // registerUser is called on line 20
+    assert.ok(registerUserUsage.usageLines.includes(20), 'Should include line 20');
+    assert.strictEqual(registerUserUsage.usageType, 'call');
+  });
+
+  it('extracts symbol usages for type imports', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/auth.ts');
+
+    assert.ok(Array.isArray(result.symbolUsages));
+
+    // auth.ts imports User and Session as types
+    const userUsage = result.symbolUsages.find((u) => u.symbol === 'User');
+    assert.ok(userUsage, 'Should track User type usage');
+    assert.strictEqual(userUsage.usageType, 'type');
+    assert.ok(userUsage.usageLines.length > 0, 'Should have usage line numbers');
+  });
+
+  it('tracks multiple usages of the same symbol', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/service.ts');
+
+    assert.ok(Array.isArray(result.symbolUsages));
+
+    // service.ts uses formatUserName twice (line 21 and 40)
+    const formatUserNameUsage = result.symbolUsages.find((u) => u.symbol === 'formatUserName');
+    assert.ok(formatUserNameUsage, 'Should track formatUserName usage');
+    assert.ok(formatUserNameUsage.usageLines.length >= 2, 'Should have multiple usage lines');
+  });
+
+  it('distinguishes between call and reference usages', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/controller.ts');
+
+    assert.ok(Array.isArray(result.symbolUsages));
+
+    // createSession is imported and called
+    const createSessionUsage = result.symbolUsages.find((u) => u.symbol === 'createSession');
+    assert.ok(createSessionUsage, 'Should track createSession usage');
+    assert.strictEqual(createSessionUsage.usageType, 'call', 'Should be a call usage');
+
+    // User is imported as type only
+    const userUsage = result.symbolUsages.find((u) => u.symbol === 'User');
+    assert.ok(userUsage, 'Should track User type usage');
+    assert.strictEqual(userUsage.usageType, 'type', 'Should be a type usage');
+  });
+
+  it('returns empty array for files with no imports', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/types.ts');
+
+    assert.ok(Array.isArray(result.symbolUsages));
+    // types.ts has no imports, so no symbol usages
+    assert.strictEqual(result.symbolUsages.length, 0);
   });
 });
