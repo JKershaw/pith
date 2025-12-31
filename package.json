@@ -14,7 +14,8 @@
     "lint": "eslint src/",
     "format": "prettier --write src/",
     "prepublishOnly": "npm run build",
-    "pr:review": "node --experimental-strip-types scripts/pr-review.ts"
+    "pr:review": "node --experimental-strip-types scripts/pr-review.ts",
+    "prepare": "husky"
   },
   "keywords": [
     "codebase",
@@ -42,8 +43,18 @@
     "@types/express": "^5.0.6",
     "@types/node": "^25.0.3",
     "eslint": "^9.39.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "prettier": "^3.7.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.50.1"
+  },
+  "lint-staged": {
+    "**/*.{ts,tsx}": [
+      "eslint --fix"
+    ],
+    "**/*.{ts,tsx,js,jsx,json,md}": [
+      "prettier --write"
+    ]
   }
 }
