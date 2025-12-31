@@ -72,7 +72,7 @@ export function levenshteinDistance(a: string, b: string): number {
 }
 
 /**
- * Score similarity between two paths.
+ * Score similarity between two paths (case-insensitive).
  * Higher score = more similar.
  *
  * Scoring factors:
@@ -95,13 +95,17 @@ export function levenshteinDistance(a: string, b: string): number {
 export function scoreSimilarity(query: string, candidate: string): number {
   let score = 0;
 
-  const queryParts = query.split('/');
-  const candidateParts = candidate.split('/');
+  // Normalize to lowercase for case-insensitive matching
+  const queryLower = query.toLowerCase();
+  const candidateLower = candidate.toLowerCase();
+
+  const queryParts = queryLower.split('/');
+  const candidateParts = candidateLower.split('/');
 
   const queryFilename = queryParts[queryParts.length - 1] || '';
   const candidateFilename = candidateParts[candidateParts.length - 1] || '';
 
-  // Exact filename match is heavily weighted
+  // Exact filename match is heavily weighted (case-insensitive)
   if (queryFilename === candidateFilename) {
     score += 50;
   } else {

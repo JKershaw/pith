@@ -343,15 +343,13 @@ describe('REGRESSION: cross-module false positives (the actual bug)', () => {
 
       // Either matchedPath should be null, OR confidence should be below threshold
       const isCorrectBehavior =
-        result.matchedPath === null ||
-        result.confidence < AUTO_MATCH_THRESHOLD ||
-        result.matchedPath?.includes('extractor');
+        result.matchedPath === null || result.confidence < AUTO_MATCH_THRESHOLD;
 
       assert.ok(
         isCorrectBehavior,
         `Cross-module false positive: src/extractor/index.ts should NOT auto-match to ` +
         `${result.matchedPath} with ${(result.confidence * 100).toFixed(0)}% confidence. ` +
-        `Expected: null match, low confidence, or correct module.`
+        `Expected: null match or low confidence.`
       );
     });
 
@@ -363,9 +361,7 @@ describe('REGRESSION: cross-module false positives (the actual bug)', () => {
       const result = fuzzyMatch('src/builder/index.ts', candidatesWithoutBuilder);
 
       const isCorrectBehavior =
-        result.matchedPath === null ||
-        result.confidence < AUTO_MATCH_THRESHOLD ||
-        result.matchedPath?.includes('builder');
+        result.matchedPath === null || result.confidence < AUTO_MATCH_THRESHOLD;
 
       assert.ok(
         isCorrectBehavior,
@@ -382,9 +378,7 @@ describe('REGRESSION: cross-module false positives (the actual bug)', () => {
       const result = fuzzyMatch('src/api/index.ts', candidatesWithoutApi);
 
       const isCorrectBehavior =
-        result.matchedPath === null ||
-        result.confidence < AUTO_MATCH_THRESHOLD ||
-        result.matchedPath?.includes('api');
+        result.matchedPath === null || result.confidence < AUTO_MATCH_THRESHOLD;
 
       assert.ok(
         isCorrectBehavior,
@@ -401,9 +395,7 @@ describe('REGRESSION: cross-module false positives (the actual bug)', () => {
       const result = fuzzyMatch('src/db/index.ts', candidatesWithoutDb);
 
       const isCorrectBehavior =
-        result.matchedPath === null ||
-        result.confidence < AUTO_MATCH_THRESHOLD ||
-        result.matchedPath?.includes('db');
+        result.matchedPath === null || result.confidence < AUTO_MATCH_THRESHOLD;
 
       assert.ok(
         isCorrectBehavior,
@@ -528,13 +520,12 @@ describe('fix validation tests', () => {
     });
 
     it('case variation: src/Extractor/index.ts -> src/extractor/index.ts', () => {
-      // Note: this might need case-insensitive matching
       const result = fuzzyMatch('src/Extractor/index.ts', pithNodes);
-      // Should at least suggest the right file
+      // Case-insensitive matching should find the correct file with high confidence
+      assert.strictEqual(result.matchedPath, 'src/extractor/index.ts');
       assert.ok(
-        result.matchedPath === 'src/extractor/index.ts' ||
-        result.alternatives.includes('src/extractor/index.ts'),
-        'Case variation should find correct file'
+        result.confidence >= AUTO_MATCH_THRESHOLD,
+        `Case variation should match with high confidence, got ${(result.confidence * 100).toFixed(0)}%`
       );
     });
 
