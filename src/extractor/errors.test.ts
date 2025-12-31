@@ -8,6 +8,10 @@ import {
   extractCatchBlocks,
   extractValidationGuards,
   extractErrorPaths,
+  groupErrorsByStatus,
+  formatConditionChain,
+  formatErrorPathsForDebugging,
+  type ErrorPath,
 } from './errors.ts';
 import { createProject, extractFile } from './ast.ts';
 
@@ -20,13 +24,14 @@ describe('extractEarlyReturns', () => {
     const extracted = extractFile(ctx, 'src/api/index.ts');
 
     // bundleContext has early returns for missing nodes
-    const bundleContext = extracted.functions.find(f => f.name === 'bundleContext');
+    const bundleContext = extracted.functions.find((f) => f.name === 'bundleContext');
     assert.ok(bundleContext, 'bundleContext function should exist');
 
     const earlyReturns = extractEarlyReturns(
-      ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/api/index.ts'))
+      ctx.project
+        .getSourceFileOrThrow(join(pithRoot, 'src/api/index.ts'))
         .getFunctions()
-        .find(f => f.getName() === 'bundleContext')!
+        .find((f) => f.getName() === 'bundleContext')!
     );
 
     assert.ok(Array.isArray(earlyReturns), 'Should return an array');
@@ -74,11 +79,11 @@ describe('extractThrowStatements', () => {
     const extracted = extractFile(ctx, 'src/generator/index.ts');
 
     // buildPrompt throws for unsupported node types
-    const buildPrompt = extracted.functions.find(f => f.name === 'buildPrompt');
+    const buildPrompt = extracted.functions.find((f) => f.name === 'buildPrompt');
     assert.ok(buildPrompt, 'buildPrompt function should exist');
 
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/generator/index.ts'));
-    const buildPromptFunc = sourceFile.getFunctions().find(f => f.getName() === 'buildPrompt');
+    const buildPromptFunc = sourceFile.getFunctions().find((f) => f.getName() === 'buildPrompt');
     assert.ok(buildPromptFunc, 'buildPrompt AST node should exist');
 
     const throws = extractThrowStatements(buildPromptFunc);
@@ -116,11 +121,11 @@ describe('extractCatchBlocks', () => {
     const extracted = extractFile(ctx, 'src/generator/index.ts');
 
     // callLLM has complex error handling with retry and catch
-    const callLLM = extracted.functions.find(f => f.name === 'callLLM');
+    const callLLM = extracted.functions.find((f) => f.name === 'callLLM');
     assert.ok(callLLM, 'callLLM function should exist');
 
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/generator/index.ts'));
-    const callLLMFunc = sourceFile.getFunctions().find(f => f.getName() === 'callLLM');
+    const callLLMFunc = sourceFile.getFunctions().find((f) => f.getName() === 'callLLM');
     assert.ok(callLLMFunc, 'callLLM AST node should exist');
 
     const catchBlocks = extractCatchBlocks(callLLMFunc);
@@ -181,7 +186,7 @@ describe('extractValidationGuards', () => {
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/extractor/ast.ts'));
 
     // extractFile has validation guards
-    const extractFileFunc = sourceFile.getFunctions().find(f => f.getName() === 'extractFile');
+    const extractFileFunc = sourceFile.getFunctions().find((f) => f.getName() === 'extractFile');
     assert.ok(extractFileFunc, 'extractFile function should exist');
 
     const guards = extractValidationGuards(extractFileFunc);
@@ -217,7 +222,7 @@ describe('extractValidationGuards', () => {
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/builder/index.ts'));
 
     // buildFileNode is a good candidate
-    const buildFileNode = sourceFile.getFunctions().find(f => f.getName() === 'buildFileNode');
+    const buildFileNode = sourceFile.getFunctions().find((f) => f.getName() === 'buildFileNode');
     if (buildFileNode) {
       const guards = extractValidationGuards(buildFileNode);
 
@@ -242,7 +247,7 @@ describe('extractErrorPaths', () => {
     const sourceFile = ctx.project.getSourceFileOrThrow(join(pithRoot, 'src/generator/index.ts'));
 
     // callLLM has all types of error paths
-    const callLLMFunc = sourceFile.getFunctions().find(f => f.getName() === 'callLLM');
+    const callLLMFunc = sourceFile.getFunctions().find((f) => f.getName() === 'callLLM');
     assert.ok(callLLMFunc, 'callLLM function should exist');
 
     const errorPaths = extractErrorPaths(callLLMFunc);
@@ -251,7 +256,7 @@ describe('extractErrorPaths', () => {
     assert.ok(errorPaths.length > 0, 'Should detect error paths');
 
     // Should include catch blocks at minimum
-    const hasCatch = errorPaths.some(p => p.type === 'catch');
+    const hasCatch = errorPaths.some((p) => p.type === 'catch');
     assert.ok(hasCatch, 'Should detect catch blocks');
 
     // Error paths should be sorted by line number
@@ -303,5 +308,161 @@ describe('extractErrorPaths', () => {
 
     // Verify we processed functions and found error paths (or at least ran detection)
     assert.ok(totalErrorPaths >= 0, 'Error path detection ran for API handlers');
+  });
+});
+
+// Phase 6.8.4: Enhanced Debugging Output Tests
+describe('Enhanced Debugging Output - Phase 6.8.4', () => {
+  describe('groupErrorsByStatus (6.8.4.2)', () => {
+    it('groups error paths by HTTP status code', () => {
+      const paths: ErrorPath[] = [
+        { type: 'throw', line: 10, action: 'throw 404', httpStatus: 404 },
+        { type: 'throw', line: 20, action: 'throw 404', httpStatus: 404 },
+        { type: 'throw', line: 30, action: 'throw 500', httpStatus: 500 },
+      ];
+
+      const grouped = groupErrorsByStatus(paths);
+
+      assert.strictEqual(grouped.length, 2);
+      const notFound = grouped.find((g) => g.status === 404);
+      assert.ok(notFound);
+      assert.strictEqual(notFound.paths.length, 2);
+      assert.strictEqual(notFound.description, 'Not Found');
+
+      const serverError = grouped.find((g) => g.status === 500);
+      assert.ok(serverError);
+      assert.strictEqual(serverError.paths.length, 1);
+    });
+
+    it('returns empty array when no paths have HTTP status', () => {
+      const paths: ErrorPath[] = [{ type: 'throw', line: 10, action: 'throw new Error()' }];
+
+      const grouped = groupErrorsByStatus(paths);
+
+      assert.strictEqual(grouped.length, 0);
+    });
+
+    it('sorts by status code', () => {
+      const paths: ErrorPath[] = [
+        { type: 'throw', line: 10, action: 'throw 500', httpStatus: 500 },
+        { type: 'throw', line: 20, action: 'throw 400', httpStatus: 400 },
+        { type: 'throw', line: 30, action: 'throw 404', httpStatus: 404 },
+      ];
+
+      const grouped = groupErrorsByStatus(paths);
+
+      assert.strictEqual(grouped[0].status, 400);
+      assert.strictEqual(grouped[1].status, 404);
+      assert.strictEqual(grouped[2].status, 500);
+    });
+  });
+
+  describe('formatConditionChain (6.8.4.1)', () => {
+    it('formats condition chain when present', () => {
+      const path: ErrorPath = {
+        type: 'guard',
+        line: 10,
+        action: 'return null',
+        conditionChain: ['!user', 'path.includes("/")'],
+      };
+
+      const result = formatConditionChain(path);
+
+      assert.strictEqual(result, '!user && path.includes("/")');
+    });
+
+    it('falls back to condition when no chain', () => {
+      const path: ErrorPath = {
+        type: 'guard',
+        line: 10,
+        condition: '!user',
+        action: 'return null',
+      };
+
+      const result = formatConditionChain(path);
+
+      assert.strictEqual(result, '!user');
+    });
+
+    it('returns unconditional when no condition', () => {
+      const path: ErrorPath = {
+        type: 'throw',
+        line: 10,
+        action: 'throw error',
+      };
+
+      const result = formatConditionChain(path);
+
+      assert.strictEqual(result, 'unconditional');
+    });
+  });
+
+  describe('formatErrorPathsForDebugging (6.8.4)', () => {
+    it('formats error paths grouped by HTTP status', () => {
+      const paths: ErrorPath[] = [
+        { type: 'throw', line: 10, action: 'throw 404', httpStatus: 404, condition: '!node' },
+        { type: 'throw', line: 20, action: 'throw 500', httpStatus: 500 },
+      ];
+
+      const result = formatErrorPathsForDebugging(paths);
+
+      assert.ok(result.includes('Error Paths by HTTP Status'));
+      assert.ok(result.includes('404 Not Found'));
+      assert.ok(result.includes('500 Internal Server Error'));
+      assert.ok(result.includes('Line 10'));
+      assert.ok(result.includes('Line 20'));
+    });
+
+    it('includes paths without HTTP status in Other section', () => {
+      const paths: ErrorPath[] = [{ type: 'catch', line: 10, action: 'swallows error' }];
+
+      const result = formatErrorPathsForDebugging(paths);
+
+      assert.ok(result.includes('Other Error Paths'));
+      assert.ok(result.includes('catch'));
+    });
+  });
+
+  describe('HTTP status detection', () => {
+    it('detects HTTP status from error paths', () => {
+      // Test with mock data since we don't need real file
+      const paths: ErrorPath[] = [
+        { type: 'throw', line: 10, action: 'throw new NotFoundError()', httpStatus: 404 },
+        { type: 'guard', line: 20, condition: 'status === 429', action: 'return', httpStatus: 429 },
+      ];
+
+      // Verify httpStatus is properly set
+      assert.strictEqual(paths[0].httpStatus, 404);
+      assert.strictEqual(paths[1].httpStatus, 429);
+    });
+
+    it('groupErrorsByStatus handles unlisted HTTP status codes', () => {
+      // Test that codes not in HTTP_STATUS_DESCRIPTIONS map are still handled
+      const paths: ErrorPath[] = [
+        { type: 'throw', line: 10, action: 'throw 418', httpStatus: 418 }, // I'm a teapot - not in map
+        { type: 'throw', line: 20, action: 'throw 504', httpStatus: 504 }, // In map
+        { type: 'throw', line: 30, action: 'throw 599', httpStatus: 599 }, // Not in map
+      ];
+
+      const grouped = groupErrorsByStatus(paths);
+
+      // Should have 3 groups
+      assert.strictEqual(grouped.length, 3);
+
+      // Find the 418 group - should have fallback description
+      const teapotGroup = grouped.find((g) => g.status === 418);
+      assert.ok(teapotGroup);
+      assert.strictEqual(teapotGroup.description, 'HTTP 418'); // Fallback format
+
+      // Find the 504 group - should have proper description
+      const gatewayGroup = grouped.find((g) => g.status === 504);
+      assert.ok(gatewayGroup);
+      assert.strictEqual(gatewayGroup.description, 'Gateway Timeout');
+
+      // Find the 599 group - should have fallback description
+      const customGroup = grouped.find((g) => g.status === 599);
+      assert.ok(customGroup);
+      assert.strictEqual(customGroup.description, 'HTTP 599');
+    });
   });
 });

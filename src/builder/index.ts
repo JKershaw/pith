@@ -49,6 +49,15 @@ export interface AffectedFunction {
 }
 
 /**
+ * Symbol usage with line numbers.
+ * Phase 6.8.1: Symbol-level import tracking
+ */
+export interface SymbolUsageInfo {
+  symbol: string;
+  usageLines: number[];
+}
+
+/**
  * Test file information for impact analysis.
  * Phase 6.6.5.4: Test file impact
  */
@@ -113,6 +122,7 @@ export interface WikiNode {
     readme?: string;
     functions?: FunctionDetails[]; // Phase 6.6.1 - function details with line numbers
     patterns?: import('../extractor/patterns.ts').DetectedPattern[]; // Phase 6.6.6 - detected design patterns
+    symbolUsages?: import('../extractor/ast.ts').SymbolUsage[]; // Phase 6.8.1 - symbol-level import tracking
   };
   prose?: ProseData; // Generated prose from LLM
 }
@@ -193,6 +203,9 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
   // Phase 6.6.6: Copy detected patterns
   const patterns = extracted.patterns;
 
+  // Phase 6.8.1: Copy symbol usages
+  const symbolUsages = extracted.symbolUsages;
+
   return {
     id,
     type: 'file',
@@ -208,6 +221,7 @@ export function buildFileNode(extracted: ExtractedFile): WikiNode {
       exports: exports.length > 0 ? exports : undefined,
       recentCommits,
       patterns, // Phase 6.6.6
+      symbolUsages: symbolUsages && symbolUsages.length > 0 ? symbolUsages : undefined, // Phase 6.8.1
     },
   };
 }
@@ -837,6 +851,115 @@ export function findAffectedFunctions(
   }
 
   return affected;
+}
+
+/**
+ * Check which symbols from a source file are actually used in a dependent file.
+ * Phase 6.8.1.2: Filter impact analysis to only files using changed symbol.
+ * @param dependentNode - The file node that depends on the source file
+ * @param sourceFilePath - The path of the source file (what was imported)
+ * @param changedSymbols - Optional: specific symbols to check (if empty, returns all used symbols)
+ * @returns Array of symbol usages with line numbers, or empty if no symbols are used
+ */
+export function getUsedSymbolsFromFile(
+  dependentNode: WikiNode,
+  sourceFilePath: string,
+  changedSymbols?: string[]
+): SymbolUsageInfo[] {
+  const result: SymbolUsageInfo[] = [];
+
+  // If no symbol usages tracked, return empty
+  if (!dependentNode.raw.symbolUsages) {
+    return result;
+  }
+
+  // Normalize source file path (handle with/without .ts extension and relative paths)
+  const normalizedSourcePath = normalizeImportPath(sourceFilePath);
+
+  for (const usage of dependentNode.raw.symbolUsages) {
+    // Check if this usage is from the source file
+    const normalizedUsagePath = normalizeImportPath(usage.sourceFile);
+    if (!pathsMatch(normalizedUsagePath, normalizedSourcePath)) {
+      continue;
+    }
+
+    // If specific symbols specified, filter to only those
+    if (changedSymbols && changedSymbols.length > 0) {
+      if (!changedSymbols.includes(usage.symbol)) {
+        continue;
+      }
+    }
+
+    result.push({
+      symbol: usage.symbol,
+      usageLines: usage.usageLines,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Normalize an import path for comparison.
+ * Handles .ts extension, ./ prefix, ../ parent directory components, and /index suffix.
+ */
+function normalizeImportPath(path: string): string {
+  // Remove .ts extension if present
+  let normalized = path.replace(/\.ts$/, '');
+  // Normalize ./ prefix
+  if (normalized.startsWith('./')) {
+    normalized = normalized.slice(2);
+  }
+  // Strip leading ../ components to get the trailing project-relative segment
+  // e.g., "../types/foo" -> "types/foo"
+  while (normalized.startsWith('../')) {
+    normalized = normalized.slice(3);
+  }
+  // Remove trailing /index for directory imports
+  // e.g., "components/index" -> "components"
+  if (normalized.endsWith('/index')) {
+    normalized = normalized.slice(0, -6);
+  }
+  return normalized;
+}
+
+/**
+ * Check if two paths match (accounting for relative paths).
+ * Uses path separator checks to avoid false positives (e.g., "src/types" matching "types").
+ */
+function pathsMatch(path1: string, path2: string): boolean {
+  // Exact match
+  if (path1 === path2) {
+    return true;
+  }
+
+  // Check if one path ends with the other, but require a path separator
+  // to avoid "src/types" matching "types" (should only match "/types" or "src/types")
+  if (path1.length > path2.length) {
+    return path1.endsWith('/' + path2);
+  }
+  if (path2.length > path1.length) {
+    return path2.endsWith('/' + path1);
+  }
+
+  return false;
+}
+
+/**
+ * Check if a dependent file actually uses any exports from a source file.
+ * Phase 6.8.1.2: Filter impact analysis based on actual symbol usage.
+ * @param dependentNode - The file node that depends on the source file
+ * @param sourceFilePath - The path of the source file
+ * @param changedExports - The exports that were changed (optional, checks all if not specified)
+ * @returns True if the dependent uses any of the changed exports
+ */
+export function dependentUsesExports(
+  dependentNode: WikiNode,
+  sourceFilePath: string,
+  changedExports?: string[]
+): boolean {
+  const usedSymbols = getUsedSymbolsFromFile(dependentNode, sourceFilePath, changedExports);
+  return usedSymbols.length > 0;
 }
 
 /**

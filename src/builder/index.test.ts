@@ -23,6 +23,8 @@ import {
   buildImpactTree,
   findAffectedFunctions,
   getTestFilesForImpact,
+  getUsedSymbolsFromFile,
+  dependentUsesExports,
   type WikiNode,
   type FunctionData,
 } from './index.ts';
@@ -1031,11 +1033,7 @@ describe('buildImportEdges', () => {
       },
     };
 
-    const allFilePaths = [
-      'src/auth/login.ts',
-      'src/auth/session.ts',
-      'src/utils/hash.ts',
-    ];
+    const allFilePaths = ['src/auth/login.ts', 'src/auth/session.ts', 'src/utils/hash.ts'];
 
     const edges = buildImportEdges(fileNode, allFilePaths);
 
@@ -1387,8 +1385,8 @@ describe('Test File Mapping - Phase 6.2.2', () => {
     const edges = buildTestFileEdges(fileNodes);
 
     assert.strictEqual(edges.length, 2);
-    assert.ok(edges.some(e => e.target === 'src/auth/login.test.ts'));
-    assert.ok(edges.some(e => e.target === 'src/auth/logout.spec.ts'));
+    assert.ok(edges.some((e) => e.target === 'src/auth/login.test.ts'));
+    assert.ok(edges.some((e) => e.target === 'src/auth/logout.spec.ts'));
   });
 });
 
@@ -1410,9 +1408,7 @@ describe('Dependent Edges - Phase 6.3.1', () => {
         path: 'src/auth/login.ts',
         name: 'login.ts',
         metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
-        edges: [
-          { type: 'imports', target: 'src/utils/helper.ts' },
-        ],
+        edges: [{ type: 'imports', target: 'src/utils/helper.ts' }],
         raw: {},
       },
       {
@@ -1421,9 +1417,7 @@ describe('Dependent Edges - Phase 6.3.1', () => {
         path: 'src/auth/signup.ts',
         name: 'signup.ts',
         metadata: { lines: 80, commits: 3, lastModified: new Date(), authors: [] },
-        edges: [
-          { type: 'imports', target: 'src/utils/helper.ts' },
-        ],
+        edges: [{ type: 'imports', target: 'src/utils/helper.ts' }],
         raw: {},
       },
     ];
@@ -1431,9 +1425,13 @@ describe('Dependent Edges - Phase 6.3.1', () => {
     const edges = buildDependentEdges(fileNodes);
 
     assert.strictEqual(edges.length, 2);
-    assert.ok(edges.some(e => e.sourceId === 'src/utils/helper.ts' && e.target === 'src/auth/login.ts'));
-    assert.ok(edges.some(e => e.sourceId === 'src/utils/helper.ts' && e.target === 'src/auth/signup.ts'));
-    assert.ok(edges.every(e => e.type === 'importedBy'));
+    assert.ok(
+      edges.some((e) => e.sourceId === 'src/utils/helper.ts' && e.target === 'src/auth/login.ts')
+    );
+    assert.ok(
+      edges.some((e) => e.sourceId === 'src/utils/helper.ts' && e.target === 'src/auth/signup.ts')
+    );
+    assert.ok(edges.every((e) => e.type === 'importedBy'));
   });
 
   it('returns empty array when no files are imported', () => {
@@ -1524,7 +1522,7 @@ describe('Dependent Edges - Phase 6.3.1', () => {
     const edges = buildDependentEdges(fileNodes);
 
     assert.strictEqual(edges.length, 3);
-    const configEdges = edges.filter(e => e.sourceId === 'src/config.ts');
+    const configEdges = edges.filter((e) => e.sourceId === 'src/config.ts');
     assert.strictEqual(configEdges.length, 3);
   });
 });
@@ -2169,7 +2167,8 @@ describe('Impact Tree - Phase 6.6.5', () => {
               endLine: 30,
               isAsync: true,
               isExported: true,
-              codeSnippet: 'const valid = validateInput(user, pass);\nif (!valid) { return formatError(); }',
+              codeSnippet:
+                'const valid = validateInput(user, pass);\nif (!valid) { return formatError(); }',
               keyStatements: [],
             },
             {
@@ -2258,7 +2257,13 @@ describe('Impact Tree - Phase 6.6.5', () => {
           type: 'file',
           path: 'src/utils/helper.test.ts',
           name: 'helper.test.ts',
-          metadata: { lines: 100, commits: 3, lastModified: new Date(), authors: [], testCommand: 'npm test -- src/utils/helper.test.ts' },
+          metadata: {
+            lines: 100,
+            commits: 3,
+            lastModified: new Date(),
+            authors: [],
+            testCommand: 'npm test -- src/utils/helper.test.ts',
+          },
           edges: [],
           raw: {},
         },
@@ -2279,7 +2284,13 @@ describe('Impact Tree - Phase 6.6.5', () => {
           type: 'file',
           path: 'src/auth/login.test.ts',
           name: 'login.test.ts',
-          metadata: { lines: 150, commits: 5, lastModified: new Date(), authors: [], testCommand: 'npm test -- src/auth/login.test.ts' },
+          metadata: {
+            lines: 150,
+            commits: 5,
+            lastModified: new Date(),
+            authors: [],
+            testCommand: 'npm test -- src/auth/login.test.ts',
+          },
           edges: [],
           raw: {},
         },
@@ -2289,8 +2300,8 @@ describe('Impact Tree - Phase 6.6.5', () => {
       const testFiles = getTestFilesForImpact(affectedFiles, fileNodes);
 
       assert.strictEqual(testFiles.length, 2);
-      assert.ok(testFiles.some(t => t.path === 'src/utils/helper.test.ts'));
-      assert.ok(testFiles.some(t => t.path === 'src/auth/login.test.ts'));
+      assert.ok(testFiles.some((t) => t.path === 'src/utils/helper.test.ts'));
+      assert.ok(testFiles.some((t) => t.path === 'src/auth/login.test.ts'));
     });
 
     it('returns empty when no test files exist', () => {
@@ -2327,7 +2338,13 @@ describe('Impact Tree - Phase 6.6.5', () => {
           type: 'file',
           path: 'src/foo.test.ts',
           name: 'foo.test.ts',
-          metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [], testCommand: 'npm test -- src/foo.test.ts' },
+          metadata: {
+            lines: 50,
+            commits: 2,
+            lastModified: new Date(),
+            authors: [],
+            testCommand: 'npm test -- src/foo.test.ts',
+          },
           edges: [],
           raw: {},
         },
@@ -2621,6 +2638,302 @@ describe('Function Call Graph - Phase 6.6.7a', () => {
       assert.ok(standalone);
       assert.strictEqual(standalone.calls.length, 0);
       assert.strictEqual(standalone.calledBy.length, 0);
+    });
+  });
+});
+
+// Phase 6.8.1: Symbol-Level Import Tracking Tests
+describe('Symbol-Level Import Tracking - Phase 6.8.1', () => {
+  describe('buildFileNode with symbolUsages', () => {
+    it('copies symbolUsages from extracted data to WikiNode', () => {
+      const extracted: ExtractedFile = {
+        path: 'src/consumer.ts',
+        lines: 20,
+        imports: [{ from: './types.ts', names: ['User'], isTypeOnly: false }],
+        exports: [],
+        functions: [],
+        classes: [],
+        interfaces: [],
+        symbolUsages: [
+          {
+            symbol: 'User',
+            sourceFile: './types.ts',
+            usageLines: [10, 15],
+            usageType: 'reference',
+          },
+        ],
+      };
+
+      const node = buildFileNode(extracted);
+
+      assert.ok(node.raw.symbolUsages);
+      assert.strictEqual(node.raw.symbolUsages.length, 1);
+      assert.strictEqual(node.raw.symbolUsages[0].symbol, 'User');
+      assert.deepStrictEqual(node.raw.symbolUsages[0].usageLines, [10, 15]);
+    });
+
+    it('omits symbolUsages when empty', () => {
+      const extracted: ExtractedFile = {
+        path: 'src/standalone.ts',
+        lines: 10,
+        imports: [],
+        exports: [],
+        functions: [],
+        classes: [],
+        interfaces: [],
+        symbolUsages: [],
+      };
+
+      const node = buildFileNode(extracted);
+
+      assert.strictEqual(node.raw.symbolUsages, undefined);
+    });
+  });
+
+  describe('getUsedSymbolsFromFile', () => {
+    it('returns symbols used from a specific source file', () => {
+      const node: WikiNode = {
+        id: 'src/consumer.ts',
+        type: 'file',
+        path: 'src/consumer.ts',
+        name: 'consumer.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            {
+              symbol: 'User',
+              sourceFile: './types.ts',
+              usageLines: [10, 15],
+              usageType: 'reference',
+            },
+            { symbol: 'Session', sourceFile: './types.ts', usageLines: [20], usageType: 'type' },
+            { symbol: 'login', sourceFile: './auth.ts', usageLines: [25], usageType: 'call' },
+          ],
+        },
+      };
+
+      const result = getUsedSymbolsFromFile(node, 'types.ts');
+
+      assert.strictEqual(result.length, 2);
+      assert.ok(result.some((u) => u.symbol === 'User'));
+      assert.ok(result.some((u) => u.symbol === 'Session'));
+    });
+
+    it('filters to specific changed symbols when provided', () => {
+      const node: WikiNode = {
+        id: 'src/consumer.ts',
+        type: 'file',
+        path: 'src/consumer.ts',
+        name: 'consumer.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            { symbol: 'User', sourceFile: './types.ts', usageLines: [10], usageType: 'reference' },
+            { symbol: 'Session', sourceFile: './types.ts', usageLines: [20], usageType: 'type' },
+          ],
+        },
+      };
+
+      const result = getUsedSymbolsFromFile(node, 'types.ts', ['User']);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].symbol, 'User');
+    });
+
+    it('returns empty array when no symbolUsages', () => {
+      const node: WikiNode = {
+        id: 'src/standalone.ts',
+        type: 'file',
+        path: 'src/standalone.ts',
+        name: 'standalone.ts',
+        metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      };
+
+      const result = getUsedSymbolsFromFile(node, 'types.ts');
+
+      assert.strictEqual(result.length, 0);
+    });
+
+    it('returns empty array when source file path does not match', () => {
+      const node: WikiNode = {
+        id: 'src/consumer.ts',
+        type: 'file',
+        path: 'src/consumer.ts',
+        name: 'consumer.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            { symbol: 'login', sourceFile: './auth.ts', usageLines: [25], usageType: 'call' },
+          ],
+        },
+      };
+
+      const result = getUsedSymbolsFromFile(node, 'types.ts');
+
+      assert.strictEqual(result.length, 0);
+    });
+  });
+
+  describe('dependentUsesExports', () => {
+    it('returns true when dependent uses exports from source', () => {
+      const node: WikiNode = {
+        id: 'src/consumer.ts',
+        type: 'file',
+        path: 'src/consumer.ts',
+        name: 'consumer.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            { symbol: 'User', sourceFile: './types.ts', usageLines: [10], usageType: 'reference' },
+          ],
+        },
+      };
+
+      const result = dependentUsesExports(node, 'types.ts', ['User']);
+
+      assert.strictEqual(result, true);
+    });
+
+    it('returns false when dependent does not use specified exports', () => {
+      const node: WikiNode = {
+        id: 'src/consumer.ts',
+        type: 'file',
+        path: 'src/consumer.ts',
+        name: 'consumer.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            { symbol: 'Session', sourceFile: './types.ts', usageLines: [20], usageType: 'type' },
+          ],
+        },
+      };
+
+      const result = dependentUsesExports(node, 'types.ts', ['User']); // Check for User, but only Session is used
+
+      assert.strictEqual(result, false);
+    });
+
+    it('returns true when checking all exports and any is used', () => {
+      const node: WikiNode = {
+        id: 'src/consumer.ts',
+        type: 'file',
+        path: 'src/consumer.ts',
+        name: 'consumer.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            { symbol: 'Session', sourceFile: './types.ts', usageLines: [20], usageType: 'type' },
+          ],
+        },
+      };
+
+      // No specific exports - check if any are used
+      const result = dependentUsesExports(node, 'types.ts');
+
+      assert.strictEqual(result, true);
+    });
+  });
+
+  describe('Path matching edge cases', () => {
+    it('avoids false positives with similar path endings without separators', () => {
+      // Test case: "footypes" should NOT match "types" (no path separator)
+      // But "src/types" SHOULD match "types" (has path separator: /types)
+      const node: WikiNode = {
+        id: 'src/consumer.ts',
+        type: 'file',
+        path: 'src/consumer.ts',
+        name: 'consumer.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            {
+              symbol: 'BadMatch',
+              sourceFile: './footypes.ts', // Should NOT match "types" (no separator)
+              usageLines: [5],
+              usageType: 'reference',
+            },
+            {
+              symbol: 'GoodMatch',
+              sourceFile: './src/types.ts', // SHOULD match "types" (has /types)
+              usageLines: [10],
+              usageType: 'reference',
+            },
+          ],
+        },
+      };
+
+      // Should NOT match "footypes" when searching for "types"
+      // The path separator check ensures "footypes" != "/types"
+      const typesMatches = getUsedSymbolsFromFile(node, 'types.ts');
+
+      // Only "src/types.ts" should match (has /types), not "footypes.ts"
+      assert.strictEqual(typesMatches.length, 1);
+      assert.strictEqual(typesMatches[0].symbol, 'GoodMatch');
+
+      // Should match with full path
+      const fullPathMatch = getUsedSymbolsFromFile(node, 'src/types.ts');
+      assert.strictEqual(fullPathMatch.length, 1);
+    });
+
+    it('matches paths with ../ parent directory components', () => {
+      const node: WikiNode = {
+        id: 'src/api/handlers.ts',
+        type: 'file',
+        path: 'src/api/handlers.ts',
+        name: 'handlers.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            {
+              symbol: 'User',
+              sourceFile: '../types/user.ts', // Relative import with ../
+              usageLines: [10],
+              usageType: 'reference',
+            },
+          ],
+        },
+      };
+
+      // Should match after stripping ../ prefix
+      const match = getUsedSymbolsFromFile(node, 'types/user.ts');
+      assert.strictEqual(match.length, 1);
+      assert.strictEqual(match[0].symbol, 'User');
+    });
+
+    it('matches paths with /index suffix', () => {
+      const node: WikiNode = {
+        id: 'src/app.ts',
+        type: 'file',
+        path: 'src/app.ts',
+        name: 'app.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            {
+              symbol: 'Button',
+              sourceFile: './components/index.ts', // Directory import with /index
+              usageLines: [10],
+              usageType: 'reference',
+            },
+          ],
+        },
+      };
+
+      // Should match "components" after stripping /index suffix
+      const match = getUsedSymbolsFromFile(node, 'components.ts');
+      assert.strictEqual(match.length, 1);
+      assert.strictEqual(match[0].symbol, 'Button');
     });
   });
 });

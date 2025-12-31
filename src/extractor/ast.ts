@@ -21,6 +21,21 @@ export interface Import {
 }
 
 /**
+ * Tracks where an imported symbol is actually used in a file.
+ * Phase 6.8.1: Symbol-level import tracking.
+ */
+export interface SymbolUsage {
+  /** The imported symbol name */
+  symbol: string;
+  /** Source file path the symbol is imported from (resolved) */
+  sourceFile: string;
+  /** Line numbers where this symbol is used in the file */
+  usageLines: number[];
+  /** Type of usage: 'call' for function calls, 'reference' for type/variable refs */
+  usageType: 'call' | 'reference' | 'type';
+}
+
+/**
  * Export declaration data.
  */
 export interface Export {
@@ -115,6 +130,7 @@ export interface ExtractedFile {
   git?: GitInfo;
   docs?: DocsInfo;
   patterns?: DetectedPattern[]; // Phase 6.6.6
+  symbolUsages?: SymbolUsage[]; // Phase 6.8.1: Symbol-level import tracking
 }
 
 /**
@@ -129,24 +145,119 @@ export interface FindFilesOptions {
  * Maximum lines to include in code snippets.
  */
 const SNIPPET_MAX_LINES = 15;
+const SNIPPET_MAX_LINES_COMPLEX = 30; // Phase 6.8.2.1: Increased for complex functions
+const KEY_STATEMENT_THRESHOLD = 5; // Functions with >5 key statements are "complex"
+const KEY_STATEMENT_CONTEXT_LINES = 3; // Phase 6.8.2.2: Lines to preserve around key statements
 
 /**
  * Extract a code snippet from a function or method.
- * Returns the first N lines with a truncation indicator if needed.
+ * Phase 6.8.2: Enhanced to support full content preservation.
+ * - Complex functions (>5 key statements) get 30 lines instead of 15
+ * - Smart truncation preserves 3 lines around each key statement
+ * - Truncation indicator shows remaining lines AND remaining key statements
+ *
  * @param getText - Function that returns the full source text
- * @param maxLines - Maximum lines to include (default: 15)
+ * @param keyStatements - Key statements with file-level line numbers (for smart truncation)
+ * @param funcStartLine - The function's start line in the file (for computing snippet-relative indices)
  * @returns The code snippet string
  */
-function getCodeSnippet(getText: () => string, maxLines = SNIPPET_MAX_LINES): string {
+function getCodeSnippet(
+  getText: () => string,
+  keyStatements: KeyStatement[] = [],
+  funcStartLine: number = 1
+): string {
   const fullText = getText();
   const lines = fullText.split('\n');
+  const totalLines = lines.length;
 
-  if (lines.length <= maxLines) {
+  // Phase 6.8.2.1: Use higher limit for complex functions
+  const isComplex = keyStatements.length > KEY_STATEMENT_THRESHOLD;
+  const maxLines = isComplex ? SNIPPET_MAX_LINES_COMPLEX : SNIPPET_MAX_LINES;
+
+  // If within limit, return full text
+  if (totalLines <= maxLines) {
     return fullText;
   }
 
-  const remainingLines = lines.length - maxLines;
-  return lines.slice(0, maxLines).join('\n') + `\n  // ... (${remainingLines} more lines)`;
+  // Phase 6.8.2.2: Smart truncation that preserves key statement context
+  if (keyStatements.length > 0) {
+    // Build a set of lines to include (around key statements)
+    const linesToInclude = new Set<number>();
+
+    // Always include first 3 lines (function signature context)
+    for (let i = 1; i <= Math.min(3, totalLines); i++) {
+      linesToInclude.add(i);
+    }
+
+    // Add context around each key statement
+    for (const stmt of keyStatements) {
+      // Convert file-level line number to snippet-relative line number
+      // stmt.line is 1-indexed file line, funcStartLine is 1-indexed file line
+      // Snippet line 1 corresponds to funcStartLine
+      const snippetLineNum = stmt.line - funcStartLine + 1;
+
+      // Skip if the key statement is outside the function body (shouldn't happen)
+      if (snippetLineNum < 1 || snippetLineNum > totalLines) {
+        continue;
+      }
+
+      for (
+        let i = Math.max(1, snippetLineNum - KEY_STATEMENT_CONTEXT_LINES);
+        i <= Math.min(totalLines, snippetLineNum + KEY_STATEMENT_CONTEXT_LINES);
+        i++
+      ) {
+        linesToInclude.add(i);
+      }
+    }
+
+    // If including key statement context gives us a reasonable snippet, use it
+    if (linesToInclude.size > 0 && linesToInclude.size <= maxLines) {
+      const includedLineNumbers = Array.from(linesToInclude).sort((a, b) => a - b);
+      const result: string[] = [];
+      let lastLine = 0;
+
+      for (const lineNum of includedLineNumbers) {
+        if (lineNum - lastLine > 1 && lastLine > 0) {
+          // Add ellipsis for skipped lines
+          result.push(`  // ... (${lineNum - lastLine - 1} lines omitted)`);
+        }
+        if (lineNum <= totalLines) {
+          result.push(lines[lineNum - 1]);
+        }
+        lastLine = lineNum;
+      }
+
+      // Add final ellipsis if needed
+      const remainingLines = totalLines - lastLine;
+      const remainingKeyStatements = keyStatements.filter((s) => {
+        const snippetLine = s.line - funcStartLine + 1;
+        return !includedLineNumbers.includes(snippetLine);
+      }).length;
+
+      if (remainingLines > 0) {
+        // Phase 6.8.2.3: Show remaining lines AND remaining key statements
+        const keyStmtInfo =
+          remainingKeyStatements > 0 ? `, ${remainingKeyStatements} more key statements` : '';
+        result.push(`  // ... (${remainingLines} more lines${keyStmtInfo})`);
+      }
+
+      return result.join('\n');
+    }
+  }
+
+  // Fallback: simple truncation with enhanced indicator
+  const remainingLines = totalLines - maxLines;
+  // Phase 6.8.2.3: Count key statements beyond the snippet
+  const remainingKeyStatements = keyStatements.filter((stmt) => {
+    const snippetLine = stmt.line - funcStartLine + 1;
+    return snippetLine > maxLines;
+  }).length;
+
+  const keyStmtInfo =
+    remainingKeyStatements > 0 ? `, ${remainingKeyStatements} more key statements` : '';
+  return (
+    lines.slice(0, maxLines).join('\n') + `\n  // ... (${remainingLines} more lines${keyStmtInfo})`
+  );
 }
 
 /**
@@ -492,52 +603,64 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     }
   }
 
-  const functions: FunctionData[] = sourceFile.getFunctions().map((func) => ({
-    name: func.getName() || 'anonymous',
-    signature: func.getSignature().getDeclaration().getText(),
-    params: func.getParameters().map((p) => ({
-      name: p.getName(),
-      type: p.getType().getText(),
-      isOptional: p.isOptional(),
-      defaultValue: p.getInitializer()?.getText(),
-    })),
-    returnType: func.getReturnType().getText(),
-    isAsync: func.isAsync(),
-    isExported: func.isExported(),
-    isDefaultExport: func.isDefaultExport(), // Phase 6.6: Explicit default export detection
-    startLine: func.getStartLineNumber(),
-    endLine: func.getEndLineNumber(),
-    codeSnippet: getCodeSnippet(() => func.getText()),
-    keyStatements: extractKeyStatements(func),
-    calls: extractFunctionCalls(func, allCallableNames), // Phase 6.6.7a.1
-    calledBy: [], // Phase 6.6.7a.4: Computed later in builder
-    errorPaths: extractErrorPaths(func), // Phase 6.6.8
-  }));
-
-  // Extract classes
-  const classes: Class[] = sourceFile.getClasses().map((cls) => ({
-    name: cls.getName() || 'anonymous',
-    methods: cls.getMethods().map((method) => ({
-      name: method.getName(),
-      signature: method.getSignature().getDeclaration().getText(),
-      params: method.getParameters().map((p) => ({
+  const functions: FunctionData[] = sourceFile.getFunctions().map((func) => {
+    // Phase 6.8.2: Extract key statements first to inform code snippet generation
+    const keyStatements = extractKeyStatements(func);
+    return {
+      name: func.getName() || 'anonymous',
+      signature: func.getSignature().getDeclaration().getText(),
+      params: func.getParameters().map((p) => ({
         name: p.getName(),
         type: p.getType().getText(),
         isOptional: p.isOptional(),
         defaultValue: p.getInitializer()?.getText(),
       })),
-      returnType: method.getReturnType().getText(),
-      isAsync: method.isAsync(),
-      isExported: false, // Methods aren't directly exported
-      isDefaultExport: false, // Methods aren't default exported
-      startLine: method.getStartLineNumber(),
-      endLine: method.getEndLineNumber(),
-      codeSnippet: getCodeSnippet(() => method.getText()),
-      keyStatements: extractKeyStatements(method),
-      calls: extractFunctionCalls(method, allCallableNames), // Phase 6.6.7a.1: Use global callable set
+      returnType: func.getReturnType().getText(),
+      isAsync: func.isAsync(),
+      isExported: func.isExported(),
+      isDefaultExport: func.isDefaultExport(), // Phase 6.6: Explicit default export detection
+      startLine: func.getStartLineNumber(),
+      endLine: func.getEndLineNumber(),
+      codeSnippet: getCodeSnippet(() => func.getText(), keyStatements, func.getStartLineNumber()), // Phase 6.8.2
+      keyStatements,
+      calls: extractFunctionCalls(func, allCallableNames), // Phase 6.6.7a.1
       calledBy: [], // Phase 6.6.7a.4: Computed later in builder
-      errorPaths: extractErrorPaths(method), // Phase 6.6.8
-    })),
+      errorPaths: extractErrorPaths(func), // Phase 6.6.8
+    };
+  });
+
+  // Extract classes
+  const classes: Class[] = sourceFile.getClasses().map((cls) => ({
+    name: cls.getName() || 'anonymous',
+    methods: cls.getMethods().map((method) => {
+      // Phase 6.8.2: Extract key statements first to inform code snippet generation
+      const keyStatements = extractKeyStatements(method);
+      return {
+        name: method.getName(),
+        signature: method.getSignature().getDeclaration().getText(),
+        params: method.getParameters().map((p) => ({
+          name: p.getName(),
+          type: p.getType().getText(),
+          isOptional: p.isOptional(),
+          defaultValue: p.getInitializer()?.getText(),
+        })),
+        returnType: method.getReturnType().getText(),
+        isAsync: method.isAsync(),
+        isExported: false, // Methods aren't directly exported
+        isDefaultExport: false, // Methods aren't default exported
+        startLine: method.getStartLineNumber(),
+        endLine: method.getEndLineNumber(),
+        codeSnippet: getCodeSnippet(
+          () => method.getText(),
+          keyStatements,
+          method.getStartLineNumber()
+        ), // Phase 6.8.2
+        keyStatements,
+        calls: extractFunctionCalls(method, allCallableNames), // Phase 6.6.7a.1: Use global callable set
+        calledBy: [], // Phase 6.6.7a.4: Computed later in builder
+        errorPaths: extractErrorPaths(method), // Phase 6.6.8
+      };
+    }),
     properties: cls.getProperties().map((prop) => ({
       name: prop.getName(),
       type: prop.getType().getText(),
@@ -574,7 +697,132 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
   // Note: Pattern detection is done separately to avoid circular imports
   // See cli/extract.ts for pattern detection integration
 
+  // Phase 6.8.1: Extract symbol-level import usages
+  extracted.symbolUsages = extractSymbolUsages(sourceFile, imports, relativePath);
+
   return extracted;
+}
+
+/**
+ * Extract where imported symbols are actually used in a file.
+ * Phase 6.8.1: Symbol-level import tracking.
+ *
+ * @param sourceFile - The ts-morph source file
+ * @param imports - The imports extracted from this file
+ * @param filePath - The file path (for context)
+ * @returns Array of symbol usages with line numbers
+ */
+function extractSymbolUsages(
+  sourceFile: ReturnType<Project['addSourceFileAtPath']>,
+  imports: Import[],
+  _filePath: string
+): SymbolUsage[] {
+  const usages: SymbolUsage[] = [];
+
+  for (const imp of imports) {
+    // Only process relative imports (starting with . or /)
+    // External/bare module imports (e.g., 'react', 'express') won't have WikiNodes
+    const isExternalImport = !imp.from.startsWith('.') && !imp.from.startsWith('/');
+    if (isExternalImport) {
+      continue;
+    }
+
+    // Resolve the source file path
+    let sourceFilePath = imp.from;
+    // Simple path normalization - add .ts extension if missing
+    // Note: Directory imports (e.g., './components') become './components.ts' here,
+    // but matching still works because normalizeImportPath in builder/index.ts
+    // strips /index suffixes, so 'src/components/index' normalizes to 'src/components'
+    // and matches 'components' via the pathsMatch endsWith check.
+    // Limitation: Only handles .ts files. For .tsx/.mts/.cts support, extend this logic.
+    if (!sourceFilePath.endsWith('.ts')) {
+      sourceFilePath = sourceFilePath + '.ts';
+    }
+
+    // Track named imports
+    for (const symbolName of imp.names) {
+      const symbolUsage = findSymbolUsages(sourceFile, symbolName, sourceFilePath, imp.isTypeOnly);
+      if (symbolUsage) {
+        usages.push(symbolUsage);
+      }
+    }
+
+    // Track default import
+    if (imp.defaultName) {
+      const symbolUsage = findSymbolUsages(
+        sourceFile,
+        imp.defaultName,
+        sourceFilePath,
+        imp.isTypeOnly
+      );
+      if (symbolUsage) {
+        usages.push(symbolUsage);
+      }
+    }
+
+    // Note: Namespace imports (import * as X from '...') are not tracked.
+    // Tracking property accesses like X.foo() would require additional AST traversal.
+  }
+
+  return usages;
+}
+
+/**
+ * Find all usages of a specific symbol in the source file.
+ */
+function findSymbolUsages(
+  sourceFile: ReturnType<Project['addSourceFileAtPath']>,
+  symbolName: string,
+  sourceFilePath: string,
+  isTypeOnly: boolean
+): SymbolUsage | null {
+  const usageLines: number[] = [];
+  let usageType: SymbolUsage['usageType'] = isTypeOnly ? 'type' : 'reference';
+
+  // Find all identifiers with this name in the file
+  const identifiers = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier);
+
+  for (const identifier of identifiers) {
+    if (identifier.getText() !== symbolName) {
+      continue;
+    }
+
+    // Skip the import declaration itself
+    const parent = identifier.getParent();
+    if (
+      parent &&
+      (parent.getKindName() === 'ImportSpecifier' || parent.getKindName() === 'ImportClause')
+    ) {
+      continue;
+    }
+
+    const line = identifier.getStartLineNumber();
+    if (!usageLines.includes(line)) {
+      usageLines.push(line);
+    }
+
+    // Check if it's a function call - 'call' takes precedence over 'reference'
+    // (a symbol may be both called and referenced, e.g., `foo(); const fn = foo;`)
+    if (usageType !== 'call' && parent && parent.getKindName() === 'CallExpression') {
+      // Use getExpression() for robust call expression detection
+      const callExpr = parent.asKindOrThrow(SyntaxKind.CallExpression);
+      // Check if this identifier is the expression being called (not an argument)
+      if (callExpr.getExpression() === identifier) {
+        usageType = 'call';
+      }
+    }
+  }
+
+  if (usageLines.length === 0) {
+    return null;
+  }
+
+  return {
+    symbol: symbolName,
+    sourceFile: sourceFilePath,
+    usageLines: usageLines.sort((a, b) => a - b),
+    usageType,
+  };
 }
 
 /**
