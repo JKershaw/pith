@@ -730,9 +730,10 @@ function extractSymbolUsages(
     // Resolve the source file path
     let sourceFilePath = imp.from;
     // Simple path normalization - add .ts extension if missing
-    // Note: This doesn't handle directory imports (e.g., './components' -> './components/index.ts')
-    // Directory resolution would require filesystem checks which adds complexity.
-    // For now, directory imports will not match and symbol usages may be missed.
+    // Note: Directory imports (e.g., './components') become './components.ts' here,
+    // but matching still works because normalizeImportPath in builder/index.ts
+    // strips /index suffixes, so 'src/components/index' normalizes to 'src/components'
+    // and matches 'components' via the pathsMatch endsWith check.
     if (!sourceFilePath.endsWith('.ts')) {
       sourceFilePath = sourceFilePath + '.ts';
     }

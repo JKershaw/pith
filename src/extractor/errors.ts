@@ -344,10 +344,15 @@ function detectHttpStatus(path: ErrorPath): number | undefined {
   const textToSearch = [path.condition || '', path.action].join(' ');
 
   // Look for status code patterns: 404, status === 404, etc.
-  // Accept any valid 4xx/5xx code, not just those in our description map
+  // Validate against standard HTTP status code ranges to avoid false positives
+  // (e.g., "timeout 429 seconds" or "process 500 items")
   const statusMatch = textToSearch.match(/\b(4\d{2}|5\d{2})\b/);
   if (statusMatch) {
-    return parseInt(statusMatch[1], 10);
+    const code = parseInt(statusMatch[1], 10);
+    // Standard 4xx codes: 400-451, standard 5xx codes: 500-511
+    if ((code >= 400 && code <= 451) || (code >= 500 && code <= 511)) {
+      return code;
+    }
   }
 
   // Look for error type patterns
