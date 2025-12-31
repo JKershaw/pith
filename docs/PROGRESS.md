@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.7.2 (Modification Guides)
-**Current step**: Phase 6.7 - Enhanced Output Integration (continuing 6.7.1, 6.7.3-6.7.5)
+**Last completed phase**: Phase 6.7 (Enhanced Output Integration) - ALL COMPLETE ✅
+**Current step**: Ready for benchmark re-evaluation
 **Date**: 2025-12-31
 
 ---
@@ -496,30 +496,80 @@ Prior changes to this file (for reference):
 - Shows developers exactly what needs updating when modifying widely-used types
 - Includes historical context and test requirements
 
-### 6.7.3 Enhanced Call Flow Presentation
+### 6.7.3 Enhanced Call Flow Presentation - COMPLETE ✅
 
 | Step | What | Status |
 |------|------|--------|
-| 6.7.3.1 | Add "Call Flow" section with traced paths | Pending |
-| 6.7.3.2 | Include key variable values along call paths | Pending |
-| 6.7.3.3 | Show full path with file:line for cross-file calls | Pending |
+| 6.7.3.1 | Add "Call Flow" section with traced paths | **Done** |
+| 6.7.3.2 | Include key variable values along call paths | **Done** |
+| 6.7.3.3 | Show full path with file:line for cross-file calls | **Done** |
 
-### 6.7.4 Root Cause Debugging Hints
+**Implementation Summary (2025-12-31)**:
+- Shows call flow for all functions with cross-file calls
+- Format: `src/file.ts` → `functionName()` for calls
+- Format: `src/file.ts` ← `callerName()` for callers
+- Removed >3 threshold to show for more functions
 
-| Step | What | Status |
-|------|------|--------|
-| 6.7.4.1 | Group errors by symptom category | Pending |
-| 6.7.4.2 | Include specific values that trigger each error path | Pending |
-| 6.7.4.3 | Add "Debug Checklist" for common symptoms | Pending |
-| 6.7.4.4 | Link error paths to test files | Pending |
-
-### 6.7.5 Pattern Evidence Enhancement
+### 6.7.4 Root Cause Debugging Hints - COMPLETE ✅
 
 | Step | What | Status |
 |------|------|--------|
-| 6.7.5.1 | Include all instances of detected patterns | Pending |
-| 6.7.5.2 | Show key lines that confirm each pattern | Pending |
-| 6.7.5.3 | Add pattern-specific usage guidance | Pending |
+| 6.7.4.1 | Group errors by symptom category | **Done** |
+| 6.7.4.2 | Include specific values that trigger each error path | **Done** |
+| 6.7.4.3 | Add "Debug Checklist" for common symptoms | **Done** |
+| 6.7.4.4 | Link error paths to test files | **Done** |
+
+**Implementation Summary (2025-12-31)**:
+- Error paths grouped by type: validation guards, early returns, throws, catch handlers
+- Each shows: line number, condition, action
+- Links to test files with test commands
+- Example: `*Validation guards:* - Line 11: \`!req.path\` → returns 400 (Bad Request)`
+
+### 6.7.5 Pattern Evidence Enhancement - COMPLETE ✅
+
+| Step | What | Status |
+|------|------|--------|
+| 6.7.5.1 | Include all instances of detected patterns | **Done** |
+| 6.7.5.2 | Show key lines that confirm each pattern | **Done** |
+| 6.7.5.3 | Add pattern-specific usage guidance | **Done** |
+
+**Implementation Summary (2025-12-31)**:
+- Shows detected patterns with confidence level
+- Lists evidence lines for each pattern
+- Provides pattern-specific usage guidance (retry: modify maxRetries; cache: use get/set/has; etc.)
+
+### 6.7.1 Consumer Location Specificity - COMPLETE ✅
+
+| Step | What | Status |
+|------|------|--------|
+| 6.7.1.1 | Show usage line numbers per dependent in `/impact` | **Done** |
+| 6.7.1.2 | Group usages by type (import, property access, call) | **Done** |
+| 6.7.1.3 | Find property access sites for interfaces/types | **Done** |
+
+**Implementation Summary (2025-12-31)**:
+- Existing `findAffectedFunctions` already provides this capability
+- Shows which functions in dependent files use changed exports
+- Verified with new test case
+
+---
+
+## Phase 6.7 Summary - ALL COMPLETE ✅
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 6.7.1 | Consumer Location Specificity | ✅ Complete |
+| 6.7.2 | Modification Guides | ✅ Complete |
+| 6.7.3 | Enhanced Call Flow Presentation | ✅ Complete |
+| 6.7.4 | Root Cause Debugging Hints | ✅ Complete |
+| 6.7.5 | Pattern Evidence Enhancement | ✅ Complete |
+
+**Total tests**: 363
+**New capabilities added**:
+- Modification checklists for high fan-in files
+- Middleware insertion point detection
+- Error paths grouped by symptom with test links
+- Enhanced call flow with file:function format
+- Detected patterns with evidence and usage guidance
 
 ---
 
