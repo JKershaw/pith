@@ -8,10 +8,11 @@
 | 6.1-6.5     | ✅ Complete | On-demand generation, test files, modification impact, patterns, gotcha validation                     |
 | 6.6.1-6.6.8 | ✅ Complete | Line numbers, code snippets, key statements, change impact, patterns, call graphs, error paths         |
 | 6.7.1-6.7.5 | ✅ Complete | Enhanced output: consumer locations, modification guides, call flow, debugging hints, pattern evidence |
-| **9**       | **⬅️ Next** | **MCP Server integration (HIGH priority)**                                                             |
+| **6.8**     | **⬅️ Next** | **Deterministic Gap Closure - Symbol tracking, content preservation, config extraction**               |
+| 9           | Planned     | MCP Server integration                                                                                 |
 | 7-8, 10     | Planned     | Advanced relationships, intelligence, scale                                                            |
 
-**Current focus**: Phase 9 - MCP Server integration for direct LLM tool use.
+**Current focus**: Phase 6.8 - Close remaining deterministic gaps before adding MCP server delivery layer.
 
 **Latest benchmark** (2025-12-31, 15 tasks): Pith 19.4/25 (78%) vs Control 22.9/25 (92%). Gap: 3.5 points.
 
@@ -776,6 +777,79 @@ See `docs/benchmark-results/2025-12-30-self-test-v7.md` for full analysis.
 3. 6.7.3 Call Flow Presentation (B gap: -7.0 points)
 4. 6.7.1 Consumer Location Specificity (R gap: -6.4 points)
 5. 6.7.5 Pattern Evidence Enhancement (A gap: -6.0 points)
+
+---
+
+#### Phase 6.8: Deterministic Gap Closure ⬅️ NEXT
+
+**Goal**: Close remaining gaps identified in 2025-12-31 benchmark through deterministic improvements before adding MCP delivery layer.
+
+**Rationale**: MCP server is a delivery mechanism, not a quality improvement. Current 3.5-point gap should be closed as much as possible with deterministic extraction/output enhancements.
+
+**Benchmark Evidence** (2025-12-31):
+
+- R3 (extractFile consumers): 69% false positives due to import-level (not symbol-level) tracking
+- B2 (buildPrompt): Content truncation loses important details
+- D1-D3 (Debugging): Average 16/25 - need more specific root cause information
+
+##### 6.8.1 Symbol-Level Import Tracking
+
+**Problem**: R3 scored lowest (11/25). Pith reports "file A imports file B" but Control reports "file A uses function X from file B at line N".
+
+| Step    | What                                                      | Test                                                                  |
+| ------- | --------------------------------------------------------- | --------------------------------------------------------------------- |
+| 6.8.1.1 | Track which specific symbols are used from imports        | `getUsedSymbols('src/cli')` returns `['extract']`                     |
+| 6.8.1.2 | Filter impact analysis to only files using changed symbol | Impact for `extractFile` excludes files that only import `extractGit` |
+| 6.8.1.3 | Show symbol usage in dependent file context               | "Uses: extractFile at lines 45, 78"                                   |
+
+**Benchmark target**: R3: 11/25 → 18/25
+
+##### 6.8.2 Full Content Preservation
+
+**Problem**: B2 (buildPrompt) scored 17/25. Code snippets truncate at 15 lines, losing critical details.
+
+| Step    | What                                                  | Test                                               |
+| ------- | ----------------------------------------------------- | -------------------------------------------------- |
+| 6.8.2.1 | Increase code snippet limit for complex functions     | Functions with >5 key statements get 30 lines      |
+| 6.8.2.2 | Smart truncation that preserves key statement context | Truncation keeps 3 lines around each key statement |
+| 6.8.2.3 | Add "full source available" indicator when truncated  | Shows "... (45 more lines, 3 more key statements)" |
+
+**Benchmark target**: B2: 17/25 → 21/25
+
+##### 6.8.3 Config File Extraction
+
+**Problem**: Configuration values in `.json`, `.yaml` files are not extracted, missing important context.
+
+| Step    | What                                          | Test                                            |
+| ------- | --------------------------------------------- | ----------------------------------------------- |
+| 6.8.3.1 | Extract package.json scripts and dependencies | Node with `scripts.test`, `dependencies` fields |
+| 6.8.3.2 | Extract tsconfig.json compiler options        | Node with `compilerOptions.strict` etc.         |
+| 6.8.3.3 | Extract pith.config.json if present           | Node with include/exclude patterns              |
+
+**Benchmark target**: Improves context for all task categories
+
+##### 6.8.4 Enhanced Debugging Output
+
+**Problem**: D1-D3 average 16/25. Error paths extracted but not surfaced with enough specificity.
+
+| Step    | What                                                         | Test                                                 |
+| ------- | ------------------------------------------------------------ | ---------------------------------------------------- |
+| 6.8.4.1 | For each error path, show the full condition chain           | "404 when: !node && path.includes('/')"              |
+| 6.8.4.2 | Group error causes by HTTP status code                       | "Causes of 404: [3 paths], Causes of 500: [2 paths]" |
+| 6.8.4.3 | Include stack trace hints (which functions propagate errors) | "Error propagates: api→builder→extractor"            |
+
+**Benchmark target**: D1-D3: 16/25 → 20/25
+
+---
+
+##### Phase 6.8 Success Criteria
+
+| Metric         | Current (v8)  | Target       |
+| -------------- | ------------- | ------------ |
+| Overall        | 19.4/25 (78%) | ≥21/25 (84%) |
+| Gap to Control | 3.5 points    | ≤2 points    |
+| R3 (worst)     | 11/25         | ≥18/25       |
+| D1-D3 avg      | 16/25         | ≥20/25       |
 
 ---
 

@@ -3,7 +3,7 @@
 ## Current Status
 
 **Last completed phase**: Phase 6.7 (Enhanced Output Integration) - ALL COMPLETE ✅
-**Current step**: Phase 9 - MCP Server integration
+**Current step**: Phase 6.8 - Deterministic Gap Closure
 **Date**: 2025-12-31
 
 ### Latest Benchmark: 2025-12-31
@@ -598,6 +598,63 @@ Prior changes to this file (for reference):
 - Error paths grouped by symptom with test links
 - Enhanced call flow with file:function format
 - Detected patterns with evidence and usage guidance
+
+---
+
+## Phase 6.8: Deterministic Gap Closure ⬅️ CURRENT
+
+**Goal**: Close remaining gaps identified in 2025-12-31 benchmark through deterministic improvements before adding MCP delivery layer.
+
+**Rationale**: MCP server is a delivery mechanism, not a quality improvement. Prioritize closing the 3.5-point gap through extraction/output enhancements.
+
+### 6.8.1 Symbol-Level Import Tracking
+
+| Step    | What                                                      | Status  |
+| ------- | --------------------------------------------------------- | ------- |
+| 6.8.1.1 | Track which specific symbols are used from imports        | Pending |
+| 6.8.1.2 | Filter impact analysis to only files using changed symbol | Pending |
+| 6.8.1.3 | Show symbol usage in dependent file context               | Pending |
+
+**Benchmark target**: R3: 11/25 → 18/25 (fixes 69% false positives)
+
+### 6.8.2 Full Content Preservation
+
+| Step    | What                                                  | Status  |
+| ------- | ----------------------------------------------------- | ------- |
+| 6.8.2.1 | Increase code snippet limit for complex functions     | Pending |
+| 6.8.2.2 | Smart truncation that preserves key statement context | Pending |
+| 6.8.2.3 | Add "full source available" indicator when truncated  | Pending |
+
+**Benchmark target**: B2: 17/25 → 21/25
+
+### 6.8.3 Config File Extraction
+
+| Step    | What                                          | Status  |
+| ------- | --------------------------------------------- | ------- |
+| 6.8.3.1 | Extract package.json scripts and dependencies | Pending |
+| 6.8.3.2 | Extract tsconfig.json compiler options        | Pending |
+| 6.8.3.3 | Extract pith.config.json if present           | Pending |
+
+**Benchmark target**: Improves context for all task categories
+
+### 6.8.4 Enhanced Debugging Output
+
+| Step    | What                                               | Status  |
+| ------- | -------------------------------------------------- | ------- |
+| 6.8.4.1 | Show full condition chain for each error path      | Pending |
+| 6.8.4.2 | Group error causes by HTTP status code             | Pending |
+| 6.8.4.3 | Include stack trace hints (error propagation path) | Pending |
+
+**Benchmark target**: D1-D3: 16/25 → 20/25
+
+### Phase 6.8 Success Criteria
+
+| Metric         | Current (v8)  | Target       |
+| -------------- | ------------- | ------------ |
+| Overall        | 19.4/25 (78%) | ≥21/25 (84%) |
+| Gap to Control | 3.5 points    | ≤2 points    |
+| R3 (worst)     | 11/25         | ≥18/25       |
+| D1-D3 avg      | 16/25         | ≥20/25       |
 
 ---
 
