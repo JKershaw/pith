@@ -136,6 +136,105 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       lines.push(`> **Warning:** Widely used (${node.metadata.fanIn} files depend on this)`);
     }
 
+    // Phase 6.7.2.1: Modification Checklist for high-fanIn files
+    if (node.type === 'file' && node.metadata.fanIn !== undefined && node.metadata.fanIn > 5) {
+      const dependentEdges = node.edges.filter(e => e.type === 'importedBy');
+      const testFileEdges = node.edges.filter(e => e.type === 'testFile');
+
+      lines.push('');
+      lines.push('**Modification Checklist:**');
+      lines.push('');
+      lines.push(`1. **Update this file** - Make changes to \`${node.path}\``);
+
+      // List exported types/interfaces if available
+      if (node.raw.exports && node.raw.exports.length > 0) {
+        const types = node.raw.exports.filter(e => e.kind === 'interface' || e.kind === 'type');
+        if (types.length > 0) {
+          lines.push(`   - Exported types: ${types.map(t => t.name).join(', ')}`);
+        }
+      }
+
+      lines.push(`2. **Update consumers** - ${node.metadata.fanIn} files depend on this:`);
+      for (const edge of dependentEdges.slice(0, 10)) {
+        lines.push(`   - \`${edge.target}\``);
+      }
+      if (dependentEdges.length > 10) {
+        lines.push(`   - ... and ${dependentEdges.length - 10} more files`);
+      }
+
+      lines.push(`3. **Run tests** - Verify changes don't break consumers`);
+      if (testFileEdges.length > 0) {
+        lines.push(`   - Test file: \`${testFileEdges[0].target}\``);
+        // Look for the test file node in context to get the test command
+        const testFileNode = context.nodes.find(n => n.id === testFileEdges[0].target);
+        if (testFileNode?.metadata.testCommand) {
+          lines.push(`   - Run: \`${testFileNode.metadata.testCommand}\``);
+        } else {
+          // Fallback to a default npm test command
+          lines.push(`   - Run: \`npm test -- ${testFileEdges[0].target}\``);
+        }
+      }
+      lines.push('');
+
+      // Phase 6.7.2.2: Detect middleware patterns for Express-style apps
+      const middlewarePatterns: Array<{ line: number; text: string }> = [];
+      if (node.raw.functions) {
+        for (const func of node.raw.functions) {
+          // Check key statements for app.use or router.use patterns
+          if (func.keyStatements) {
+            for (const stmt of func.keyStatements) {
+              if (stmt.text.includes('.use(') || stmt.text.includes('app.use') || stmt.text.includes('router.use')) {
+                middlewarePatterns.push({ line: stmt.line, text: stmt.text });
+              }
+            }
+          }
+          // Also check code snippet for middleware patterns
+          if (func.codeSnippet && (func.codeSnippet.includes('.use(') || func.codeSnippet.includes('app.use'))) {
+            // Extract app.use lines from code snippet
+            const snippetLines = func.codeSnippet.split('\n');
+            for (let i = 0; i < snippetLines.length; i++) {
+              const snippetLine = snippetLines[i];
+              if (snippetLine.includes('.use(') || snippetLine.includes('app.use') || snippetLine.includes('router.use')) {
+                // Check if we already captured this from key statements
+                const alreadyFound = middlewarePatterns.some(p => p.text === snippetLine.trim());
+                if (!alreadyFound) {
+                  middlewarePatterns.push({ line: func.startLine + i, text: snippetLine.trim() });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (middlewarePatterns.length > 0) {
+        lines.push('**Middleware Insertion Points:**');
+        lines.push('');
+        lines.push('Add new middleware after existing `.use()` calls:');
+        for (const pattern of middlewarePatterns.slice(0, 5)) {
+          lines.push(`- Line ${pattern.line}: \`${pattern.text}\``);
+        }
+        if (middlewarePatterns.length > 5) {
+          lines.push(`- ... and ${middlewarePatterns.length - 5} more middleware calls`);
+        }
+        lines.push('');
+      }
+
+      // Phase 6.7.2.4: Show recent changes from git history
+      if (node.raw.recentCommits && node.raw.recentCommits.length > 0) {
+        lines.push('**Recent Changes:**');
+        lines.push('');
+        lines.push('Prior changes to this file (for reference):');
+        for (const commit of node.raw.recentCommits.slice(0, 5)) {
+          const dateStr = commit.date instanceof Date ? commit.date.toISOString().split('T')[0] : String(commit.date).split('T')[0];
+          lines.push(`- \`${commit.hash.substring(0, 7)}\` ${commit.message} (${commit.author}, ${dateStr})`);
+        }
+        if (node.raw.recentCommits.length > 5) {
+          lines.push(`- ... and ${node.raw.recentCommits.length - 5} more commits`);
+        }
+        lines.push('');
+      }
+    }
+
     // Prose summary and purpose
     if (node.prose) {
       lines.push('');
@@ -220,6 +319,36 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       }
     }
 
+    // Phase 6.7.5: Detected Patterns with evidence
+    if (node.type === 'file' && node.raw.patterns && node.raw.patterns.length > 0) {
+      lines.push('');
+      lines.push('**Detected Patterns:**');
+      for (const pattern of node.raw.patterns) {
+        const patternName = pattern.name.charAt(0).toUpperCase() + pattern.name.slice(1);
+        lines.push('');
+        lines.push(`*${patternName} Pattern* (${pattern.confidence} confidence)`);
+        lines.push(`- Location: \`${pattern.location}\``);
+
+        if (pattern.evidence && pattern.evidence.length > 0) {
+          lines.push('- Evidence:');
+          for (const ev of pattern.evidence) {
+            lines.push(`  - ${ev}`);
+          }
+        }
+
+        // Phase 6.7.5.3: Pattern-specific usage guidance
+        if (pattern.name === 'retry') {
+          lines.push('- Usage: To customize retry behavior, modify maxRetries and backoff formula');
+        } else if (pattern.name === 'cache') {
+          lines.push('- Usage: Use get/set/has methods; check cache invalidation logic');
+        } else if (pattern.name === 'singleton') {
+          lines.push('- Usage: Access via getInstance(); don\'t instantiate directly');
+        } else if (pattern.name === 'builder') {
+          lines.push('- Usage: Chain method calls; call build() at the end');
+        }
+      }
+    }
+
     // Functions with details (Phase 6.6.1) - preferred over signatures when available
     if (node.type === 'file' && node.raw.functions && node.raw.functions.length > 0) {
       lines.push('');
@@ -240,27 +369,103 @@ export function formatContextAsMarkdown(context: BundledContext): string {
           }
         }
 
-        // Call Flow (Phase 6.6.7b.4) - show for functions with >3 cross-file calls
-        const totalCrossFileCalls = (func.crossFileCalls?.length || 0) + (func.crossFileCalledBy?.length || 0);
-        if (totalCrossFileCalls > 3) {
+        // Phase 6.7.4.1: Error Paths grouped by symptom
+        if (func.errorPaths && func.errorPaths.length > 0) {
+          lines.push('');
+          lines.push('**Error Paths:**');
+
+          // Group by type for better organization
+          const guards = func.errorPaths.filter((e: { type: string }) => e.type === 'guard');
+          const earlyReturns = func.errorPaths.filter((e: { type: string }) => e.type === 'early-return');
+          const throws = func.errorPaths.filter((e: { type: string }) => e.type === 'throw');
+          const catches = func.errorPaths.filter((e: { type: string }) => e.type === 'catch');
+
+          // Show validation guards first (most important for debugging)
+          if (guards.length > 0) {
+            lines.push('');
+            lines.push('*Validation guards:*');
+            for (const g of guards) {
+              lines.push(`- Line ${g.line}: \`${g.condition}\` → ${g.action}`);
+            }
+          }
+
+          // Show early returns
+          if (earlyReturns.length > 0) {
+            lines.push('');
+            lines.push('*Early returns:*');
+            for (const r of earlyReturns) {
+              lines.push(`- Line ${r.line}: \`${r.condition}\` → ${r.action}`);
+            }
+          }
+
+          // Show throws
+          if (throws.length > 0) {
+            lines.push('');
+            lines.push('*Throws:*');
+            for (const t of throws) {
+              const condText = t.condition ? `\`${t.condition}\` → ` : '';
+              lines.push(`- Line ${t.line}: ${condText}${t.action}`);
+            }
+          }
+
+          // Show catch handlers
+          if (catches.length > 0) {
+            lines.push('');
+            lines.push('*Error handlers:*');
+            for (const c of catches) {
+              lines.push(`- Line ${c.line}: \`${c.condition}\` → ${c.action}`);
+            }
+          }
+
+          // Phase 6.7.4.4: Link to test files that cover error paths
+          const testFileEdges = node.edges.filter(e => e.type === 'testFile');
+          if (testFileEdges.length > 0) {
+            lines.push('');
+            lines.push('*Test coverage:*');
+            for (const edge of testFileEdges) {
+              const testFileNode = context.nodes.find(n => n.id === edge.target);
+              if (testFileNode?.metadata.testCommand) {
+                lines.push(`- Run: \`${testFileNode.metadata.testCommand}\``);
+              } else {
+                lines.push(`- See: \`${edge.target}\``);
+              }
+            }
+          }
+        }
+
+        // Phase 6.7.3: Enhanced Call Flow - show for functions with cross-file calls
+        const hasCrossCalls = (func.crossFileCalls?.length || 0) > 0;
+        const hasCallers = (func.crossFileCalledBy?.length || 0) > 0;
+        if (hasCrossCalls || hasCallers) {
           lines.push('');
           lines.push('**Call Flow:**');
 
-          // Show what this function calls
+          // Show what this function calls with file:line format
           if (func.crossFileCalls && func.crossFileCalls.length > 0) {
             lines.push('');
             lines.push('*Calls:*');
             for (const callee of func.crossFileCalls) {
-              lines.push(`- ${callee}`);
+              // Format: file.ts:funcName → show as readable path
+              const [filePath, funcName] = callee.includes(':') ? callee.split(':') : [callee, ''];
+              if (funcName) {
+                lines.push(`- \`${filePath}\` → \`${funcName}()\``);
+              } else {
+                lines.push(`- \`${callee}\``);
+              }
             }
           }
 
-          // Show what calls this function
+          // Show what calls this function with file:line format
           if (func.crossFileCalledBy && func.crossFileCalledBy.length > 0) {
             lines.push('');
             lines.push('*Called by:*');
             for (const caller of func.crossFileCalledBy) {
-              lines.push(`- ${caller}`);
+              const [filePath, funcName] = caller.includes(':') ? caller.split(':') : [caller, ''];
+              if (funcName) {
+                lines.push(`- \`${filePath}\` ← \`${funcName}()\``);
+              } else {
+                lines.push(`- \`${caller}\``);
+              }
             }
           }
         }

@@ -413,6 +413,317 @@ describe('API', () => {
       assert.ok(markdown.includes('8 files depend'), 'Should show count of dependents');
     });
 
+    it('shows modification checklist for high-fanIn files - Phase 6.7.2.1', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a widely used file with high fan-in (interface with multiple consumers)
+      const widelyUsedNode: WikiNode = {
+        id: 'src/types/index.ts',
+        type: 'file',
+        path: 'src/types/index.ts',
+        name: 'index.ts',
+        metadata: {
+          lines: 50,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 8,  // High fan-in triggers modification checklist
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/auth/login.ts' },
+          { type: 'importedBy', target: 'src/auth/signup.ts' },
+          { type: 'importedBy', target: 'src/api/server.ts' },
+          { type: 'importedBy', target: 'src/api/routes.ts' },
+          { type: 'importedBy', target: 'src/db/connect.ts' },
+          { type: 'importedBy', target: 'src/utils/logger.ts' },
+          { type: 'importedBy', target: 'src/utils/validator.ts' },
+          { type: 'importedBy', target: 'src/cli/index.ts' },
+          { type: 'testFile', target: 'src/types/index.test.ts' },
+        ],
+        raw: {
+          exports: [
+            { name: 'WikiNode', kind: 'interface' },
+            { name: 'Edge', kind: 'interface' },
+          ],
+          interfaces: [
+            { name: 'WikiNode', isExported: true, properties: [
+              { name: 'id', type: 'string', isOptional: false },
+              { name: 'type', type: 'string', isOptional: false },
+            ]},
+          ],
+        },
+      };
+
+      // Add the test file too
+      const testFileNode: WikiNode = {
+        id: 'src/types/index.test.ts',
+        type: 'file',
+        path: 'src/types/index.test.ts',
+        name: 'index.test.ts',
+        metadata: {
+          lines: 30,
+          commits: 2,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          testCommand: 'npm test -- src/types/index.test.ts',
+        },
+        edges: [],
+        raw: {},
+      };
+
+      await nodes.insertOne(widelyUsedNode);
+      await nodes.insertOne(testFileNode);
+
+      const context = await bundleContext(db, ['src/types/index.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show modification checklist for high fan-in file
+      assert.ok(markdown.includes('Modification Checklist'), 'Should have Modification Checklist section');
+      assert.ok(markdown.includes('Update this file'), 'Should mention updating the source file');
+      assert.ok(markdown.includes('Update consumers'), 'Should mention updating consumers');
+      assert.ok(markdown.includes('8 files'), 'Should show number of dependent files');
+    });
+
+    it('shows test update requirements in modification checklist - Phase 6.7.2.3', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a widely used file with test file
+      const widelyUsedNode: WikiNode = {
+        id: 'src/builder/types.ts',
+        type: 'file',
+        path: 'src/builder/types.ts',
+        name: 'types.ts',
+        metadata: {
+          lines: 100,
+          commits: 10,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 7,
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/builder/index.ts' },
+          { type: 'importedBy', target: 'src/api/index.ts' },
+          { type: 'importedBy', target: 'src/generator/index.ts' },
+          { type: 'importedBy', target: 'src/extractor/ast.ts' },
+          { type: 'importedBy', target: 'src/cli/index.ts' },
+          { type: 'importedBy', target: 'src/utils/helper.ts' },
+          { type: 'importedBy', target: 'src/config/index.ts' },
+          { type: 'testFile', target: 'src/builder/types.test.ts' },
+        ],
+        raw: {
+          exports: [
+            { name: 'WikiNode', kind: 'interface' },
+            { name: 'Edge', kind: 'interface' },
+          ],
+        },
+      };
+
+      // Add test file with assertion info
+      const testFileNode: WikiNode = {
+        id: 'src/builder/types.test.ts',
+        type: 'file',
+        path: 'src/builder/types.test.ts',
+        name: 'types.test.ts',
+        metadata: {
+          lines: 200,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          testCommand: 'npm test -- src/builder/types.test.ts',
+        },
+        edges: [],
+        raw: {
+          // Simulate that the test file has functions that reference WikiNode
+          functions: [
+            {
+              name: 'testWikiNodeCreate',
+              signature: 'function testWikiNodeCreate(): void',
+              startLine: 10,
+              endLine: 30,
+              isAsync: false,
+              isExported: false,
+              codeSnippet: 'const node: WikiNode = { id: "test" };\nassert.ok(node.id);',
+              keyStatements: [],
+            },
+            {
+              name: 'testEdgeValidation',
+              signature: 'function testEdgeValidation(): void',
+              startLine: 35,
+              endLine: 50,
+              isAsync: false,
+              isExported: false,
+              codeSnippet: 'const edge: Edge = { type: "imports", target: "foo" };\nassert.strictEqual(edge.type, "imports");',
+              keyStatements: [],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(widelyUsedNode);
+      await nodes.insertOne(testFileNode);
+
+      const context = await bundleContext(db, ['src/builder/types.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show test update requirements
+      assert.ok(markdown.includes('Test file:'), 'Should show test file');
+      assert.ok(markdown.includes('types.test.ts'), 'Should mention test file name');
+      assert.ok(markdown.includes('npm test'), 'Should show test command');
+    });
+
+    it('shows middleware insertion points for Express-style apps - Phase 6.7.2.2', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add an Express-style server file with middleware
+      const serverNode: WikiNode = {
+        id: 'src/api/server.ts',
+        type: 'file',
+        path: 'src/api/server.ts',
+        name: 'server.ts',
+        metadata: {
+          lines: 100,
+          commits: 10,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 6,  // Above threshold for modification checklist
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/index.ts' },
+          { type: 'importedBy', target: 'src/cli/serve.ts' },
+          { type: 'importedBy', target: 'src/api/routes.ts' },
+          { type: 'importedBy', target: 'src/api/middleware.ts' },
+          { type: 'importedBy', target: 'src/api/auth.ts' },
+          { type: 'importedBy', target: 'src/api/handlers.ts' },
+        ],
+        raw: {
+          functions: [
+            {
+              name: 'createApp',
+              signature: 'function createApp(): Express',
+              startLine: 15,
+              endLine: 80,
+              isAsync: false,
+              isExported: true,
+              codeSnippet: `const app = express();
+app.use(express.json());
+app.use(cors());
+app.use('/api', routes);
+return app;`,
+              keyStatements: [
+                { line: 16, text: 'app = express()', category: 'config' },
+                { line: 17, text: 'app.use(express.json())', category: 'config' },
+                { line: 18, text: 'app.use(cors())', category: 'config' },
+                { line: 19, text: "app.use('/api', routes)", category: 'config' },
+              ],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(serverNode);
+
+      const context = await bundleContext(db, ['src/api/server.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show middleware insertion point
+      assert.ok(markdown.includes('Middleware'), 'Should mention middleware');
+      assert.ok(markdown.includes('app.use'), 'Should show app.use pattern');
+    });
+
+    it('shows similar changes from git history in modification checklist - Phase 6.7.2.4', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a widely used file with git history showing prior changes
+      const typesNode: WikiNode = {
+        id: 'src/types/index.ts',
+        type: 'file',
+        path: 'src/types/index.ts',
+        name: 'index.ts',
+        metadata: {
+          lines: 100,
+          commits: 15,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice', 'bob'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 8,
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/api/index.ts' },
+          { type: 'importedBy', target: 'src/builder/index.ts' },
+          { type: 'importedBy', target: 'src/generator/index.ts' },
+          { type: 'importedBy', target: 'src/extractor/ast.ts' },
+          { type: 'importedBy', target: 'src/cli/index.ts' },
+          { type: 'importedBy', target: 'src/utils/helper.ts' },
+          { type: 'importedBy', target: 'src/config/index.ts' },
+          { type: 'importedBy', target: 'src/errors/index.ts' },
+        ],
+        raw: {
+          exports: [
+            { name: 'WikiNode', kind: 'interface' },
+            { name: 'Edge', kind: 'interface' },
+          ],
+          recentCommits: [
+            { hash: 'abc1234', message: 'feat: add metadata field to WikiNode', author: 'alice', date: new Date('2024-12-01') },
+            { hash: 'def5678', message: 'refactor: update Edge type definition', author: 'bob', date: new Date('2024-11-15') },
+            { hash: 'ghi9012', message: 'fix: correct optional property in WikiNode', author: 'alice', date: new Date('2024-11-01') },
+          ],
+        },
+      };
+
+      await nodes.insertOne(typesNode);
+
+      const context = await bundleContext(db, ['src/types/index.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show similar changes section
+      assert.ok(markdown.includes('Recent Changes') || markdown.includes('Similar Changes'), 'Should have changes section');
+      assert.ok(markdown.includes('add metadata field'), 'Should show commit message');
+      assert.ok(markdown.includes('alice'), 'Should show author');
+    });
+
+    it('does not show modification checklist for low fan-in files - Phase 6.7.2.1', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a file with low fan-in (should NOT show modification checklist)
+      const normalNode: WikiNode = {
+        id: 'src/normal.ts',
+        type: 'file',
+        path: 'src/normal.ts',
+        name: 'normal.ts',
+        metadata: {
+          lines: 30,
+          commits: 3,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 2,  // Low fan-in - no modification checklist needed
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/other.ts' },
+          { type: 'importedBy', target: 'src/another.ts' },
+        ],
+        raw: {},
+      };
+
+      await nodes.insertOne(normalNode);
+
+      const context = await bundleContext(db, ['src/normal.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should NOT show modification checklist for low fan-in file
+      assert.ok(!markdown.includes('Modification Checklist'), 'Should not show modification checklist for low fan-in');
+    });
+
     it('does not show warning for low fan-in files - Phase 6.3.3', async () => {
       const db = client.db('pith');
       const nodes = db.collection<WikiNode>('nodes');
@@ -622,6 +933,346 @@ describe('API', () => {
       assert.ok(markdown.includes('Key statements') || markdown.includes('key statements'), 'Should have key statements section');
       assert.ok(markdown.includes('status === 429'), 'Should show status code condition');
       assert.ok(markdown.includes('Math.pow(2, attempt)'), 'Should show backoff formula');
+    });
+
+    it('displays error paths grouped by symptom - Phase 6.7.4.1', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithErrorPaths: WikiNode = {
+        id: 'src/api/handler.ts',
+        type: 'file',
+        path: 'src/api/handler.ts',
+        name: 'handler.ts',
+        metadata: {
+          lines: 100,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {
+          functions: [
+            {
+              name: 'handleRequest',
+              signature: 'async function handleRequest(req: Request): Promise<Response>',
+              startLine: 10,
+              endLine: 50,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: `async function handleRequest(req: Request): Promise<Response> {
+  if (!req.path) return new Response(null, { status: 400 });
+  const node = await db.find(req.path);
+  if (!node) return new Response(null, { status: 404 });
+  return new Response(JSON.stringify(node));
+}`,
+              keyStatements: [],
+              errorPaths: [
+                { type: 'guard', line: 11, condition: '!req.path', action: 'returns 400 (Bad Request)' },
+                { type: 'guard', line: 13, condition: '!node', action: 'returns 404 (Not Found)' },
+                { type: 'catch', line: 45, condition: 'catch (error)', action: 'returns 500 (Internal Error)' },
+              ],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(fileWithErrorPaths);
+
+      const context = await bundleContext(db, ['src/api/handler.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show error paths grouped
+      assert.ok(markdown.includes('Error Paths') || markdown.includes('error paths'), 'Should have error paths section');
+      assert.ok(markdown.includes('400') || markdown.includes('Bad Request'), 'Should show 400 error');
+      assert.ok(markdown.includes('404') || markdown.includes('Not Found'), 'Should show 404 error');
+    });
+
+    it('shows debug checklist for functions with error paths - Phase 6.7.4.3', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithDebugInfo: WikiNode = {
+        id: 'src/api/router.ts',
+        type: 'file',
+        path: 'src/api/router.ts',
+        name: 'router.ts',
+        metadata: {
+          lines: 80,
+          commits: 8,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [
+          { type: 'testFile', target: 'src/api/router.test.ts' },
+        ],
+        raw: {
+          functions: [
+            {
+              name: 'resolveRoute',
+              signature: 'function resolveRoute(path: string): Handler | null',
+              startLine: 15,
+              endLine: 40,
+              isAsync: false,
+              isExported: true,
+              codeSnippet: `function resolveRoute(path: string): Handler | null {
+  if (path.includes('\\\\')) return null;  // Windows path issue
+  if (!path.startsWith('/')) return null;  // Missing leading slash
+  const normalized = path.replace(/\\/+$/, '');
+  return routes.get(normalized) ?? null;
+}`,
+              keyStatements: [
+                { line: 16, text: "path.includes('\\\\')", category: 'condition' },
+                { line: 17, text: "!path.startsWith('/')", category: 'condition' },
+              ],
+              errorPaths: [
+                { type: 'guard', line: 16, condition: "path.includes('\\\\')", action: 'returns null (Windows path)' },
+                { type: 'guard', line: 17, condition: "!path.startsWith('/')", action: 'returns null (missing slash)' },
+                { type: 'early-return', line: 19, condition: '!routes.get(normalized)', action: 'returns null' },
+              ],
+            },
+          ],
+        },
+      };
+
+      // Add test file
+      const testFileNode: WikiNode = {
+        id: 'src/api/router.test.ts',
+        type: 'file',
+        path: 'src/api/router.test.ts',
+        name: 'router.test.ts',
+        metadata: {
+          lines: 100,
+          commits: 4,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          testCommand: 'npm test -- src/api/router.test.ts',
+        },
+        edges: [],
+        raw: {},
+      };
+
+      await nodes.insertOne(fileWithDebugInfo);
+      await nodes.insertOne(testFileNode);
+
+      const context = await bundleContext(db, ['src/api/router.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show debug-relevant info
+      assert.ok(markdown.includes('Windows') || markdown.includes('backslash'), 'Should mention Windows path issue');
+      assert.ok(markdown.includes('slash') || markdown.includes("startsWith('/')"), 'Should mention slash requirement');
+    });
+
+    it('shows detected patterns with evidence - Phase 6.7.5', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithPatterns: WikiNode = {
+        id: 'src/api/client.ts',
+        type: 'file',
+        path: 'src/api/client.ts',
+        name: 'client.ts',
+        metadata: {
+          lines: 200,
+          commits: 15,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {
+          patterns: [
+            {
+              name: 'retry',
+              confidence: 'high',
+              evidence: [
+                'line 45: maxRetries = 3',
+                'line 60: catch block with retry logic',
+                'line 65: exponential backoff',
+              ],
+              location: 'src/api/client.ts:fetchWithRetry',
+            },
+          ],
+          functions: [
+            {
+              name: 'fetchWithRetry',
+              signature: 'async function fetchWithRetry(url: string): Promise<Response>',
+              startLine: 40,
+              endLine: 80,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: `async function fetchWithRetry(url: string): Promise<Response> {
+  const maxRetries = 3;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try { return await fetch(url); }
+    catch (e) { await sleep(Math.pow(2, attempt) * 1000); }
+  }
+}`,
+              keyStatements: [
+                { line: 45, text: 'maxRetries = 3', category: 'config' },
+                { line: 65, text: 'Math.pow(2, attempt) * 1000', category: 'math' },
+              ],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(fileWithPatterns);
+
+      const context = await bundleContext(db, ['src/api/client.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show detected patterns with evidence
+      assert.ok(markdown.includes('Pattern') || markdown.includes('pattern'), 'Should have patterns section');
+      assert.ok(markdown.includes('retry') || markdown.includes('Retry'), 'Should show retry pattern');
+      assert.ok(markdown.includes('evidence') || markdown.includes('maxRetries'), 'Should show evidence');
+    });
+
+    it('shows enhanced call flow with file:line references - Phase 6.7.3', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithCallFlow: WikiNode = {
+        id: 'src/cli/index.ts',
+        type: 'file',
+        path: 'src/cli/index.ts',
+        name: 'index.ts',
+        metadata: {
+          lines: 150,
+          commits: 12,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {
+          functions: [
+            {
+              name: 'runBuild',
+              signature: 'async function runBuild(): Promise<void>',
+              startLine: 45,
+              endLine: 100,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: `async function runBuild(): Promise<void> {
+  const files = await extractFiles(config.path);
+  const nodes = await buildNodes(files);
+  await storeNodes(nodes);
+}`,
+              keyStatements: [
+                { line: 46, text: 'extractFiles(config.path)', category: 'call' },
+                { line: 47, text: 'buildNodes(files)', category: 'call' },
+              ],
+              crossFileCalls: [
+                'src/extractor/ast.ts:extractFiles',
+                'src/builder/index.ts:buildNodes',
+                'src/builder/index.ts:storeNodes',
+              ],
+              crossFileCalledBy: [
+                'src/cli/commands.ts:buildCommand',
+              ],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(fileWithCallFlow);
+
+      const context = await bundleContext(db, ['src/cli/index.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show enhanced call flow with file references
+      assert.ok(markdown.includes('Call Flow'), 'Should have Call Flow section');
+      assert.ok(markdown.includes('extractFiles') || markdown.includes('extractor'), 'Should show called function');
+      assert.ok(markdown.includes('buildNodes') || markdown.includes('builder'), 'Should show another called function');
+    });
+
+    it('links error paths to test files - Phase 6.7.4.4', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithErrors: WikiNode = {
+        id: 'src/service/api.ts',
+        type: 'file',
+        path: 'src/service/api.ts',
+        name: 'api.ts',
+        metadata: {
+          lines: 120,
+          commits: 10,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [
+          { type: 'testFile', target: 'src/service/api.test.ts' },
+        ],
+        raw: {
+          functions: [
+            {
+              name: 'fetchData',
+              signature: 'async function fetchData(id: string): Promise<Data>',
+              startLine: 20,
+              endLine: 60,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: `async function fetchData(id: string): Promise<Data> {
+  if (!id) throw new Error('ID required');
+  const response = await fetch(\`/api/\${id}\`);
+  if (!response.ok) throw new Error(\`HTTP \${response.status}\`);
+  return response.json();
+}`,
+              keyStatements: [],
+              errorPaths: [
+                { type: 'guard', line: 21, condition: '!id', action: "throws Error('ID required')" },
+                { type: 'guard', line: 24, condition: '!response.ok', action: 'throws Error(HTTP status)' },
+              ],
+            },
+          ],
+        },
+      };
+
+      // Add test file with info about what it tests
+      const testFile: WikiNode = {
+        id: 'src/service/api.test.ts',
+        type: 'file',
+        path: 'src/service/api.test.ts',
+        name: 'api.test.ts',
+        metadata: {
+          lines: 80,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          testCommand: 'npm test -- src/service/api.test.ts',
+        },
+        edges: [],
+        raw: {
+          functions: [
+            {
+              name: 'testFetchDataWithMissingId',
+              signature: 'function testFetchDataWithMissingId(): void',
+              startLine: 10,
+              endLine: 15,
+              isAsync: false,
+              isExported: false,
+              codeSnippet: 'expect(() => fetchData("")).toThrow("ID required");',
+              keyStatements: [],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(fileWithErrors);
+      await nodes.insertOne(testFile);
+
+      const context = await bundleContext(db, ['src/service/api.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should link to test file for coverage
+      assert.ok(markdown.includes('api.test.ts') || markdown.includes('test'), 'Should reference test file');
     });
   });
 
@@ -1298,6 +1949,70 @@ describe('Change Impact API - Phase 6.6.5', () => {
       );
 
       assert.ok(markdown.includes('No files depend on this'));
+    });
+
+    it('shows usage locations in dependents - Phase 6.7.1', async () => {
+      const { formatChangeImpactAsMarkdown } = await import('./index.ts');
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add the source file with exports
+      await nodes.insertOne({
+        id: 'src/shared/types.ts',
+        type: 'file',
+        path: 'src/shared/types.ts',
+        name: 'types.ts',
+        metadata: { lines: 50, commits: 5, lastModified: new Date(), authors: ['alice'] },
+        edges: [
+          { type: 'importedBy', target: 'src/service/user.ts' },
+        ],
+        raw: {
+          exports: [
+            { name: 'User', kind: 'interface' },
+            { name: 'Session', kind: 'interface' },
+          ],
+        },
+      });
+
+      // Add the dependent with specific usage locations
+      await nodes.insertOne({
+        id: 'src/service/user.ts',
+        type: 'file',
+        path: 'src/service/user.ts',
+        name: 'user.ts',
+        metadata: { lines: 100, commits: 10, lastModified: new Date(), authors: ['bob'] },
+        edges: [
+          { type: 'imports', target: 'src/shared/types.ts' },
+        ],
+        raw: {
+          imports: [
+            { from: '../shared/types', names: ['User', 'Session'] },
+          ],
+          functions: [
+            {
+              name: 'createUser',
+              signature: 'function createUser(data: User): Promise<User>',
+              startLine: 15,
+              endLine: 30,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: 'const user: User = { ...data };\nreturn user;',
+              keyStatements: [],
+            },
+          ],
+        },
+      });
+
+      const allNodes = await nodes.find({}).toArray();
+      const markdown = await formatChangeImpactAsMarkdown(
+        'src/shared/types.ts',
+        allNodes as WikiNode[],
+        ['User']
+      );
+
+      // Should show which functions use the changed export
+      assert.ok(markdown.includes('createUser') || markdown.includes('user.ts'), 'Should show dependent function or file');
+      assert.ok(markdown.includes('User'), 'Should show used export');
     });
   });
 });
