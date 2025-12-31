@@ -487,6 +487,96 @@ describe('API', () => {
       assert.ok(markdown.includes('8 files'), 'Should show number of dependent files');
     });
 
+    it('shows test update requirements in modification checklist - Phase 6.7.2.3', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a widely used file with test file
+      const widelyUsedNode: WikiNode = {
+        id: 'src/builder/types.ts',
+        type: 'file',
+        path: 'src/builder/types.ts',
+        name: 'types.ts',
+        metadata: {
+          lines: 100,
+          commits: 10,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 7,
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/builder/index.ts' },
+          { type: 'importedBy', target: 'src/api/index.ts' },
+          { type: 'importedBy', target: 'src/generator/index.ts' },
+          { type: 'importedBy', target: 'src/extractor/ast.ts' },
+          { type: 'importedBy', target: 'src/cli/index.ts' },
+          { type: 'importedBy', target: 'src/utils/helper.ts' },
+          { type: 'importedBy', target: 'src/config/index.ts' },
+          { type: 'testFile', target: 'src/builder/types.test.ts' },
+        ],
+        raw: {
+          exports: [
+            { name: 'WikiNode', kind: 'interface' },
+            { name: 'Edge', kind: 'interface' },
+          ],
+        },
+      };
+
+      // Add test file with assertion info
+      const testFileNode: WikiNode = {
+        id: 'src/builder/types.test.ts',
+        type: 'file',
+        path: 'src/builder/types.test.ts',
+        name: 'types.test.ts',
+        metadata: {
+          lines: 200,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          testCommand: 'npm test -- src/builder/types.test.ts',
+        },
+        edges: [],
+        raw: {
+          // Simulate that the test file has functions that reference WikiNode
+          functions: [
+            {
+              name: 'testWikiNodeCreate',
+              signature: 'function testWikiNodeCreate(): void',
+              startLine: 10,
+              endLine: 30,
+              isAsync: false,
+              isExported: false,
+              codeSnippet: 'const node: WikiNode = { id: "test" };\nassert.ok(node.id);',
+              keyStatements: [],
+            },
+            {
+              name: 'testEdgeValidation',
+              signature: 'function testEdgeValidation(): void',
+              startLine: 35,
+              endLine: 50,
+              isAsync: false,
+              isExported: false,
+              codeSnippet: 'const edge: Edge = { type: "imports", target: "foo" };\nassert.strictEqual(edge.type, "imports");',
+              keyStatements: [],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(widelyUsedNode);
+      await nodes.insertOne(testFileNode);
+
+      const context = await bundleContext(db, ['src/builder/types.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show test update requirements
+      assert.ok(markdown.includes('Test file:'), 'Should show test file');
+      assert.ok(markdown.includes('types.test.ts'), 'Should mention test file name');
+      assert.ok(markdown.includes('npm test'), 'Should show test command');
+    });
+
     it('does not show modification checklist for low fan-in files - Phase 6.7.2.1', async () => {
       const db = client.db('pith');
       const nodes = db.collection<WikiNode>('nodes');

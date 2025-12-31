@@ -165,6 +165,14 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       lines.push(`3. **Run tests** - Verify changes don't break consumers`);
       if (testFileEdges.length > 0) {
         lines.push(`   - Test file: \`${testFileEdges[0].target}\``);
+        // Look for the test file node in context to get the test command
+        const testFileNode = context.nodes.find(n => n.id === testFileEdges[0].target);
+        if (testFileNode?.metadata.testCommand) {
+          lines.push(`   - Run: \`${testFileNode.metadata.testCommand}\``);
+        } else {
+          // Fallback to a default npm test command
+          lines.push(`   - Run: \`npm test -- ${testFileEdges[0].target}\``);
+        }
       }
       lines.push('');
     }
