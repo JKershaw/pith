@@ -354,27 +354,24 @@ describe('API', () => {
         raw: {},
       });
 
-      // Request with a path that has medium similarity (same filename, similar dir)
-      // "src/helper/utils.ts" vs "src/helpers/utils.ts" - close but not high enough for auto-match
-      const context = await bundleContext(db, ['src/helper/utils.ts']);
+      // Request with a path that has medium similarity:
+      // "src/help/util.ts" vs "src/helpers/utils.ts"
+      // - filename differs by 1 char (util vs utils)
+      // - directory differs by 3 chars (help vs helpers)
+      // This yields medium confidence (0.4-0.7) - enough for suggestions but not auto-match
+      const context = await bundleContext(db, ['src/help/util.ts']);
 
-      // Medium confidence should either auto-match or provide suggestions
-      if (context.nodes.length === 0) {
-        // If it didn't auto-match, should have suggestions in error
-        assert.strictEqual(context.errors.length, 1, 'Should have exactly one error');
-        assert.ok(
-          context.errors[0]!.includes('did you mean'),
-          'Medium-confidence error should include suggestions'
-        );
-        assert.ok(
-          context.errors[0]!.includes('src/helpers/utils.ts'),
-          'Suggestions should include the similar path'
-        );
-      } else {
-        // If it did auto-match (high confidence), verify fuzzy match info
-        assert.ok(context.fuzzyMatches, 'Should have fuzzy match info');
-        assert.strictEqual(context.fuzzyMatches![0]!.actualPath, 'src/helpers/utils.ts');
-      }
+      // Medium confidence should NOT auto-match, but should provide suggestions
+      assert.strictEqual(context.nodes.length, 0, 'Should not auto-match medium-confidence path');
+      assert.strictEqual(context.errors.length, 1, 'Should have exactly one error');
+      assert.ok(
+        context.errors[0]!.includes('did you mean'),
+        'Medium-confidence error should include suggestions'
+      );
+      assert.ok(
+        context.errors[0]!.includes('src/helpers/utils.ts'),
+        'Suggestions should include the similar path'
+      );
     });
 
     it('includes fuzzy match info for multiple paths', async () => {
