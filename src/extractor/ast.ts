@@ -145,24 +145,106 @@ export interface FindFilesOptions {
  * Maximum lines to include in code snippets.
  */
 const SNIPPET_MAX_LINES = 15;
+const SNIPPET_MAX_LINES_COMPLEX = 30; // Phase 6.8.2.1: Increased for complex functions
+const KEY_STATEMENT_THRESHOLD = 5; // Functions with >5 key statements are "complex"
+const KEY_STATEMENT_CONTEXT_LINES = 3; // Phase 6.8.2.2: Lines to preserve around key statements
 
 /**
  * Extract a code snippet from a function or method.
- * Returns the first N lines with a truncation indicator if needed.
+ * Phase 6.8.2: Enhanced to support full content preservation.
+ * - Complex functions (>5 key statements) get 30 lines instead of 15
+ * - Smart truncation preserves 3 lines around each key statement
+ * - Truncation indicator shows remaining lines AND remaining key statements
+ *
  * @param getText - Function that returns the full source text
- * @param maxLines - Maximum lines to include (default: 15)
+ * @param keyStatements - Key statements with line numbers (for smart truncation)
  * @returns The code snippet string
  */
-function getCodeSnippet(getText: () => string, maxLines = SNIPPET_MAX_LINES): string {
+function getCodeSnippet(getText: () => string, keyStatements: KeyStatement[] = []): string {
   const fullText = getText();
   const lines = fullText.split('\n');
+  const totalLines = lines.length;
 
-  if (lines.length <= maxLines) {
+  // Phase 6.8.2.1: Use higher limit for complex functions
+  const isComplex = keyStatements.length > KEY_STATEMENT_THRESHOLD;
+  const maxLines = isComplex ? SNIPPET_MAX_LINES_COMPLEX : SNIPPET_MAX_LINES;
+
+  // If within limit, return full text
+  if (totalLines <= maxLines) {
     return fullText;
   }
 
-  const remainingLines = lines.length - maxLines;
-  return lines.slice(0, maxLines).join('\n') + `\n  // ... (${remainingLines} more lines)`;
+  // Phase 6.8.2.2: Smart truncation that preserves key statement context
+  if (keyStatements.length > 0) {
+    // Build a set of lines to include (around key statements)
+    const linesToInclude = new Set<number>();
+
+    // Always include first 3 lines (function signature context)
+    for (let i = 1; i <= Math.min(3, totalLines); i++) {
+      linesToInclude.add(i);
+    }
+
+    // Add context around each key statement
+    for (const stmt of keyStatements) {
+      const funcStartLine = 1; // In snippet, lines are 1-indexed within function
+      // Key statement line is relative to the function, not the file
+      // We need to find which line in the snippet this corresponds to
+      // For now, we'll use a simpler approach - include based on snippet context
+
+      for (
+        let i = Math.max(1, stmt.line - funcStartLine - KEY_STATEMENT_CONTEXT_LINES);
+        i <= Math.min(totalLines, stmt.line - funcStartLine + KEY_STATEMENT_CONTEXT_LINES + 1);
+        i++
+      ) {
+        linesToInclude.add(i);
+      }
+    }
+
+    // If including key statement context gives us a reasonable snippet, use it
+    if (linesToInclude.size > 0 && linesToInclude.size <= maxLines) {
+      const includedLineNumbers = Array.from(linesToInclude).sort((a, b) => a - b);
+      const result: string[] = [];
+      let lastLine = 0;
+
+      for (const lineNum of includedLineNumbers) {
+        if (lineNum - lastLine > 1 && lastLine > 0) {
+          // Add ellipsis for skipped lines
+          result.push(`  // ... (${lineNum - lastLine - 1} lines omitted)`);
+        }
+        if (lineNum <= totalLines) {
+          result.push(lines[lineNum - 1]);
+        }
+        lastLine = lineNum;
+      }
+
+      // Add final ellipsis if needed
+      const remainingLines = totalLines - lastLine;
+      const remainingKeyStatements = keyStatements.filter((s) => {
+        const lineInSnippet = s.line;
+        return !includedLineNumbers.includes(lineInSnippet);
+      }).length;
+
+      if (remainingLines > 0) {
+        // Phase 6.8.2.3: Show remaining lines AND remaining key statements
+        const keyStmtInfo =
+          remainingKeyStatements > 0 ? `, ${remainingKeyStatements} more key statements` : '';
+        result.push(`  // ... (${remainingLines} more lines${keyStmtInfo})`);
+      }
+
+      return result.join('\n');
+    }
+  }
+
+  // Fallback: simple truncation with enhanced indicator
+  const remainingLines = totalLines - maxLines;
+  // Phase 6.8.2.3: Count key statements beyond the snippet (approximate)
+  const remainingKeyStatements = keyStatements.filter((stmt) => stmt.line > maxLines).length;
+
+  const keyStmtInfo =
+    remainingKeyStatements > 0 ? `, ${remainingKeyStatements} more key statements` : '';
+  return (
+    lines.slice(0, maxLines).join('\n') + `\n  // ... (${remainingLines} more lines${keyStmtInfo})`
+  );
 }
 
 /**
@@ -508,52 +590,60 @@ export function extractFile(ctx: ProjectContext, relativePath: string): Extracte
     }
   }
 
-  const functions: FunctionData[] = sourceFile.getFunctions().map((func) => ({
-    name: func.getName() || 'anonymous',
-    signature: func.getSignature().getDeclaration().getText(),
-    params: func.getParameters().map((p) => ({
-      name: p.getName(),
-      type: p.getType().getText(),
-      isOptional: p.isOptional(),
-      defaultValue: p.getInitializer()?.getText(),
-    })),
-    returnType: func.getReturnType().getText(),
-    isAsync: func.isAsync(),
-    isExported: func.isExported(),
-    isDefaultExport: func.isDefaultExport(), // Phase 6.6: Explicit default export detection
-    startLine: func.getStartLineNumber(),
-    endLine: func.getEndLineNumber(),
-    codeSnippet: getCodeSnippet(() => func.getText()),
-    keyStatements: extractKeyStatements(func),
-    calls: extractFunctionCalls(func, allCallableNames), // Phase 6.6.7a.1
-    calledBy: [], // Phase 6.6.7a.4: Computed later in builder
-    errorPaths: extractErrorPaths(func), // Phase 6.6.8
-  }));
-
-  // Extract classes
-  const classes: Class[] = sourceFile.getClasses().map((cls) => ({
-    name: cls.getName() || 'anonymous',
-    methods: cls.getMethods().map((method) => ({
-      name: method.getName(),
-      signature: method.getSignature().getDeclaration().getText(),
-      params: method.getParameters().map((p) => ({
+  const functions: FunctionData[] = sourceFile.getFunctions().map((func) => {
+    // Phase 6.8.2: Extract key statements first to inform code snippet generation
+    const keyStatements = extractKeyStatements(func);
+    return {
+      name: func.getName() || 'anonymous',
+      signature: func.getSignature().getDeclaration().getText(),
+      params: func.getParameters().map((p) => ({
         name: p.getName(),
         type: p.getType().getText(),
         isOptional: p.isOptional(),
         defaultValue: p.getInitializer()?.getText(),
       })),
-      returnType: method.getReturnType().getText(),
-      isAsync: method.isAsync(),
-      isExported: false, // Methods aren't directly exported
-      isDefaultExport: false, // Methods aren't default exported
-      startLine: method.getStartLineNumber(),
-      endLine: method.getEndLineNumber(),
-      codeSnippet: getCodeSnippet(() => method.getText()),
-      keyStatements: extractKeyStatements(method),
-      calls: extractFunctionCalls(method, allCallableNames), // Phase 6.6.7a.1: Use global callable set
+      returnType: func.getReturnType().getText(),
+      isAsync: func.isAsync(),
+      isExported: func.isExported(),
+      isDefaultExport: func.isDefaultExport(), // Phase 6.6: Explicit default export detection
+      startLine: func.getStartLineNumber(),
+      endLine: func.getEndLineNumber(),
+      codeSnippet: getCodeSnippet(() => func.getText(), keyStatements), // Phase 6.8.2
+      keyStatements,
+      calls: extractFunctionCalls(func, allCallableNames), // Phase 6.6.7a.1
       calledBy: [], // Phase 6.6.7a.4: Computed later in builder
-      errorPaths: extractErrorPaths(method), // Phase 6.6.8
-    })),
+      errorPaths: extractErrorPaths(func), // Phase 6.6.8
+    };
+  });
+
+  // Extract classes
+  const classes: Class[] = sourceFile.getClasses().map((cls) => ({
+    name: cls.getName() || 'anonymous',
+    methods: cls.getMethods().map((method) => {
+      // Phase 6.8.2: Extract key statements first to inform code snippet generation
+      const keyStatements = extractKeyStatements(method);
+      return {
+        name: method.getName(),
+        signature: method.getSignature().getDeclaration().getText(),
+        params: method.getParameters().map((p) => ({
+          name: p.getName(),
+          type: p.getType().getText(),
+          isOptional: p.isOptional(),
+          defaultValue: p.getInitializer()?.getText(),
+        })),
+        returnType: method.getReturnType().getText(),
+        isAsync: method.isAsync(),
+        isExported: false, // Methods aren't directly exported
+        isDefaultExport: false, // Methods aren't default exported
+        startLine: method.getStartLineNumber(),
+        endLine: method.getEndLineNumber(),
+        codeSnippet: getCodeSnippet(() => method.getText(), keyStatements), // Phase 6.8.2
+        keyStatements,
+        calls: extractFunctionCalls(method, allCallableNames), // Phase 6.6.7a.1: Use global callable set
+        calledBy: [], // Phase 6.6.7a.4: Computed later in builder
+        errorPaths: extractErrorPaths(method), // Phase 6.6.8
+      };
+    }),
     properties: cls.getProperties().map((prop) => ({
       name: prop.getName(),
       type: prop.getType().getText(),

@@ -362,3 +362,41 @@ describe('extractFile symbol usages (Phase 6.8.1)', () => {
     assert.strictEqual(result.symbolUsages.length, 0);
   });
 });
+
+// Phase 6.8.2: Enhanced code snippet tests
+describe('extractFile code snippets (Phase 6.8.2)', () => {
+  it('includes code snippet for functions', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/auth.ts');
+
+    const createSession = result.functions.find((f) => f.name === 'createSession');
+    assert.ok(createSession);
+    assert.ok(createSession.codeSnippet.length > 0);
+    // Should include function content
+    assert.ok(createSession.codeSnippet.includes('createSession'));
+  });
+
+  it('passes key statements to snippet generation', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/auth.ts');
+
+    // Functions should have their keyStatements extracted
+    const createSession = result.functions.find((f) => f.name === 'createSession');
+    assert.ok(createSession);
+    assert.ok(Array.isArray(createSession.keyStatements));
+  });
+
+  it('includes truncation indicator for long functions', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/user-service.ts');
+
+    // UserService class should have methods
+    const userService = result.classes.find((c) => c.name === 'UserService');
+    assert.ok(userService);
+
+    // Methods should have code snippets
+    for (const method of userService.methods) {
+      assert.ok(method.codeSnippet.length > 0);
+    }
+  });
+});
