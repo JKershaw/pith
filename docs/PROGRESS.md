@@ -3,8 +3,39 @@
 ## Current Status
 
 **Last completed phase**: Phase 6.6.7b (Cross-File Call Graph)
-**Current step**: Phase 6.6 COMPLETE - All enhanced extraction phases done
-**Date**: 2025-12-30
+**Current step**: Phase 6.7 - Enhanced Output Integration
+**Date**: 2025-12-31
+
+---
+
+## Latest Benchmark: v7 (2025-12-30)
+
+**Scores** (with prose enabled):
+- **Pith**: 16.3/25 (65.2%)
+- **Control**: 23.9/25 (95.6%)
+- **Gap**: 7.6 points (30%)
+
+See `docs/benchmark-results/2025-12-30-self-test-v7.md` for full results.
+
+**By Category** (Pith avg / Control avg):
+| Category | Pith | Control | Gap |
+|----------|------|---------|-----|
+| Architecture (A1-A3) | 18.0 | 24.0 | -6.0 |
+| Behavior (B1-B3) | 17.0 | 24.0 | -7.0 |
+| Relationship (R1-R3) | 17.3 | 23.7 | -6.4 |
+| Debugging (D1-D3) | 16.0 | 24.0 | -8.0 |
+| **Modification (M1-M3)** | **14.0** | **23.7** | **-9.7** |
+
+**By Criterion** (Pith avg / Control avg):
+| Criterion | Pith | Control | Gap |
+|-----------|------|---------|-----|
+| Relevance | 3.3 | 5.0 | -1.7 |
+| **Completeness** | **2.3** | **5.0** | **-2.7** |
+| Accuracy | 4.0 | 5.0 | -1.0 |
+| Efficiency | 5.0 | 3.9 | +1.1 ✅ |
+| **Actionability** | **2.1** | **5.0** | **-2.9** |
+
+**Key Finding**: Pith excels at efficiency (5x smaller context, <100ms retrieval) but lacks actionability and completeness for modification/debugging tasks.
 
 ---
 
@@ -12,13 +43,14 @@
 
 **Goal**: Close information gaps by extracting facts deterministically, reducing LLM to synthesis only.
 
-**Benchmark progression** (2025-12-30):
+**Benchmark progression**:
 - Baseline (v1): 12.6/25
-- After P0 implementation: 15.5/25 (15-task comprehensive)
-- Control score: 23.9/25
-- **Remaining gap: 8.4 points (34%)**
+- After P0 (v5): 15.5/25
+- With prose (v7): 16.3/25 (+13% from prose)
+- Control: 23.9/25
+- **Remaining gap: 7.6 points (30%)**
 
-See `docs/benchmark-results/2025-12-30-self-test-v5-comprehensive.md` for comprehensive results.
+See `docs/benchmark-results/2025-12-30-self-test-v7.md` for comprehensive results.
 
 ### 6.6.1 Surface Existing Data (P0) - COMPLETE ✅
 
@@ -375,24 +407,69 @@ Per ROADMAP.md, implementation hints are deferred until pattern recognition and 
 
 ---
 
-### 6.6.6 - 6.6.9 Gap Analysis (Remaining)
+### v7 Gap Analysis (Post 6.6 Completion)
 
-Based on comprehensive 15-task benchmark, remaining gaps require new capabilities:
+Phase 6.6 is complete, but v7 benchmark shows gaps remain. Analysis of why:
 
-| Gap | Task Evidence | Task Score | Priority |
-|-----|---------------|------------|----------|
-| Change impact analysis | M1-M3: avg 13/25 (Control maps all affected files) | 13/25 | P0 |
-| Design pattern identification | A3: 13/25 (Control found 18 patterns, Pith found 0) | 13/25 | P1 |
-| Cross-file tracing | B1, B2, R2: avg 16/25 (Control traces complete chains) | 16/25 | P1 |
-| Error path analysis | D1, D3: avg 15/25 (Control found 13 causes for 404) | 15/25 | P1 |
-| Implementation hints | M2, M3: 13/25 (Control provides step-by-step guides) | 13/25 | P2 |
+| Capability | Status | v7 Score | Issue |
+|------------|--------|----------|-------|
+| Change impact (6.6.5) | ✅ Implemented | M1-M3: 14/25 | Shows file counts, not specific usage locations |
+| Pattern recognition (6.6.6) | ✅ Implemented | A3: 16/25 | Control found 24 patterns; Pith shows "partial" |
+| Cross-file calls (6.6.7b) | ✅ Implemented | B1-B3: 17/25 | Edges exist but call flow not surfaced in prose |
+| Error paths (6.6.8) | ✅ Implemented | D1-D3: 16/25 | Root causes not detailed enough |
+| Implementation hints (6.6.9) | ⏸️ Deferred | M1-M3: 14/25 | Critical gap - no modification guides |
 
-**Note**: Gaps overlap - fixing one capability may improve multiple task categories. The 8.4-point overall gap (15.5→23.9) requires addressing several capabilities, not all independently.
+**Root Cause**: Features are extracted but not fully surfaced in API output/prose. Need better integration.
 
-**Dependencies**:
-- ✅ 6.6.7a (Intra-file call graph) now enables 6.6.6 (Pattern detection) and 6.6.8 (Error paths)
-- ✅ 6.6.5 (Change impact) is complete
-- 6.6.7b (Cross-file tracing) extends 6.6.7a for advanced patterns
+---
+
+## Phase 6.7: Enhanced Output Integration ⬅️ CURRENT
+
+**Goal**: Surface extracted data more effectively in API output to close actionability and completeness gaps.
+
+**Target**: Overall score 16.3/25 → ≥20/25
+
+### 6.7.1 Consumer Location Specificity
+
+| Step | What | Status |
+|------|------|--------|
+| 6.7.1.1 | Show usage line numbers per dependent in `/impact` | Pending |
+| 6.7.1.2 | Group usages by type (import, property access, call) | Pending |
+| 6.7.1.3 | Find property access sites for interfaces/types | Pending |
+
+### 6.7.2 Modification Guides ⬅️ PRIORITY (M gap: -9.7)
+
+| Step | What | Status |
+|------|------|--------|
+| 6.7.2.1 | Include "Modification Checklist" for high-fanIn types | Pending |
+| 6.7.2.2 | Identify insertion points for middleware patterns | Pending |
+| 6.7.2.3 | Include test update requirements in guides | Pending |
+| 6.7.2.4 | Add "Similar Changes" section from git history | Pending |
+
+### 6.7.3 Enhanced Call Flow Presentation
+
+| Step | What | Status |
+|------|------|--------|
+| 6.7.3.1 | Add "Call Flow" section with traced paths | Pending |
+| 6.7.3.2 | Include key variable values along call paths | Pending |
+| 6.7.3.3 | Show full path with file:line for cross-file calls | Pending |
+
+### 6.7.4 Root Cause Debugging Hints
+
+| Step | What | Status |
+|------|------|--------|
+| 6.7.4.1 | Group errors by symptom category | Pending |
+| 6.7.4.2 | Include specific values that trigger each error path | Pending |
+| 6.7.4.3 | Add "Debug Checklist" for common symptoms | Pending |
+| 6.7.4.4 | Link error paths to test files | Pending |
+
+### 6.7.5 Pattern Evidence Enhancement
+
+| Step | What | Status |
+|------|------|--------|
+| 6.7.5.1 | Include all instances of detected patterns | Pending |
+| 6.7.5.2 | Show key lines that confirm each pattern | Pending |
+| 6.7.5.3 | Add pattern-specific usage guidance | Pending |
 
 ---
 
