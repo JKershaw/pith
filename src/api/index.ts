@@ -339,6 +339,55 @@ export function formatContextAsMarkdown(context: BundledContext): string {
           }
         }
 
+        // Phase 6.7.4.1: Error Paths grouped by symptom
+        if (func.errorPaths && func.errorPaths.length > 0) {
+          lines.push('');
+          lines.push('**Error Paths:**');
+
+          // Group by type for better organization
+          const guards = func.errorPaths.filter((e: { type: string }) => e.type === 'guard');
+          const earlyReturns = func.errorPaths.filter((e: { type: string }) => e.type === 'early-return');
+          const throws = func.errorPaths.filter((e: { type: string }) => e.type === 'throw');
+          const catches = func.errorPaths.filter((e: { type: string }) => e.type === 'catch');
+
+          // Show validation guards first (most important for debugging)
+          if (guards.length > 0) {
+            lines.push('');
+            lines.push('*Validation guards:*');
+            for (const g of guards) {
+              lines.push(`- Line ${g.line}: \`${g.condition}\` → ${g.action}`);
+            }
+          }
+
+          // Show early returns
+          if (earlyReturns.length > 0) {
+            lines.push('');
+            lines.push('*Early returns:*');
+            for (const r of earlyReturns) {
+              lines.push(`- Line ${r.line}: \`${r.condition}\` → ${r.action}`);
+            }
+          }
+
+          // Show throws
+          if (throws.length > 0) {
+            lines.push('');
+            lines.push('*Throws:*');
+            for (const t of throws) {
+              const condText = t.condition ? `\`${t.condition}\` → ` : '';
+              lines.push(`- Line ${t.line}: ${condText}${t.action}`);
+            }
+          }
+
+          // Show catch handlers
+          if (catches.length > 0) {
+            lines.push('');
+            lines.push('*Error handlers:*');
+            for (const c of catches) {
+              lines.push(`- Line ${c.line}: \`${c.condition}\` → ${c.action}`);
+            }
+          }
+        }
+
         // Call Flow (Phase 6.6.7b.4) - show for functions with >3 cross-file calls
         const totalCrossFileCalls = (func.crossFileCalls?.length || 0) + (func.crossFileCalledBy?.length || 0);
         if (totalCrossFileCalls > 3) {

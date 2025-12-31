@@ -934,6 +934,137 @@ return app;`,
       assert.ok(markdown.includes('status === 429'), 'Should show status code condition');
       assert.ok(markdown.includes('Math.pow(2, attempt)'), 'Should show backoff formula');
     });
+
+    it('displays error paths grouped by symptom - Phase 6.7.4.1', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithErrorPaths: WikiNode = {
+        id: 'src/api/handler.ts',
+        type: 'file',
+        path: 'src/api/handler.ts',
+        name: 'handler.ts',
+        metadata: {
+          lines: 100,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {
+          functions: [
+            {
+              name: 'handleRequest',
+              signature: 'async function handleRequest(req: Request): Promise<Response>',
+              startLine: 10,
+              endLine: 50,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: `async function handleRequest(req: Request): Promise<Response> {
+  if (!req.path) return new Response(null, { status: 400 });
+  const node = await db.find(req.path);
+  if (!node) return new Response(null, { status: 404 });
+  return new Response(JSON.stringify(node));
+}`,
+              keyStatements: [],
+              errorPaths: [
+                { type: 'guard', line: 11, condition: '!req.path', action: 'returns 400 (Bad Request)' },
+                { type: 'guard', line: 13, condition: '!node', action: 'returns 404 (Not Found)' },
+                { type: 'catch', line: 45, condition: 'catch (error)', action: 'returns 500 (Internal Error)' },
+              ],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(fileWithErrorPaths);
+
+      const context = await bundleContext(db, ['src/api/handler.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show error paths grouped
+      assert.ok(markdown.includes('Error Paths') || markdown.includes('error paths'), 'Should have error paths section');
+      assert.ok(markdown.includes('400') || markdown.includes('Bad Request'), 'Should show 400 error');
+      assert.ok(markdown.includes('404') || markdown.includes('Not Found'), 'Should show 404 error');
+    });
+
+    it('shows debug checklist for functions with error paths - Phase 6.7.4.3', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithDebugInfo: WikiNode = {
+        id: 'src/api/router.ts',
+        type: 'file',
+        path: 'src/api/router.ts',
+        name: 'router.ts',
+        metadata: {
+          lines: 80,
+          commits: 8,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [
+          { type: 'testFile', target: 'src/api/router.test.ts' },
+        ],
+        raw: {
+          functions: [
+            {
+              name: 'resolveRoute',
+              signature: 'function resolveRoute(path: string): Handler | null',
+              startLine: 15,
+              endLine: 40,
+              isAsync: false,
+              isExported: true,
+              codeSnippet: `function resolveRoute(path: string): Handler | null {
+  if (path.includes('\\\\')) return null;  // Windows path issue
+  if (!path.startsWith('/')) return null;  // Missing leading slash
+  const normalized = path.replace(/\\/+$/, '');
+  return routes.get(normalized) ?? null;
+}`,
+              keyStatements: [
+                { line: 16, text: "path.includes('\\\\')", category: 'condition' },
+                { line: 17, text: "!path.startsWith('/')", category: 'condition' },
+              ],
+              errorPaths: [
+                { type: 'guard', line: 16, condition: "path.includes('\\\\')", action: 'returns null (Windows path)' },
+                { type: 'guard', line: 17, condition: "!path.startsWith('/')", action: 'returns null (missing slash)' },
+                { type: 'early-return', line: 19, condition: '!routes.get(normalized)', action: 'returns null' },
+              ],
+            },
+          ],
+        },
+      };
+
+      // Add test file
+      const testFileNode: WikiNode = {
+        id: 'src/api/router.test.ts',
+        type: 'file',
+        path: 'src/api/router.test.ts',
+        name: 'router.test.ts',
+        metadata: {
+          lines: 100,
+          commits: 4,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          testCommand: 'npm test -- src/api/router.test.ts',
+        },
+        edges: [],
+        raw: {},
+      };
+
+      await nodes.insertOne(fileWithDebugInfo);
+      await nodes.insertOne(testFileNode);
+
+      const context = await bundleContext(db, ['src/api/router.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show debug-relevant info
+      assert.ok(markdown.includes('Windows') || markdown.includes('backslash'), 'Should mention Windows path issue');
+      assert.ok(markdown.includes('slash') || markdown.includes("startsWith('/')"), 'Should mention slash requirement');
+    });
   });
 
   describe('createApp', () => {
