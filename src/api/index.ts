@@ -13,6 +13,12 @@ import type { GeneratorConfig } from '../generator/index.ts';
 import { generateProseForNode } from '../generator/index.ts';
 import type { ErrorPath } from '../extractor/errors.ts';
 import express, { type Express, type Request, type Response } from 'express';
+import {
+  fuzzyMatch,
+  AUTO_MATCH_THRESHOLD,
+  SUGGESTION_THRESHOLD,
+  type FuzzyMatchInfo,
+} from './fuzzy.ts';
 import { stat } from 'node:fs/promises';
 
 /**
@@ -69,11 +75,13 @@ export interface BundledContext {
   nodes: WikiNode[]; // All relevant nodes
   errors: string[]; // Any errors during bundling
   depth: number; // Maximum traversal depth used
+  fuzzyMatches?: FuzzyMatchInfo[]; // Paths that were fuzzy matched
 }
 
 /**
  * Bundle context for a set of requested file paths.
  * Includes requested nodes, their imports, and parent modules.
+ * Uses fuzzy matching as fallback when exact paths aren't found.
  *
  * @param db - MangoDB database instance
  * @param paths - File paths to include in context
@@ -88,18 +96,55 @@ export async function bundleContext(
   const nodesCollection = db.collection<WikiNode>('nodes');
   const nodeMap = new Map<string, WikiNode>();
   const errors: string[] = [];
+  const fuzzyMatches: FuzzyMatchInfo[] = [];
 
   // Fetch requested nodes in parallel
   const requestedNodes = await Promise.all(
     paths.map((path) => nodesCollection.findOne({ id: path }))
   );
 
+  // Get all node paths for fuzzy matching (only fetch if needed)
+  let allNodePaths: string[] | null = null;
+  let allNodesCache: WikiNode[] | null = null;
+
   for (let i = 0; i < paths.length; i++) {
     const node = requestedNodes[i];
+    const requestedPath = paths[i]!;
+
     if (node) {
       nodeMap.set(node.id, node);
     } else {
-      errors.push(`Node not found: ${paths[i]}`);
+      // Try fuzzy matching
+      if (!allNodePaths) {
+        allNodesCache = await nodesCollection.find({}).toArray();
+        allNodePaths = allNodesCache.map((n) => n.id);
+      }
+
+      const fuzzyResult = fuzzyMatch(requestedPath, allNodePaths);
+
+      if (fuzzyResult.matchedPath && fuzzyResult.confidence >= AUTO_MATCH_THRESHOLD) {
+        // High confidence: use the fuzzy match
+        const matchedNode = allNodesCache!.find((n) => n.id === fuzzyResult.matchedPath);
+        if (matchedNode) {
+          nodeMap.set(matchedNode.id, matchedNode);
+          fuzzyMatches.push({
+            requestedPath,
+            actualPath: fuzzyResult.matchedPath,
+            confidence: fuzzyResult.confidence,
+            alternatives: fuzzyResult.alternatives,
+          });
+        } else {
+          errors.push(`Node not found: ${requestedPath}`);
+        }
+      } else if (fuzzyResult.confidence >= SUGGESTION_THRESHOLD) {
+        // Medium confidence: report error with suggestions
+        const suggestions = [fuzzyResult.matchedPath, ...fuzzyResult.alternatives]
+          .filter(Boolean)
+          .slice(0, 3);
+        errors.push(`Node not found: ${requestedPath} (did you mean: ${suggestions.join(', ')}?)`);
+      } else {
+        errors.push(`Node not found: ${requestedPath}`);
+      }
     }
   }
 
@@ -150,6 +195,7 @@ export async function bundleContext(
     nodes: [...nodeMap.values()],
     errors,
     depth: maxDepth,
+    fuzzyMatches: fuzzyMatches.length > 0 ? fuzzyMatches : undefined,
   };
 }
 
@@ -166,6 +212,17 @@ export function formatContextAsMarkdown(context: BundledContext): string {
   lines.push('');
   lines.push(`*${context.nodes.length} nodes included (depth ${context.depth})*`);
   lines.push('');
+
+  // Show fuzzy matches if any paths were corrected
+  if (context.fuzzyMatches && context.fuzzyMatches.length > 0) {
+    lines.push('> **Note:** Some requested paths were fuzzy-matched:');
+    for (const fm of context.fuzzyMatches) {
+      lines.push(
+        `> - \`${fm.requestedPath}\` → \`${fm.actualPath}\` (${Math.round(fm.confidence * 100)}% confidence)`
+      );
+    }
+    lines.push('');
+  }
 
   // Sort nodes: modules first, then files by path
   const sortedNodes = [...context.nodes].sort((a, b) => {
@@ -766,6 +823,42 @@ export function createApp(
 
       const nodes = db.collection<WikiNode>('nodes');
       let node = await nodes.findOne({ id: nodePath });
+      let fuzzyMatchInfo: FuzzyMatchInfo | undefined;
+
+      // If exact match fails, try fuzzy matching
+      if (!node) {
+        const allNodes = await nodes.find({}).toArray();
+        const allPaths = allNodes.map((n) => n.id);
+        const fuzzyResult = fuzzyMatch(nodePath, allPaths);
+
+        if (fuzzyResult.matchedPath && fuzzyResult.confidence >= AUTO_MATCH_THRESHOLD) {
+          // High confidence: auto-return the fuzzy match
+          node = allNodes.find((n) => n.id === fuzzyResult.matchedPath) || null;
+          if (node) {
+            fuzzyMatchInfo = {
+              requestedPath: nodePath,
+              actualPath: fuzzyResult.matchedPath,
+              confidence: fuzzyResult.confidence,
+              alternatives: fuzzyResult.alternatives,
+            };
+          }
+        } else if (fuzzyResult.confidence >= SUGGESTION_THRESHOLD) {
+          // Medium confidence: return 404 with suggestions
+          res.status(404).json({
+            error: 'NOT_FOUND',
+            message: `Node not found: ${nodePath}`,
+            suggestions: [fuzzyResult.matchedPath, ...fuzzyResult.alternatives].filter(Boolean),
+          });
+          return;
+        } else {
+          // Low confidence: plain 404
+          res.status(404).json({
+            error: 'NOT_FOUND',
+            message: `Node not found: ${nodePath}`,
+          });
+          return;
+        }
+      }
 
       if (!node) {
         res.status(404).json({
@@ -779,17 +872,22 @@ export function createApp(
       // Generate prose if: node has no prose AND prose param is not 'false' AND generatorConfig is provided
       if (!node.prose && proseParam !== 'false' && generatorConfig) {
         try {
-          const updatedNode = await generateProseForNode(nodePath, db, generatorConfig, fetchFn);
+          const updatedNode = await generateProseForNode(node.id, db, generatorConfig, fetchFn);
           if (updatedNode) {
             node = updatedNode;
           }
         } catch (error) {
           // Log error but return node without prose rather than failing the request
-          console.error(`Failed to generate prose for ${nodePath}:`, (error as Error).message);
+          console.error(`Failed to generate prose for ${node.id}:`, (error as Error).message);
         }
       }
 
-      res.json(node);
+      // Include fuzzy match info in response if applicable
+      if (fuzzyMatchInfo) {
+        res.json({ ...node, _fuzzyMatch: fuzzyMatchInfo });
+      } else {
+        res.json(node);
+      }
     } catch (error) {
       res.status(500).json({
         error: 'INTERNAL_ERROR',
