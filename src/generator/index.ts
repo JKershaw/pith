@@ -1,5 +1,5 @@
-import type { WikiNode, FunctionDetails } from '../builder/index.ts';
-import type { KeyStatement } from '../extractor/ast.ts';
+import type { WikiNode, FunctionDetails } from '../builder/index.js';
+import type { KeyStatement } from '../extractor/ast.js';
 import type { MangoDb } from '@jkershaw/mangodb';
 import { ProxyAgent } from 'undici';
 

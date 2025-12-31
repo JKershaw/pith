@@ -1,5 +1,5 @@
 import type { MangoDb } from '@jkershaw/mangodb';
-import type { WikiNode } from '../builder/index.ts';
+import type { WikiNode } from '../builder/index.js';
 import {
   buildImpactTree,
   findAffectedFunctions,
@@ -7,10 +7,10 @@ import {
   type ImpactTree,
   type AffectedFunction,
   type TestFileImpact,
-} from '../builder/index.ts';
-import type { GeneratorConfig } from '../generator/index.ts';
-import { generateProseForNode } from '../generator/index.ts';
-import type { ErrorPath } from '../extractor/errors.ts';
+} from '../builder/index.js';
+import type { GeneratorConfig } from '../generator/index.js';
+import { generateProseForNode } from '../generator/index.js';
+import type { ErrorPath } from '../extractor/errors.js';
 import express, { type Express, type Request, type Response } from 'express';
 import { stat } from 'node:fs/promises';
 

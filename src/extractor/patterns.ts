@@ -1,4 +1,4 @@
-import type { ExtractedFile } from './ast.ts';
+import type { ExtractedFile } from './ast.js';
 
 /**
  * A detected design pattern in the code.
@@ -7,8 +7,8 @@ import type { ExtractedFile } from './ast.ts';
 export interface DetectedPattern {
   name: 'retry' | 'cache' | 'builder' | 'singleton';
   confidence: 'high' | 'medium' | 'low';
-  evidence: string[];  // Line numbers and code snippets proving the pattern
-  location: string;    // file:function or file path
+  evidence: string[]; // Line numbers and code snippets proving the pattern
+  location: string; // file:function or file path
 }
 
 /**
@@ -38,7 +38,10 @@ export function detectRetryPattern(extracted: ExtractedFile): DetectedPattern[] 
     // Check keyStatements for retry indicators (more reliable than code snippet)
     for (const stmt of func.keyStatements) {
       // Look for retry/attempt variables
-      if (stmt.category === 'config' && (stmt.text.includes('retry') || stmt.text.includes('attempt'))) {
+      if (
+        stmt.category === 'config' &&
+        (stmt.text.includes('retry') || stmt.text.includes('attempt'))
+      ) {
         hasRetryVariable = true;
         const match = stmt.text.match(/(maxRetries|attempts|retries)\s*=\s*(\d+)/);
         if (match) {
@@ -49,7 +52,10 @@ export function detectRetryPattern(extracted: ExtractedFile): DetectedPattern[] 
       }
 
       // Look for exponential backoff
-      if (stmt.category === 'math' && (stmt.text.includes('Math.pow') || stmt.text.includes('**'))) {
+      if (
+        stmt.category === 'math' &&
+        (stmt.text.includes('Math.pow') || stmt.text.includes('**'))
+      ) {
         hasExponentialBackoff = true;
         evidence.push(`line ${stmt.line}: exponential backoff`);
       }
@@ -60,7 +66,10 @@ export function detectRetryPattern(extracted: ExtractedFile): DetectedPattern[] 
       }
 
       // Look for retry conditions (status checks that trigger retries)
-      if (stmt.category === 'condition' && (stmt.text.includes('429') || stmt.text.includes('500'))) {
+      if (
+        stmt.category === 'condition' &&
+        (stmt.text.includes('429') || stmt.text.includes('500'))
+      ) {
         evidence.push(`line ${stmt.line}: retry condition ${stmt.text}`);
       }
     }
@@ -230,19 +239,23 @@ export function detectSingletonPattern(extracted: ExtractedFile): DetectedPatter
     const snippet = func.codeSnippet.toLowerCase();
 
     // Look for instance variable check and creation
-    if (snippet.includes('instance') &&
-        (snippet.includes('null') || snippet.includes('undefined')) &&
-        (snippet.includes('new ') || snippet.includes('create'))) {
+    if (
+      snippet.includes('instance') &&
+      (snippet.includes('null') || snippet.includes('undefined')) &&
+      (snippet.includes('new ') || snippet.includes('create'))
+    ) {
       hasGetterFunction = true;
       evidence.push(`${func.name} checks and creates instance`);
     }
 
     // Also check for getInstance pattern (require both 'get' and 'instance' in function name)
     const funcNameLower = func.name.toLowerCase();
-    if (funcNameLower.includes('getinstance') ||
-        (funcNameLower.includes('get') && funcNameLower.includes('instance'))) {
+    if (
+      funcNameLower.includes('getinstance') ||
+      (funcNameLower.includes('get') && funcNameLower.includes('instance'))
+    ) {
       hasGetterFunction = true;
-      if (!evidence.some(e => e.includes(func.name))) {
+      if (!evidence.some((e) => e.includes(func.name))) {
         evidence.push(`${func.name} singleton getter`);
       }
     }

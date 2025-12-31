@@ -3,16 +3,16 @@
  * Resolves imported symbols and builds call graphs across files.
  */
 
-import type { WikiNode } from './index.ts';
-import type { Import } from '../extractor/ast.ts';
+import type { WikiNode } from './index.js';
+import type { Import } from '../extractor/ast.js';
 import { join, dirname } from 'node:path';
 
 /**
  * Resolved symbol location.
  */
 export interface ResolvedSymbol {
-  sourceFile: string;  // The file path where the symbol is defined
-  symbolName: string;  // The name of the symbol in that file (may differ due to aliasing)
+  sourceFile: string; // The file path where the symbol is defined
+  symbolName: string; // The name of the symbol in that file (may differ due to aliasing)
 }
 
 /**
@@ -26,8 +26,8 @@ export interface ImportSymbolMap {
  * Cross-file function call.
  */
 export interface CrossFileCall {
-  caller: string;      // 'file.ts:functionName'
-  callee: string;      // 'otherFile.ts:functionName'
+  caller: string; // 'file.ts:functionName'
+  callee: string; // 'otherFile.ts:functionName'
   importedAs?: string; // The name used when importing (may differ due to aliasing)
 }
 
@@ -85,11 +85,7 @@ function resolveImportPath(
   resolvedPath = resolvedPath.split('\\').join('/');
 
   // Try different extensions
-  const candidates = [
-    resolvedPath + '.ts',
-    resolvedPath,
-    resolvedPath + '/index.ts',
-  ];
+  const candidates = [resolvedPath + '.ts', resolvedPath, resolvedPath + '/index.ts'];
 
   for (const candidate of candidates) {
     if (filePathMap.has(candidate)) {
@@ -189,13 +185,13 @@ export function followReExportChain(
   const pathMap = filePathMap ?? buildFilePathMap(allNodes);
 
   // Find the current file node
-  const currentNode = allNodes.find(n => n.id === currentFile || n.path === currentFile);
+  const currentNode = allNodes.find((n) => n.id === currentFile || n.path === currentFile);
   if (!currentNode || !currentNode.raw.exports) {
     return null;
   }
 
   // Find the export with this name
-  const exportDecl = currentNode.raw.exports.find(e => e.name === symbolName);
+  const exportDecl = currentNode.raw.exports.find((e) => e.name === symbolName);
   if (!exportDecl) {
     return null;
   }
@@ -253,10 +249,21 @@ function buildImportSymbolMap(
   for (const importStmt of fileNode.raw.imports) {
     // Process named imports
     for (const name of importStmt.names) {
-      const resolved = resolveImportedSymbol(name, importStmt, fileNode.path, allNodes, filePathMap);
+      const resolved = resolveImportedSymbol(
+        name,
+        importStmt,
+        fileNode.path,
+        allNodes,
+        filePathMap
+      );
       if (resolved) {
         // Follow re-export chains to find the original source
-        const original = followReExportChain(resolved.symbolName, resolved.sourceFile, allNodes, filePathMap);
+        const original = followReExportChain(
+          resolved.symbolName,
+          resolved.sourceFile,
+          allNodes,
+          filePathMap
+        );
         if (original) {
           symbolMap[name] = original;
         } else {
@@ -267,10 +274,21 @@ function buildImportSymbolMap(
 
     // Process default import
     if (importStmt.defaultName) {
-      const resolved = resolveImportedSymbol(importStmt.defaultName, importStmt, fileNode.path, allNodes, filePathMap);
+      const resolved = resolveImportedSymbol(
+        importStmt.defaultName,
+        importStmt,
+        fileNode.path,
+        allNodes,
+        filePathMap
+      );
       if (resolved) {
         // Follow re-export chains
-        const original = followReExportChain(resolved.symbolName, resolved.sourceFile, allNodes, filePathMap);
+        const original = followReExportChain(
+          resolved.symbolName,
+          resolved.sourceFile,
+          allNodes,
+          filePathMap
+        );
         if (original) {
           symbolMap[importStmt.defaultName] = original;
         } else {
@@ -326,10 +344,10 @@ export function buildCrossFileCallGraph(fileNodes: WikiNode[]): CrossFileCallGra
           // Instead, find the actual function in the target file
           if (resolved.symbolName === 'default') {
             // Find the target file
-            const targetFile = fileNodes.find(n => n.path === resolved.sourceFile);
+            const targetFile = fileNodes.find((n) => n.path === resolved.sourceFile);
             if (targetFile && targetFile.raw.functions) {
               // Find the default exported function using explicit isDefaultExport field
-              const defaultFunc = targetFile.raw.functions.find(f => f.isDefaultExport);
+              const defaultFunc = targetFile.raw.functions.find((f) => f.isDefaultExport);
               if (defaultFunc) {
                 crossFileCalls.push({
                   caller: functionId,
@@ -374,7 +392,7 @@ export function getCrossFileCallsForFunction(
   // Get calls from this function
   const functionCalls = callGraph[functionId];
   if (functionCalls) {
-    calls.push(...functionCalls.map(c => c.callee));
+    calls.push(...functionCalls.map((c) => c.callee));
   }
 
   // Get calledBy (functions that call this one)

@@ -6,12 +6,12 @@ import type {
   Export,
   FunctionData,
   KeyStatement,
-} from '../extractor/ast.ts';
-import type { Commit } from '../extractor/git.ts';
-import type { JSDoc } from '../extractor/docs.ts';
-import type { ProseData } from '../generator/index.ts';
-import type { ErrorPath } from '../extractor/errors.ts';
-import { buildCrossFileCallGraph, getCrossFileCallsForFunction } from './cross-file-calls.ts';
+} from '../extractor/ast.js';
+import type { Commit } from '../extractor/git.js';
+import type { JSDoc } from '../extractor/docs.js';
+import type { ProseData } from '../generator/index.js';
+import type { ErrorPath } from '../extractor/errors.js';
+import { buildCrossFileCallGraph, getCrossFileCallsForFunction } from './cross-file-calls.js';
 
 // Re-export types for testing
 export type { FunctionData };
@@ -81,6 +81,7 @@ export interface FunctionDetails {
  * Wiki node representing a file, function, or module.
  */
 export interface WikiNode {
+  [key: string]: unknown; // Index signature for MangoDB Document compatibility
   id: string;
   type: 'file' | 'function' | 'module';
   path: string;
