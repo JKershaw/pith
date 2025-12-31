@@ -413,6 +413,114 @@ describe('API', () => {
       assert.ok(markdown.includes('8 files depend'), 'Should show count of dependents');
     });
 
+    it('shows modification checklist for high-fanIn files - Phase 6.7.2.1', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a widely used file with high fan-in (interface with multiple consumers)
+      const widelyUsedNode: WikiNode = {
+        id: 'src/types/index.ts',
+        type: 'file',
+        path: 'src/types/index.ts',
+        name: 'index.ts',
+        metadata: {
+          lines: 50,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 8,  // High fan-in triggers modification checklist
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/auth/login.ts' },
+          { type: 'importedBy', target: 'src/auth/signup.ts' },
+          { type: 'importedBy', target: 'src/api/server.ts' },
+          { type: 'importedBy', target: 'src/api/routes.ts' },
+          { type: 'importedBy', target: 'src/db/connect.ts' },
+          { type: 'importedBy', target: 'src/utils/logger.ts' },
+          { type: 'importedBy', target: 'src/utils/validator.ts' },
+          { type: 'importedBy', target: 'src/cli/index.ts' },
+          { type: 'testFile', target: 'src/types/index.test.ts' },
+        ],
+        raw: {
+          exports: [
+            { name: 'WikiNode', kind: 'interface' },
+            { name: 'Edge', kind: 'interface' },
+          ],
+          interfaces: [
+            { name: 'WikiNode', isExported: true, properties: [
+              { name: 'id', type: 'string', isOptional: false },
+              { name: 'type', type: 'string', isOptional: false },
+            ]},
+          ],
+        },
+      };
+
+      // Add the test file too
+      const testFileNode: WikiNode = {
+        id: 'src/types/index.test.ts',
+        type: 'file',
+        path: 'src/types/index.test.ts',
+        name: 'index.test.ts',
+        metadata: {
+          lines: 30,
+          commits: 2,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          testCommand: 'npm test -- src/types/index.test.ts',
+        },
+        edges: [],
+        raw: {},
+      };
+
+      await nodes.insertOne(widelyUsedNode);
+      await nodes.insertOne(testFileNode);
+
+      const context = await bundleContext(db, ['src/types/index.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show modification checklist for high fan-in file
+      assert.ok(markdown.includes('Modification Checklist'), 'Should have Modification Checklist section');
+      assert.ok(markdown.includes('Update this file'), 'Should mention updating the source file');
+      assert.ok(markdown.includes('Update consumers'), 'Should mention updating consumers');
+      assert.ok(markdown.includes('8 files'), 'Should show number of dependent files');
+    });
+
+    it('does not show modification checklist for low fan-in files - Phase 6.7.2.1', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a file with low fan-in (should NOT show modification checklist)
+      const normalNode: WikiNode = {
+        id: 'src/normal.ts',
+        type: 'file',
+        path: 'src/normal.ts',
+        name: 'normal.ts',
+        metadata: {
+          lines: 30,
+          commits: 3,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 2,  // Low fan-in - no modification checklist needed
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/other.ts' },
+          { type: 'importedBy', target: 'src/another.ts' },
+        ],
+        raw: {},
+      };
+
+      await nodes.insertOne(normalNode);
+
+      const context = await bundleContext(db, ['src/normal.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should NOT show modification checklist for low fan-in file
+      assert.ok(!markdown.includes('Modification Checklist'), 'Should not show modification checklist for low fan-in');
+    });
+
     it('does not show warning for low fan-in files - Phase 6.3.3', async () => {
       const db = client.db('pith');
       const nodes = db.collection<WikiNode>('nodes');

@@ -136,6 +136,39 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       lines.push(`> **Warning:** Widely used (${node.metadata.fanIn} files depend on this)`);
     }
 
+    // Phase 6.7.2.1: Modification Checklist for high-fanIn files
+    if (node.type === 'file' && node.metadata.fanIn !== undefined && node.metadata.fanIn > 5) {
+      const dependentEdges = node.edges.filter(e => e.type === 'importedBy');
+      const testFileEdges = node.edges.filter(e => e.type === 'testFile');
+
+      lines.push('');
+      lines.push('**Modification Checklist:**');
+      lines.push('');
+      lines.push(`1. **Update this file** - Make changes to \`${node.path}\``);
+
+      // List exported types/interfaces if available
+      if (node.raw.exports && node.raw.exports.length > 0) {
+        const types = node.raw.exports.filter(e => e.kind === 'interface' || e.kind === 'type');
+        if (types.length > 0) {
+          lines.push(`   - Exported types: ${types.map(t => t.name).join(', ')}`);
+        }
+      }
+
+      lines.push(`2. **Update consumers** - ${node.metadata.fanIn} files depend on this:`);
+      for (const edge of dependentEdges.slice(0, 10)) {
+        lines.push(`   - \`${edge.target}\``);
+      }
+      if (dependentEdges.length > 10) {
+        lines.push(`   - ... and ${dependentEdges.length - 10} more files`);
+      }
+
+      lines.push(`3. **Run tests** - Verify changes don't break consumers`);
+      if (testFileEdges.length > 0) {
+        lines.push(`   - Test file: \`${testFileEdges[0].target}\``);
+      }
+      lines.push('');
+    }
+
     // Prose summary and purpose
     if (node.prose) {
       lines.push('');
