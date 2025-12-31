@@ -1066,6 +1066,65 @@ return app;`,
       assert.ok(markdown.includes('slash') || markdown.includes("startsWith('/')"), 'Should mention slash requirement');
     });
 
+    it('shows enhanced call flow with file:line references - Phase 6.7.3', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithCallFlow: WikiNode = {
+        id: 'src/cli/index.ts',
+        type: 'file',
+        path: 'src/cli/index.ts',
+        name: 'index.ts',
+        metadata: {
+          lines: 150,
+          commits: 12,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [],
+        raw: {
+          functions: [
+            {
+              name: 'runBuild',
+              signature: 'async function runBuild(): Promise<void>',
+              startLine: 45,
+              endLine: 100,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: `async function runBuild(): Promise<void> {
+  const files = await extractFiles(config.path);
+  const nodes = await buildNodes(files);
+  await storeNodes(nodes);
+}`,
+              keyStatements: [
+                { line: 46, text: 'extractFiles(config.path)', category: 'call' },
+                { line: 47, text: 'buildNodes(files)', category: 'call' },
+              ],
+              crossFileCalls: [
+                'src/extractor/ast.ts:extractFiles',
+                'src/builder/index.ts:buildNodes',
+                'src/builder/index.ts:storeNodes',
+              ],
+              crossFileCalledBy: [
+                'src/cli/commands.ts:buildCommand',
+              ],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(fileWithCallFlow);
+
+      const context = await bundleContext(db, ['src/cli/index.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show enhanced call flow with file references
+      assert.ok(markdown.includes('Call Flow'), 'Should have Call Flow section');
+      assert.ok(markdown.includes('extractFiles') || markdown.includes('extractor'), 'Should show called function');
+      assert.ok(markdown.includes('buildNodes') || markdown.includes('builder'), 'Should show another called function');
+    });
+
     it('links error paths to test files - Phase 6.7.4.4', async () => {
       const db = client.db('pith');
       const nodes = db.collection<WikiNode>('nodes');
