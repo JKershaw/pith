@@ -638,6 +638,58 @@ return app;`,
       assert.ok(markdown.includes('app.use'), 'Should show app.use pattern');
     });
 
+    it('shows similar changes from git history in modification checklist - Phase 6.7.2.4', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      // Add a widely used file with git history showing prior changes
+      const typesNode: WikiNode = {
+        id: 'src/types/index.ts',
+        type: 'file',
+        path: 'src/types/index.ts',
+        name: 'index.ts',
+        metadata: {
+          lines: 100,
+          commits: 15,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice', 'bob'],
+          createdAt: new Date('2024-01-01'),
+          fanIn: 8,
+        },
+        edges: [
+          { type: 'importedBy', target: 'src/api/index.ts' },
+          { type: 'importedBy', target: 'src/builder/index.ts' },
+          { type: 'importedBy', target: 'src/generator/index.ts' },
+          { type: 'importedBy', target: 'src/extractor/ast.ts' },
+          { type: 'importedBy', target: 'src/cli/index.ts' },
+          { type: 'importedBy', target: 'src/utils/helper.ts' },
+          { type: 'importedBy', target: 'src/config/index.ts' },
+          { type: 'importedBy', target: 'src/errors/index.ts' },
+        ],
+        raw: {
+          exports: [
+            { name: 'WikiNode', kind: 'interface' },
+            { name: 'Edge', kind: 'interface' },
+          ],
+          recentCommits: [
+            { hash: 'abc1234', message: 'feat: add metadata field to WikiNode', author: 'alice', date: new Date('2024-12-01') },
+            { hash: 'def5678', message: 'refactor: update Edge type definition', author: 'bob', date: new Date('2024-11-15') },
+            { hash: 'ghi9012', message: 'fix: correct optional property in WikiNode', author: 'alice', date: new Date('2024-11-01') },
+          ],
+        },
+      };
+
+      await nodes.insertOne(typesNode);
+
+      const context = await bundleContext(db, ['src/types/index.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should show similar changes section
+      assert.ok(markdown.includes('Recent Changes') || markdown.includes('Similar Changes'), 'Should have changes section');
+      assert.ok(markdown.includes('add metadata field'), 'Should show commit message');
+      assert.ok(markdown.includes('alice'), 'Should show author');
+    });
+
     it('does not show modification checklist for low fan-in files - Phase 6.7.2.1', async () => {
       const db = client.db('pith');
       const nodes = db.collection<WikiNode>('nodes');

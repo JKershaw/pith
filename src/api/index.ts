@@ -218,6 +218,21 @@ export function formatContextAsMarkdown(context: BundledContext): string {
         }
         lines.push('');
       }
+
+      // Phase 6.7.2.4: Show recent changes from git history
+      if (node.raw.recentCommits && node.raw.recentCommits.length > 0) {
+        lines.push('**Recent Changes:**');
+        lines.push('');
+        lines.push('Prior changes to this file (for reference):');
+        for (const commit of node.raw.recentCommits.slice(0, 5)) {
+          const dateStr = commit.date instanceof Date ? commit.date.toISOString().split('T')[0] : String(commit.date).split('T')[0];
+          lines.push(`- \`${commit.hash.substring(0, 7)}\` ${commit.message} (${commit.author}, ${dateStr})`);
+        }
+        if (node.raw.recentCommits.length > 5) {
+          lines.push(`- ... and ${node.raw.recentCommits.length - 5} more commits`);
+        }
+        lines.push('');
+      }
     }
 
     // Prose summary and purpose
