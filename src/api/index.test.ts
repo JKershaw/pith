@@ -316,17 +316,16 @@ describe('API', () => {
         raw: {},
       });
 
-      // Request with somewhat similar but not great match
-      const context = await bundleContext(db, ['src/helpers/util.ts']);
+      // Request with a path that has low similarity (won't auto-match)
+      const context = await bundleContext(db, ['lib/utilities/misc.ts']);
 
-      // Should include suggestion in errors (confidence between 0.4 and 0.7)
-      if (context.nodes.length === 0) {
-        // If no nodes matched, check for suggestions in errors
-        assert.ok(
-          context.errors.some((e) => e.includes('did you mean') || e.includes('Node not found')),
-          'Should have error with suggestion or not found message'
-        );
-      }
+      // Should not auto-match due to low confidence
+      assert.strictEqual(context.nodes.length, 0, 'Should not auto-match low-confidence path');
+      assert.strictEqual(context.errors.length, 1, 'Should have exactly one error');
+      assert.ok(
+        context.errors[0]!.includes('Node not found'),
+        'Error should mention node not found'
+      );
     });
 
     it('includes fuzzy match info for multiple paths', async () => {

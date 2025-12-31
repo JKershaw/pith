@@ -98,8 +98,9 @@ describe('normalizeScore', () => {
 
   it('rounds to 2 decimal places', () => {
     const score = normalizeScore(45);
-    const decimals = score.toString().split('.')[1]?.length || 0;
-    assert.ok(decimals <= 2, `Expected <= 2 decimals, got ${decimals}`);
+    // Verify by checking that multiplying by 100 gives an integer
+    const scaledScore = Math.round(score * 100);
+    assert.strictEqual(score, scaledScore / 100, 'Score should be rounded to 2 decimal places');
   });
 });
 

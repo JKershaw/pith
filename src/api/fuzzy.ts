@@ -186,6 +186,15 @@ export function findBestMatches(
 /**
  * Attempt fuzzy matching for a path.
  *
+ * Returns a result with matchedPath set if confidence >= SUGGESTION_THRESHOLD (0.4).
+ * The caller should use AUTO_MATCH_THRESHOLD (0.7) to decide whether to auto-resolve
+ * the match or just show it as a suggestion.
+ *
+ * Behavior by confidence level:
+ * - >= 0.7 (AUTO_MATCH_THRESHOLD): matchedPath set, alternatives exclude best match
+ * - >= 0.4 (SUGGESTION_THRESHOLD): matchedPath set, alternatives include all options
+ * - < 0.4: matchedPath is null, alternatives may contain low-quality suggestions
+ *
  * @param query - The requested path that wasn't found
  * @param candidates - All available node paths
  * @returns Fuzzy match result with best match and alternatives
