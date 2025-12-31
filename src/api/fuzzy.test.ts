@@ -60,12 +60,15 @@ describe('scoreSimilarity', () => {
     assert.ok(score < 30, `Expected score < 30, got ${score}`);
   });
 
-  it('prefers same filename over similar directory', () => {
-    const scoreExactFilename = scoreSimilarity('src/foo/index.ts', 'src/bar/index.ts');
-    const scoreSimilarDir = scoreSimilarity('src/foo/index.ts', 'src/foo/other.ts');
+  it('prefers same module over same filename when modules differ', () => {
+    // After the cross-module penalty fix, same module with different filename
+    // should score higher than same filename with different module
+    // This prevents false positives like extractor/index.ts -> generator/index.ts
+    const scoreDiffModuleSameFile = scoreSimilarity('src/foo/index.ts', 'src/bar/index.ts');
+    const scoreSameModuleDiffFile = scoreSimilarity('src/foo/index.ts', 'src/foo/other.ts');
     assert.ok(
-      scoreExactFilename > scoreSimilarDir,
-      `Expected ${scoreExactFilename} > ${scoreSimilarDir}`
+      scoreSameModuleDiffFile > scoreDiffModuleSameFile,
+      `Expected same module (${scoreSameModuleDiffFile}) > diff module (${scoreDiffModuleSameFile})`
     );
   });
 
@@ -235,7 +238,7 @@ describe('threshold constants', () => {
   });
 });
 
-describe('benchmark failure cases', () => {
+describe('benchmark failure cases - prefix matching (should work)', () => {
   // These are the actual cases that caused benchmark failures
   const pithNodes = [
     'src/cli/index.ts',
@@ -273,5 +276,292 @@ describe('benchmark failure cases', () => {
     assert.strictEqual(result.requestedPath, 'src/llm/client.ts');
     // Should have low confidence since there's no llm directory
     assert.ok(result.confidence < 0.7, `Expected low confidence, got ${result.confidence}`);
+  });
+});
+
+/**
+ * CRITICAL REGRESSION TESTS
+ *
+ * These tests expose the cross-module false positive bug that caused the
+ * benchmark regression from 78% to 65% (v1 -> v3).
+ *
+ * Root cause: When a file path doesn't exist in the DB, fuzzy matching returns
+ * a DIFFERENT module's file with high confidence because:
+ * - Same filename (index.ts): +50 points
+ * - Same parent dir (src): +10 points
+ * - Levenshtein penalty for different module name: only -5 points
+ * - Result: 55/70 = 79% confidence, which exceeds AUTO_MATCH_THRESHOLD (70%)
+ *
+ * Example: src/extractor/index.ts -> src/generator/index.ts at 79% confidence
+ *
+ * These modules are semantically unrelated and returning the wrong one causes
+ * the benchmark to answer questions about the wrong code entirely.
+ */
+describe('REGRESSION: cross-module false positives (the actual bug)', () => {
+  // Realistic set of Pith nodes - this is what exists in the database
+  const pithNodes = [
+    'src/cli/index.ts',
+    'src/cli/extract.ts',
+    'src/cli/build.ts',
+    'src/cli/generate.ts',
+    'src/cli/serve.ts',
+    'src/extractor/index.ts',
+    'src/extractor/ast.ts',
+    'src/extractor/cache.ts',
+    'src/extractor/git.ts',
+    'src/extractor/docs.ts',
+    'src/builder/index.ts',
+    'src/builder/cross-file-calls.ts',
+    'src/generator/index.ts',
+    'src/api/index.ts',
+    'src/api/fuzzy.ts',
+    'src/db/index.ts',
+    'src/config/index.ts',
+    'src/types.ts',
+  ];
+
+  describe('when querying a path that does NOT exist in candidates', () => {
+    /**
+     * THE CORE BUG: extractor/index.ts matches generator/index.ts
+     *
+     * Current behavior (WRONG):
+     * - Score: filename match (+50) + src match (+10) - levenshtein(extractor,generator)=5 (-5) = 55
+     * - Confidence: 55/70 = 0.79 (79%)
+     * - Since 0.79 >= 0.7 (AUTO_MATCH_THRESHOLD), returns generator/index.ts
+     *
+     * Expected behavior:
+     * - Should NOT auto-match to a completely different module
+     * - Should return null matchedPath or very low confidence
+     */
+    it('should NOT match src/extractor/index.ts to src/generator/index.ts with high confidence', () => {
+      // Simulate: extractor/index.ts is NOT in the database (maybe extraction failed)
+      const candidatesWithoutExtractor = pithNodes.filter(
+        (p) => !p.includes('extractor/')
+      );
+
+      const result = fuzzyMatch('src/extractor/index.ts', candidatesWithoutExtractor);
+
+      // Either matchedPath should be null, OR confidence should be below threshold
+      const isCorrectBehavior =
+        result.matchedPath === null || result.confidence < AUTO_MATCH_THRESHOLD;
+
+      assert.ok(
+        isCorrectBehavior,
+        `Cross-module false positive: src/extractor/index.ts should NOT auto-match to ` +
+        `${result.matchedPath} with ${(result.confidence * 100).toFixed(0)}% confidence. ` +
+        `Expected: null match or low confidence.`
+      );
+    });
+
+    it('should NOT match src/builder/index.ts to src/generator/index.ts', () => {
+      const candidatesWithoutBuilder = pithNodes.filter(
+        (p) => !p.includes('builder/')
+      );
+
+      const result = fuzzyMatch('src/builder/index.ts', candidatesWithoutBuilder);
+
+      const isCorrectBehavior =
+        result.matchedPath === null || result.confidence < AUTO_MATCH_THRESHOLD;
+
+      assert.ok(
+        isCorrectBehavior,
+        `Cross-module false positive: src/builder/index.ts should NOT auto-match to ` +
+        `${result.matchedPath} with ${(result.confidence * 100).toFixed(0)}% confidence.`
+      );
+    });
+
+    it('should NOT match src/api/index.ts to src/cli/index.ts', () => {
+      const candidatesWithoutApi = pithNodes.filter(
+        (p) => !p.includes('api/')
+      );
+
+      const result = fuzzyMatch('src/api/index.ts', candidatesWithoutApi);
+
+      const isCorrectBehavior =
+        result.matchedPath === null || result.confidence < AUTO_MATCH_THRESHOLD;
+
+      assert.ok(
+        isCorrectBehavior,
+        `Cross-module false positive: src/api/index.ts should NOT auto-match to ` +
+        `${result.matchedPath} with ${(result.confidence * 100).toFixed(0)}% confidence.`
+      );
+    });
+
+    it('should NOT match src/db/index.ts to another module', () => {
+      const candidatesWithoutDb = pithNodes.filter(
+        (p) => !p.includes('db/')
+      );
+
+      const result = fuzzyMatch('src/db/index.ts', candidatesWithoutDb);
+
+      const isCorrectBehavior =
+        result.matchedPath === null || result.confidence < AUTO_MATCH_THRESHOLD;
+
+      assert.ok(
+        isCorrectBehavior,
+        `Cross-module false positive: src/db/index.ts should NOT auto-match to ` +
+        `${result.matchedPath} with ${(result.confidence * 100).toFixed(0)}% confidence.`
+      );
+    });
+  });
+
+  describe('specific benchmark task failures', () => {
+    /**
+     * From benchmark v3:
+     * | Task | Requested              | Fuzzy Matched          | Result                   |
+     * | A1   | src/extractor          | src/generator          | Missed extractor module  |
+     * | A2   | src/extractor/index.ts | src/generator/index.ts | Missed extraction phase  |
+     * | B1   | src/extractor/cache.ts | (fuzzy to wrong file)  | Irrelevant content       |
+     * | M1   | src/extractor/index.ts | src/generator/index.ts | Wrong modification guide |
+     */
+
+    it('A2/M1: src/extractor/index.ts query should not return generator', () => {
+      // Simulate extractor not in DB
+      const candidates = pithNodes.filter((p) => !p.includes('extractor/'));
+
+      const result = fuzzyMatch('src/extractor/index.ts', candidates);
+
+      assert.ok(
+        result.matchedPath !== 'src/generator/index.ts' || result.confidence < AUTO_MATCH_THRESHOLD,
+        `Benchmark regression case A2/M1: Matched wrong file with high confidence`
+      );
+    });
+
+    it('B1: src/extractor/cache.ts query should not return unrelated file', () => {
+      // Simulate cache.ts not in DB
+      const candidates = pithNodes.filter((p) => p !== 'src/extractor/cache.ts');
+
+      const result = fuzzyMatch('src/extractor/cache.ts', candidates);
+
+      // It could match extractor/index.ts (same module) - that's acceptable
+      // It should NOT match a file from a different module with high confidence
+      const matchedDifferentModule =
+        result.matchedPath !== null &&
+        !result.matchedPath.includes('extractor/') &&
+        result.confidence >= AUTO_MATCH_THRESHOLD;
+
+      assert.ok(
+        !matchedDifferentModule,
+        `Benchmark regression case B1: src/extractor/cache.ts matched to ${result.matchedPath} ` +
+        `(different module) with ${(result.confidence * 100).toFixed(0)}% confidence`
+      );
+    });
+  });
+
+  describe('confidence scoring analysis', () => {
+    it('should score cross-module matches below AUTO_MATCH_THRESHOLD', () => {
+      const query = 'src/extractor/index.ts';
+      const wrongCandidate = 'src/generator/index.ts';
+
+      const score = scoreSimilarity(query, wrongCandidate);
+      const confidence = normalizeScore(score);
+
+      assert.ok(
+        confidence < AUTO_MATCH_THRESHOLD,
+        `Different modules should not score ${(confidence * 100).toFixed(0)}% ` +
+        `(above ${(AUTO_MATCH_THRESHOLD * 100).toFixed(0)}% threshold). ` +
+        `Cross-module penalty should prevent auto-matching.`
+      );
+    });
+
+    it('prefix match (extract->extractor) should score HIGHER than cross-module match', () => {
+      const query = 'src/extract/index.ts';
+      const correctMatch = 'src/extractor/index.ts';
+      const wrongMatch = 'src/generator/index.ts';
+
+      const correctScore = scoreSimilarity(query, correctMatch);
+      const wrongScore = scoreSimilarity(query, wrongMatch);
+
+      assert.ok(
+        correctScore > wrongScore,
+        `Prefix match (${correctScore}) should score higher than cross-module (${wrongScore})`
+      );
+    });
+
+    it('same-module different-file should score higher than cross-module same-filename', () => {
+      // If querying extractor/foo.ts, should prefer extractor/bar.ts over generator/foo.ts
+      const query = 'src/extractor/utils.ts';
+      const sameModuleDiffFile = 'src/extractor/ast.ts';
+      const diffModuleSamePattern = 'src/generator/utils.ts';
+
+      const sameModuleScore = scoreSimilarity(query, sameModuleDiffFile);
+      const diffModuleScore = scoreSimilarity(query, diffModuleSamePattern);
+
+      assert.ok(
+        sameModuleScore > diffModuleScore,
+        `Same module (${sameModuleScore}) should score higher than different module ` +
+        `with similar filename (${diffModuleScore})`
+      );
+    });
+  });
+});
+
+describe('fix validation tests', () => {
+  const pithNodes = [
+    'src/extractor/index.ts',
+    'src/extractor/ast.ts',
+    'src/builder/index.ts',
+    'src/generator/index.ts',
+    'src/api/index.ts',
+    'src/cli/index.ts',
+  ];
+
+  describe('legitimate fuzzy matches should still work', () => {
+    it('typo: src/extractr/index.ts -> src/extractor/index.ts', () => {
+      const result = fuzzyMatch('src/extractr/index.ts', pithNodes);
+      assert.strictEqual(result.matchedPath, 'src/extractor/index.ts');
+      assert.ok(result.confidence >= 0.5, 'Typo correction should have reasonable confidence');
+    });
+
+    it('prefix: src/extract/index.ts -> src/extractor/index.ts', () => {
+      const result = fuzzyMatch('src/extract/index.ts', pithNodes);
+      assert.strictEqual(result.matchedPath, 'src/extractor/index.ts');
+      assert.ok(result.confidence >= 0.7, 'Prefix match should have high confidence');
+    });
+
+    it('case variation: src/Extractor/index.ts -> src/extractor/index.ts', () => {
+      const result = fuzzyMatch('src/Extractor/index.ts', pithNodes);
+      // Case-insensitive matching should find the correct file with high confidence
+      assert.strictEqual(result.matchedPath, 'src/extractor/index.ts');
+      assert.ok(
+        result.confidence >= AUTO_MATCH_THRESHOLD,
+        `Case variation should match with high confidence, got ${(result.confidence * 100).toFixed(0)}%`
+      );
+    });
+
+    it('missing extension: src/extractor/index -> src/extractor/index.ts', () => {
+      const result = fuzzyMatch('src/extractor/index', pithNodes);
+      assert.strictEqual(result.matchedPath, 'src/extractor/index.ts');
+    });
+  });
+
+  describe('cross-module queries should NOT auto-match', () => {
+    it('completely different modules should have low confidence', () => {
+      const candidates = ['src/generator/index.ts', 'src/api/index.ts', 'src/cli/index.ts'];
+      const result = fuzzyMatch('src/extractor/index.ts', candidates);
+
+      assert.ok(
+        result.confidence < AUTO_MATCH_THRESHOLD,
+        `Query for extractor should not auto-match to ${result.matchedPath} ` +
+        `when extractor doesn't exist. Got ${(result.confidence * 100).toFixed(0)}% confidence.`
+      );
+    });
+
+    it('should provide suggestions but not auto-resolve for missing modules', () => {
+      const candidates = ['src/generator/index.ts', 'src/api/index.ts'];
+      const result = fuzzyMatch('src/database/connection.ts', candidates);
+
+      // Should NOT auto-match since database module doesn't exist
+      assert.ok(
+        result.matchedPath === null || result.confidence < AUTO_MATCH_THRESHOLD,
+        'Should not auto-match to unrelated module'
+      );
+
+      // But should still provide alternatives for user to choose
+      assert.ok(
+        result.alternatives.length > 0,
+        'Should provide alternatives even when not auto-matching'
+      );
+    });
   });
 });
