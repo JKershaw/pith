@@ -6,13 +6,16 @@
 |-------|--------|-------------|
 | 1-5 | ✅ Complete | MVP: Extraction, Build, Generate, API, Polish |
 | 6.1-6.5 | ✅ Complete | On-demand generation, test files, modification impact, patterns, gotcha validation |
-| 6.6.1-6.6.4 | ✅ Complete | Line numbers, code snippets, key statements, LLM prompts |
-| **6.6.5-6.6.8** | **⬅️ In Progress** | **Change impact, patterns, tracing, error paths** |
+| 6.6.1-6.6.8 | ✅ Complete | Line numbers, code snippets, key statements, change impact, patterns, call graphs, error paths |
+| **6.7.1-6.7.5** | **⬅️ Next** | **Enhanced output: consumer locations, modification guides, call flow, debugging hints, pattern evidence** |
 | 7+ | Planned | Advanced relationships, integrations |
 
-**Current focus**: Phase 6.6.5 - Change Impact Analysis (highest priority gap from benchmarks).
+**Current focus**: Phase 6.7 - Enhanced Output Integration (close actionability/completeness gaps from v7 benchmark).
 
-**Latest benchmark** (2025-12-30, 15 tasks): Pith 15.5/25 vs Control 23.9/25. See [benchmark results](benchmark-results/2025-12-30-self-test-v5-comprehensive.md) for analysis.
+**Latest benchmark** (2025-12-30 v7, 15 tasks): Pith 16.3/25 (65%) vs Control 23.9/25 (96%). Gap: 7.6 points.
+- Worst criteria: Actionability (2.1/5), Completeness (2.3/5)
+- Worst category: Modification tasks (14/25)
+- See [v7 benchmark results](benchmark-results/2025-12-30-self-test-v7.md) for analysis.
 
 ---
 
@@ -638,6 +641,122 @@ Update prose prompts to include deterministic facts, so LLM synthesizes rather t
 | 6 | 6.6.9 Implementation Hints | 6.6.5, 6.6.6 | M2-M3: 13→18 |
 
 **Note**: Gaps overlap across tasks. Closing these 4-5 capabilities should move overall score from 15.5→20+.
+
+---
+
+#### Phase 6.7: Enhanced Output Integration ⬅️ PRIORITY
+
+**Goal**: Surface extracted data more effectively in API output to close actionability and completeness gaps.
+
+**Context**: v7 benchmark (2025-12-30) shows Phase 6.6 features are implemented but not fully utilized:
+- Pith: 16.3/25 (65%) vs Control: 23.9/25 (96%)
+- Worst gaps: Actionability (2.1/5), Completeness (2.3/5)
+- Worst category: Modification tasks (14/25)
+
+See `docs/benchmark-results/2025-12-30-self-test-v7.md` for full analysis.
+
+##### 6.7.1 Consumer Location Specificity
+
+**Problem**: M3 (Add complexity field) scored 16/25. Pith shows "10 files depend on this" but Control mapped 62+ specific usage locations with line numbers.
+
+**Benchmark Evidence**:
+- R1 (WikiNode impact): Control found "62+ property access locations"
+- R3 (extractFile consumers): Control found "1 production consumer (cli:181) and 42 test consumers with specific line numbers"
+
+| Step | What | Test |
+|------|------|------|
+| 6.7.1.1 | In `/impact` output, show usage line numbers per dependent | Impact shows `src/api/index.ts:45 - uses WikiNode.metadata` |
+| 6.7.1.2 | Group usages by type (import, property access, function call) | Output groups: "Imports: 3, Property accesses: 42, Calls: 17" |
+| 6.7.1.3 | For interfaces/types, find all property access sites | Detects `node.metadata.fanIn` patterns in dependents |
+
+**Benchmark target**: R1, R3, M3 Actionability: 2/5 → 4/5
+
+##### 6.7.2 Modification Guides
+
+**Problem**: M1 (JS support), M2 (Rate limiting) scored 13/25. Control provided step-by-step implementation plans; Pith only showed file locations.
+
+**Benchmark Evidence**:
+- M1: Control "identified 7 specific locations requiring changes with implementation plan"
+- M2: Control "provided complete implementation: middleware insertion point, route protection levels, code examples"
+
+| Step | What | Test |
+|------|------|------|
+| 6.7.2.1 | For high-fanIn types, include "Modification Checklist" in `/context` | Shows "To modify WikiNode: 1. Update interface at builder/index.ts:45, 2. Update consumers: ..." |
+| 6.7.2.2 | Identify insertion points for middleware patterns | For Express apps, shows `app.use()` location for new middleware |
+| 6.7.2.3 | Include test update requirements in modification guides | Shows "Tests to update: src/builder/index.test.ts (12 assertions reference WikiNode)" |
+| 6.7.2.4 | Add "Similar Changes" section from git history | If git shows prior interface changes, link to those commits |
+
+**Benchmark target**: M1-M3 Actionability: 1/5 → 4/5
+
+##### 6.7.3 Enhanced Call Flow Presentation
+
+**Problem**: B2 (buildPrompt) scored 16/25. Control traced "dispatcher→buildFilePrompt→formatFunctionForPrompt→formatKeyStatements"; Pith only listed function names.
+
+**Benchmark Evidence**:
+- B1: Control "explained complete SHA-256 logic with all line references"
+- B3: Control provided "maxRetries=3, timeout=30000ms, exponential backoff formula, and all retryable error conditions with line references"
+
+| Step | What | Test |
+|------|------|------|
+| 6.7.3.1 | Add "Call Flow" section to function prose showing traced paths | Shows: `callLLM (469) → buildPrompt (120) → formatFunctionForPrompt (89)` |
+| 6.7.3.2 | Include key variable values along call paths | Shows: `maxRetries=3 at line 475, timeout=30000 at line 476` |
+| 6.7.3.3 | For cross-file calls, show full path with file:line references | Shows: `src/cli/index.ts:181 → src/extractor/ast.ts:45 (extractFile)` |
+
+**Benchmark target**: B1-B3 Completeness: 2/5 → 4/5
+
+##### 6.7.4 Root Cause Debugging Hints
+
+**Problem**: D3 (404 debugging) scored 16/25. Control found "4 specific causes: Windows path separators, import path resolution, missing normalization, with code evidence."
+
+**Benchmark Evidence**:
+- D1: Control "identified 6 specific root causes with line references"
+- D2: Control "identified 8 specific bottlenecks: sequential processing, 30s timeout, exponential backoff, sequential DB updates"
+
+| Step | What | Test |
+|------|------|------|
+| 6.7.4.1 | In error path output, group by symptom category | Groups errors: "404 causes: [path normalization, missing node, ...]" |
+| 6.7.4.2 | Include specific values that trigger each error path | Shows: "Returns 404 when: path contains backslash, path starts with /" |
+| 6.7.4.3 | Add "Debug Checklist" for common symptoms | For debugging questions, provides step-by-step investigation guide |
+| 6.7.4.4 | Link error paths to test files that exercise them | Shows: "Test coverage: src/api/index.test.ts:78 tests 404 path" |
+
+**Benchmark target**: D1-D3 Actionability: 2/5 → 4/5
+
+##### 6.7.5 Pattern Evidence Enhancement
+
+**Problem**: A3 (Design Patterns) scored 16/25. Control identified 24 patterns with file:line references; Pith detected patterns but showed "partial" evidence.
+
+**Benchmark Evidence**:
+- A3: Control found "Pipeline, Singleton, Factory, Strategy, Builder, Retry+Backoff, Cache, etc."
+- Pith shows patterns exist but not with specific instantiation locations
+
+| Step | What | Test |
+|------|------|------|
+| 6.7.5.1 | Include all instances of detected patterns in output | Shows: "Retry pattern found in: callLLM (469), fetchWithRetry (would show if exists)" |
+| 6.7.5.2 | For each pattern, show key lines that confirm it | Shows: "Retry evidence: maxRetries=3 (475), catch block (520), backoff formula (528)" |
+| 6.7.5.3 | Add pattern-specific usage guidance | For Retry pattern: "To customize: modify maxRetries at line 475, backoff at line 528" |
+
+**Benchmark target**: A3 Completeness: 2/5 → 4/5
+
+---
+
+##### Phase 6.7 Success Criteria
+
+| Metric | v7 Baseline | Target | Test |
+|--------|-------------|--------|------|
+| Modification (M1-M3) | 14.0/25 | ≥20/25 | Re-run M tasks after 6.7.2 |
+| Debugging (D1-D3) | 16.0/25 | ≥20/25 | Re-run D tasks after 6.7.4 |
+| Behavior (B1-B3) | 17.0/25 | ≥21/25 | Re-run B tasks after 6.7.3 |
+| Architecture (A1-A3) | 18.0/25 | ≥22/25 | Re-run A tasks after 6.7.5 |
+| **Overall** | **16.3/25** | **≥20/25** | Full 15-task benchmark |
+| Actionability | 2.1/5 | ≥4/5 | Score all tasks |
+| Completeness | 2.3/5 | ≥4/5 | Score all tasks |
+
+**Execution Order** (by gap severity):
+1. 6.7.2 Modification Guides (M gap: -9.7 points)
+2. 6.7.4 Root Cause Debugging (D gap: -8.0 points)
+3. 6.7.3 Call Flow Presentation (B gap: -7.0 points)
+4. 6.7.1 Consumer Location Specificity (R gap: -6.4 points)
+5. 6.7.5 Pattern Evidence Enhancement (A gap: -6.0 points)
 
 ---
 
