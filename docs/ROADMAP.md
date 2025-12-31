@@ -2,26 +2,33 @@
 
 ## Current Status
 
-| Phase       | Status      | Description                                                                                            |
-| ----------- | ----------- | ------------------------------------------------------------------------------------------------------ |
-| 1-5         | ✅ Complete | MVP: Extraction, Build, Generate, API, Polish                                                          |
-| 6.1-6.5     | ✅ Complete | On-demand generation, test files, modification impact, patterns, gotcha validation                     |
-| 6.6.1-6.6.8 | ✅ Complete | Line numbers, code snippets, key statements, change impact, patterns, call graphs, error paths         |
-| 6.7.1-6.7.5 | ✅ Complete | Enhanced output: consumer locations, modification guides, call flow, debugging hints, pattern evidence |
-| **6.8**     | **⬅️ Next** | **Deterministic Gap Closure - Symbol tracking, content preservation, config extraction**               |
-| 9           | Planned     | MCP Server integration                                                                                 |
-| 7-8, 10     | Planned     | Advanced relationships, intelligence, scale                                                            |
+| Phase       | Status          | Description                                                                                            |
+| ----------- | --------------- | ------------------------------------------------------------------------------------------------------ |
+| 1-5         | ✅ Complete     | MVP: Extraction, Build, Generate, API, Polish                                                          |
+| 6.1-6.5     | ✅ Complete     | On-demand generation, test files, modification impact, patterns, gotcha validation                     |
+| 6.6.1-6.6.8 | ✅ Complete     | Line numbers, code snippets, key statements, change impact, patterns, call graphs, error paths         |
+| 6.7.1-6.7.5 | ✅ Complete     | Enhanced output: consumer locations, modification guides, call flow, debugging hints, pattern evidence |
+| **6.8.0**   | **⬅️ CRITICAL** | **Fix fuzzy matching regression - causing 8+ point benchmark drop**                                    |
+| 6.8.1-6.8.4 | Blocked         | Deterministic Gap Closure - blocked by 6.8.0                                                           |
+| 9           | Planned         | MCP Server integration                                                                                 |
+| 7-8, 10     | Planned         | Advanced relationships, intelligence, scale                                                            |
 
-**Current focus**: Phase 6.8 - Close remaining deterministic gaps before adding MCP server delivery layer.
+**⚠️ REGRESSION ALERT**: Fuzzy matching (commit 1bb81d9) is causing benchmark regression.
 
-**Latest benchmark** (2025-12-31, 15 tasks): Pith 19.4/25 (78%) vs Control 22.9/25 (92%). Gap: 3.5 points.
+**Latest benchmark** (2025-12-31 v3, 15 tasks): Pith 16.3/25 (65%) vs Control 24.5/25 (98%). Gap: 8.2 points.
 
-- Pith wins: 5 tasks (A1, A2, B1, M3 + tie on A3)
-- Best category: Architecture (22.7/25) - Pith wins this category
-- Remaining gaps: Debugging (16/25), Relationship precision (R3: 69% false positives)
-- See [2025-12-31 benchmark results](benchmark-results/2025-12-31-self-test.md) for full analysis.
+- Pith wins: **0 tasks** (regression from 5 wins in v1)
+- Root cause: Fuzzy matching returns wrong files with high confidence
+- Example: `src/extractor/index.ts` fuzzy-matched to `src/generator/index.ts` (79% confidence)
+- See [HIGH_PRIORITY_ISSUES.md](HIGH_PRIORITY_ISSUES.md) for full analysis.
+- See [2025-12-31-self-test-v3.md](benchmark-results/2025-12-31-self-test-v3.md) for benchmark results.
 
-**Progress**: Phase 6.6-6.7 closed the gap from 7.6 to 3.5 points (+13% improvement).
+**Benchmark History**:
+| Run | Pith Score | Gap | Wins | Notes |
+|-----|------------|-----|------|-------|
+| v7 (2025-12-30) | 65% | -7.6 | 0 | Baseline |
+| v1 (2025-12-31) | 78% | -3.5 | 5 | Before fuzzy matching |
+| v3 (2025-12-31) | 65% | -8.2 | 0 | After fuzzy matching |
 
 ---
 
@@ -780,17 +787,72 @@ See `docs/benchmark-results/2025-12-30-self-test-v7.md` for full analysis.
 
 ---
 
-#### Phase 6.8: Deterministic Gap Closure ⬅️ NEXT
+#### Phase 6.8.0: Fix Fuzzy Matching Regression ⬅️ CRITICAL
+
+**Goal**: Fix the fuzzy matching feature that is causing benchmark regression.
+
+**Problem**: The fuzzy matching feature (commit 1bb81d9) causes the API to return **wrong files** with high confidence, leading to completely irrelevant context being returned.
+
+**Root Cause Analysis**:
+
+When querying `src/extractor/index.ts`:
+
+1. Exact match fails (path may not exist in DB with exact spelling)
+2. Fuzzy matching finds `src/generator/index.ts` as best match
+3. Scoring gives **79% confidence** because:
+   - Same filename (`index.ts`): +50 points
+   - Same parent dir (`src`): +10 points
+   - `extractor` vs `generator`: only -5 point penalty (Levenshtein distance)
+4. Since 79% >= 70% threshold, the **wrong file is auto-returned**
+
+**Impact**:
+
+- A1, A2, B1, M1 all returned wrong module content
+- Benchmark dropped from 78% (v1, before fuzzy) to 65% (v3, after fuzzy)
+- Win rate dropped from 5 to 0
+
+##### 6.8.0.1 Fix Options (Choose One)
+
+| Option                         | Description                            | Pros                         | Cons                      |
+| ------------------------------ | -------------------------------------- | ---------------------------- | ------------------------- |
+| **A. Raise threshold**         | Increase AUTO_MATCH from 0.7 to 0.9+   | Simple change                | May still fail edge cases |
+| **B. Require exact directory** | Only fuzzy match within same directory | Prevents cross-module errors | Less helpful for typos    |
+| **C. Disable auto-resolve**    | Always return 404 with suggestions     | Safest, no false positives   | Requires user action      |
+| **D. Semantic validation**     | Check module names aren't different    | Catches the specific failure | More complex logic        |
+
+**Recommended**: Option C (disable auto-resolve) for now, then consider Option B.
+
+##### 6.8.0.2 Implementation Steps
+
+| Step      | Task                                                              | Test                                                     |
+| --------- | ----------------------------------------------------------------- | -------------------------------------------------------- |
+| 6.8.0.2.1 | Change API to never auto-resolve fuzzy matches                    | Requests for wrong paths return 404 with suggestions     |
+| 6.8.0.2.2 | Update `/context` to skip missing files instead of fuzzy matching | Context bundle only includes exact matches               |
+| 6.8.0.2.3 | Add integration test for cross-module fuzzy matches               | `src/extractor/index.ts` query does NOT return generator |
+| 6.8.0.2.4 | Re-run benchmark to verify fix                                    | Pith score returns to 75%+                               |
+
+##### 6.8.0.3 Success Criteria
+
+- [ ] No fuzzy matches return files from different modules
+- [ ] Benchmark v4 shows improvement over v3
+- [ ] Win rate returns to 3+ tasks
+- [ ] Gap narrows to <5 points
+
+---
+
+#### Phase 6.8: Deterministic Gap Closure (Blocked by 6.8.0)
 
 **Goal**: Close remaining gaps identified in 2025-12-31 benchmark through deterministic improvements before adding MCP delivery layer.
 
-**Rationale**: MCP server is a delivery mechanism, not a quality improvement. Current 3.5-point gap should be closed as much as possible with deterministic extraction/output enhancements.
+**Rationale**: MCP server is a delivery mechanism, not a quality improvement. Gap should be closed with deterministic extraction/output enhancements.
 
-**Benchmark Evidence** (2025-12-31):
+**Status**: Blocked until 6.8.0 (fuzzy matching fix) is complete. Current benchmark numbers are unreliable due to fuzzy matching returning wrong files.
+
+**Benchmark Evidence** (2025-12-31 v3, after fixing fuzzy matching):
 
 - R3 (extractFile consumers): 69% false positives due to import-level (not symbol-level) tracking
 - B2 (buildPrompt): Content truncation loses important details
-- D1-D3 (Debugging): Average 16/25 - need more specific root cause information
+- D1-D3 (Debugging): Average 15/25 - need more specific root cause information
 
 ##### 6.8.1 Symbol-Level Import Tracking
 
