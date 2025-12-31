@@ -90,48 +90,127 @@ async function readJsonFile<T>(filePath: string): Promise<T | null> {
 }
 
 /**
+ * Type guard for string values.
+ */
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+/**
+ * Type guard for Record<string, string> (e.g., scripts, dependencies).
+ */
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  return Object.values(value).every((v) => typeof v === 'string');
+}
+
+/**
+ * Type guard for string arrays.
+ */
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === 'string');
+}
+
+/**
  * Extract package.json data.
  * Phase 6.8.3.1: Extract scripts and dependencies.
  * @param rootDir - Project root directory
- * @returns Extracted package.json data or null
+ * @returns Extracted package.json data or undefined if not found/invalid
  */
-export async function extractPackageJson(rootDir: string): Promise<PackageJsonData | null> {
+export async function extractPackageJson(rootDir: string): Promise<PackageJsonData | undefined> {
   const filePath = join(rootDir, 'package.json');
   const data = await readJsonFile<Record<string, unknown>>(filePath);
 
   if (!data) {
-    return null;
+    return undefined;
   }
 
   return {
-    name: data.name as string | undefined,
-    version: data.version as string | undefined,
-    scripts: data.scripts as Record<string, string> | undefined,
-    dependencies: data.dependencies as Record<string, string> | undefined,
-    devDependencies: data.devDependencies as Record<string, string> | undefined,
-    main: data.main as string | undefined,
-    type: data.type as string | undefined,
+    name: isString(data.name) ? data.name : undefined,
+    version: isString(data.version) ? data.version : undefined,
+    scripts: isStringRecord(data.scripts) ? data.scripts : undefined,
+    dependencies: isStringRecord(data.dependencies) ? data.dependencies : undefined,
+    devDependencies: isStringRecord(data.devDependencies) ? data.devDependencies : undefined,
+    main: isString(data.main) ? data.main : undefined,
+    type: isString(data.type) ? data.type : undefined,
   };
+}
+
+/**
+ * Type guard for compiler options object.
+ */
+function isCompilerOptions(value: unknown): value is TsConfigData['compilerOptions'] {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Type guard for extraction config.
+ */
+function isExtractionConfig(value: unknown): value is PithConfigData['extraction'] {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  if (obj.include !== undefined && !isStringArray(obj.include)) {
+    return false;
+  }
+  if (obj.exclude !== undefined && !isStringArray(obj.exclude)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Type guard for LLM config.
+ */
+function isLlmConfig(value: unknown): value is PithConfigData['llm'] {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  if (obj.provider !== undefined && !isString(obj.provider)) {
+    return false;
+  }
+  if (obj.model !== undefined && !isString(obj.model)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Type guard for output config.
+ */
+function isOutputConfig(value: unknown): value is PithConfigData['output'] {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  if (obj.dir !== undefined && !isString(obj.dir)) {
+    return false;
+  }
+  return true;
 }
 
 /**
  * Extract tsconfig.json data.
  * Phase 6.8.3.2: Extract compiler options.
  * @param rootDir - Project root directory
- * @returns Extracted tsconfig.json data or null
+ * @returns Extracted tsconfig.json data or undefined if not found/invalid
  */
-export async function extractTsConfig(rootDir: string): Promise<TsConfigData | null> {
+export async function extractTsConfig(rootDir: string): Promise<TsConfigData | undefined> {
   const filePath = join(rootDir, 'tsconfig.json');
   const data = await readJsonFile<Record<string, unknown>>(filePath);
 
   if (!data) {
-    return null;
+    return undefined;
   }
 
   return {
-    compilerOptions: data.compilerOptions as TsConfigData['compilerOptions'],
-    include: data.include as string[] | undefined,
-    exclude: data.exclude as string[] | undefined,
+    compilerOptions: isCompilerOptions(data.compilerOptions) ? data.compilerOptions : undefined,
+    include: isStringArray(data.include) ? data.include : undefined,
+    exclude: isStringArray(data.exclude) ? data.exclude : undefined,
   };
 }
 
@@ -139,20 +218,20 @@ export async function extractTsConfig(rootDir: string): Promise<TsConfigData | n
  * Extract pith.config.json data.
  * Phase 6.8.3.3: Extract pith configuration if present.
  * @param rootDir - Project root directory
- * @returns Extracted pith.config.json data or null
+ * @returns Extracted pith.config.json data or undefined if not found/invalid
  */
-export async function extractPithConfig(rootDir: string): Promise<PithConfigData | null> {
+export async function extractPithConfig(rootDir: string): Promise<PithConfigData | undefined> {
   const filePath = join(rootDir, 'pith.config.json');
   const data = await readJsonFile<Record<string, unknown>>(filePath);
 
   if (!data) {
-    return null;
+    return undefined;
   }
 
   return {
-    extraction: data.extraction as PithConfigData['extraction'],
-    llm: data.llm as PithConfigData['llm'],
-    output: data.output as PithConfigData['output'],
+    extraction: isExtractionConfig(data.extraction) ? data.extraction : undefined,
+    llm: isLlmConfig(data.llm) ? data.llm : undefined,
+    output: isOutputConfig(data.output) ? data.output : undefined,
   };
 }
 
@@ -170,8 +249,8 @@ export async function extractConfigFiles(rootDir: string): Promise<ConfigData> {
   ]);
 
   return {
-    packageJson: packageJson ?? undefined,
-    tsconfig: tsconfig ?? undefined,
-    pithConfig: pithConfig ?? undefined,
+    packageJson,
+    tsconfig,
+    pithConfig,
   };
 }

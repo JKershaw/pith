@@ -344,12 +344,10 @@ function detectHttpStatus(path: ErrorPath): number | undefined {
   const textToSearch = [path.condition || '', path.action].join(' ');
 
   // Look for status code patterns: 404, status === 404, etc.
+  // Accept any valid 4xx/5xx code, not just those in our description map
   const statusMatch = textToSearch.match(/\b(4\d{2}|5\d{2})\b/);
   if (statusMatch) {
-    const status = parseInt(statusMatch[1], 10);
-    if (HTTP_STATUS_DESCRIPTIONS[status]) {
-      return status;
-    }
+    return parseInt(statusMatch[1], 10);
   }
 
   // Look for error type patterns

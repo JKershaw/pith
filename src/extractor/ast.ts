@@ -720,16 +720,19 @@ function extractSymbolUsages(
   const usages: SymbolUsage[] = [];
 
   for (const imp of imports) {
-    // Skip external/bare module imports (e.g., 'react', 'express')
-    // These won't have corresponding WikiNodes in the graph
-    const isRelativeImport = imp.from.startsWith('.') || imp.from.startsWith('/');
-    if (!isRelativeImport) {
+    // Only process relative imports (starting with . or /)
+    // External/bare module imports (e.g., 'react', 'express') won't have WikiNodes
+    const isExternalImport = !imp.from.startsWith('.') && !imp.from.startsWith('/');
+    if (isExternalImport) {
       continue;
     }
 
     // Resolve the source file path
     let sourceFilePath = imp.from;
     // Simple path normalization - add .ts extension if missing
+    // Note: This doesn't handle directory imports (e.g., './components' -> './components/index.ts')
+    // Directory resolution would require filesystem checks which adds complexity.
+    // For now, directory imports will not match and symbol usages may be missed.
     if (!sourceFilePath.endsWith('.ts')) {
       sourceFilePath = sourceFilePath + '.ts';
     }
@@ -795,9 +798,11 @@ function findSymbolUsages(
 
     // Check if it's a function call
     if (parent && parent.getKindName() === 'CallExpression') {
-      const callExpr = parent;
+      // Use getExpression() for robust call expression detection
+      // This is clearer than getChildAtIndex(0) and doesn't depend on AST structure
+      const callExpr = parent.asKindOrThrow(SyntaxKind.CallExpression);
       // Check if this identifier is the expression being called (not an argument)
-      if (callExpr.getChildAtIndex(0) === identifier) {
+      if (callExpr.getExpression() === identifier) {
         usageType = 'call';
       }
     }

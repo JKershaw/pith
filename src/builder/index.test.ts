@@ -2841,4 +2841,99 @@ describe('Symbol-Level Import Tracking - Phase 6.8.1', () => {
       assert.strictEqual(result, true);
     });
   });
+
+  describe('Path matching edge cases', () => {
+    it('avoids false positives with similar path endings without separators', () => {
+      // Test case: "footypes" should NOT match "types" (no path separator)
+      // But "src/types" SHOULD match "types" (has path separator: /types)
+      const node: WikiNode = {
+        id: 'src/consumer.ts',
+        type: 'file',
+        path: 'src/consumer.ts',
+        name: 'consumer.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            {
+              symbol: 'BadMatch',
+              sourceFile: './footypes.ts', // Should NOT match "types" (no separator)
+              usageLines: [5],
+              usageType: 'reference',
+            },
+            {
+              symbol: 'GoodMatch',
+              sourceFile: './src/types.ts', // SHOULD match "types" (has /types)
+              usageLines: [10],
+              usageType: 'reference',
+            },
+          ],
+        },
+      };
+
+      // Should NOT match "footypes" when searching for "types"
+      // The path separator check ensures "footypes" != "/types"
+      const typesMatches = getUsedSymbolsFromFile(node, 'types.ts');
+
+      // Only "src/types.ts" should match (has /types), not "footypes.ts"
+      assert.strictEqual(typesMatches.length, 1);
+      assert.strictEqual(typesMatches[0].symbol, 'GoodMatch');
+
+      // Should match with full path
+      const fullPathMatch = getUsedSymbolsFromFile(node, 'src/types.ts');
+      assert.strictEqual(fullPathMatch.length, 1);
+    });
+
+    it('matches paths with ../ parent directory components', () => {
+      const node: WikiNode = {
+        id: 'src/api/handlers.ts',
+        type: 'file',
+        path: 'src/api/handlers.ts',
+        name: 'handlers.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            {
+              symbol: 'User',
+              sourceFile: '../types/user.ts', // Relative import with ../
+              usageLines: [10],
+              usageType: 'reference',
+            },
+          ],
+        },
+      };
+
+      // Should match after stripping ../ prefix
+      const match = getUsedSymbolsFromFile(node, 'types/user.ts');
+      assert.strictEqual(match.length, 1);
+      assert.strictEqual(match[0].symbol, 'User');
+    });
+
+    it('matches paths with /index suffix', () => {
+      const node: WikiNode = {
+        id: 'src/app.ts',
+        type: 'file',
+        path: 'src/app.ts',
+        name: 'app.ts',
+        metadata: { lines: 20, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          symbolUsages: [
+            {
+              symbol: 'Button',
+              sourceFile: './components/index.ts', // Directory import with /index
+              usageLines: [10],
+              usageType: 'reference',
+            },
+          ],
+        },
+      };
+
+      // Should match "components" after stripping /index suffix
+      const match = getUsedSymbolsFromFile(node, 'components.ts');
+      assert.strictEqual(match.length, 1);
+      assert.strictEqual(match[0].symbol, 'Button');
+    });
+  });
 });

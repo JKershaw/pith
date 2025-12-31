@@ -40,10 +40,10 @@ describe('Config File Extraction - Phase 6.8.3', () => {
       assert.ok(result.version);
     });
 
-    it('returns null for non-existent package.json', async () => {
+    it('returns undefined for non-existent package.json', async () => {
       const result = await extractPackageJson('/non/existent/path');
 
-      assert.strictEqual(result, null);
+      assert.strictEqual(result, undefined);
     });
   });
 
@@ -63,18 +63,18 @@ describe('Config File Extraction - Phase 6.8.3', () => {
       assert.ok(result.include || result.exclude || result.compilerOptions);
     });
 
-    it('returns null for non-existent tsconfig.json', async () => {
+    it('returns undefined for non-existent tsconfig.json', async () => {
       const result = await extractTsConfig('/non/existent/path');
 
-      assert.strictEqual(result, null);
+      assert.strictEqual(result, undefined);
     });
   });
 
   describe('extractPithConfig (6.8.3.3)', () => {
-    it('returns null when pith.config.json does not exist', async () => {
+    it('returns undefined when pith.config.json does not exist', async () => {
       const result = await extractPithConfig(fixtureDir);
 
-      assert.strictEqual(result, null);
+      assert.strictEqual(result, undefined);
     });
   });
 
@@ -85,7 +85,7 @@ describe('Config File Extraction - Phase 6.8.3', () => {
       assert.ok(result);
       assert.ok(result.packageJson);
       assert.ok(result.tsconfig);
-      // pithConfig might be null if not present
+      // pithConfig might be undefined if not present
     });
 
     it('handles missing config files gracefully', async () => {
@@ -95,6 +95,55 @@ describe('Config File Extraction - Phase 6.8.3', () => {
       assert.strictEqual(result.packageJson, undefined);
       assert.strictEqual(result.tsconfig, undefined);
       assert.strictEqual(result.pithConfig, undefined);
+    });
+  });
+
+  describe('Runtime type validation', () => {
+    it('validates package.json field types correctly', async () => {
+      const result = await extractPackageJson(pithRootDir);
+
+      // Verify extracted values have correct types
+      assert.ok(result);
+      if (result.name !== undefined) {
+        assert.strictEqual(typeof result.name, 'string');
+      }
+      if (result.version !== undefined) {
+        assert.strictEqual(typeof result.version, 'string');
+      }
+      if (result.scripts !== undefined) {
+        assert.strictEqual(typeof result.scripts, 'object');
+        // All script values should be strings
+        for (const value of Object.values(result.scripts)) {
+          assert.strictEqual(typeof value, 'string');
+        }
+      }
+      if (result.dependencies !== undefined) {
+        assert.strictEqual(typeof result.dependencies, 'object');
+        for (const value of Object.values(result.dependencies)) {
+          assert.strictEqual(typeof value, 'string');
+        }
+      }
+    });
+
+    it('validates tsconfig.json field types correctly', async () => {
+      const result = await extractTsConfig(pithRootDir);
+
+      assert.ok(result);
+      if (result.compilerOptions !== undefined) {
+        assert.strictEqual(typeof result.compilerOptions, 'object');
+      }
+      if (result.include !== undefined) {
+        assert.ok(Array.isArray(result.include));
+        for (const item of result.include) {
+          assert.strictEqual(typeof item, 'string');
+        }
+      }
+      if (result.exclude !== undefined) {
+        assert.ok(Array.isArray(result.exclude));
+        for (const item of result.exclude) {
+          assert.strictEqual(typeof item, 'string');
+        }
+      }
     });
   });
 });

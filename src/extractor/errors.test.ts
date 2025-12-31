@@ -435,5 +435,34 @@ describe('Enhanced Debugging Output - Phase 6.8.4', () => {
       assert.strictEqual(paths[0].httpStatus, 404);
       assert.strictEqual(paths[1].httpStatus, 429);
     });
+
+    it('groupErrorsByStatus handles unlisted HTTP status codes', () => {
+      // Test that codes not in HTTP_STATUS_DESCRIPTIONS map are still handled
+      const paths: ErrorPath[] = [
+        { type: 'throw', line: 10, action: 'throw 418', httpStatus: 418 }, // I'm a teapot - not in map
+        { type: 'throw', line: 20, action: 'throw 504', httpStatus: 504 }, // In map
+        { type: 'throw', line: 30, action: 'throw 599', httpStatus: 599 }, // Not in map
+      ];
+
+      const grouped = groupErrorsByStatus(paths);
+
+      // Should have 3 groups
+      assert.strictEqual(grouped.length, 3);
+
+      // Find the 418 group - should have fallback description
+      const teapotGroup = grouped.find((g) => g.status === 418);
+      assert.ok(teapotGroup);
+      assert.strictEqual(teapotGroup.description, 'HTTP 418'); // Fallback format
+
+      // Find the 504 group - should have proper description
+      const gatewayGroup = grouped.find((g) => g.status === 504);
+      assert.ok(gatewayGroup);
+      assert.strictEqual(gatewayGroup.description, 'Gateway Timeout');
+
+      // Find the 599 group - should have fallback description
+      const customGroup = grouped.find((g) => g.status === 599);
+      assert.ok(customGroup);
+      assert.strictEqual(customGroup.description, 'HTTP 599');
+    });
   });
 });

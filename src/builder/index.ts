@@ -901,7 +901,7 @@ export function getUsedSymbolsFromFile(
 
 /**
  * Normalize an import path for comparison.
- * Handles .ts extension, ./ prefix, and ../ parent directory components.
+ * Handles .ts extension, ./ prefix, ../ parent directory components, and /index suffix.
  */
 function normalizeImportPath(path: string): string {
   // Remove .ts extension if present
@@ -915,15 +915,34 @@ function normalizeImportPath(path: string): string {
   while (normalized.startsWith('../')) {
     normalized = normalized.slice(3);
   }
+  // Remove trailing /index for directory imports
+  // e.g., "components/index" -> "components"
+  if (normalized.endsWith('/index')) {
+    normalized = normalized.slice(0, -6);
+  }
   return normalized;
 }
 
 /**
  * Check if two paths match (accounting for relative paths).
+ * Uses path separator checks to avoid false positives (e.g., "src/types" matching "types").
  */
 function pathsMatch(path1: string, path2: string): boolean {
-  // Simple comparison after normalization
-  return path1 === path2 || path1.endsWith(path2) || path2.endsWith(path1);
+  // Exact match
+  if (path1 === path2) {
+    return true;
+  }
+
+  // Check if one path ends with the other, but require a path separator
+  // to avoid "src/types" matching "types" (should only match "/types" or "src/types")
+  if (path1.length > path2.length) {
+    return path1.endsWith('/' + path2);
+  }
+  if (path2.length > path1.length) {
+    return path2.endsWith('/' + path1);
+  }
+
+  return false;
 }
 
 /**
