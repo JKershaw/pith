@@ -5,7 +5,13 @@ import { Command } from 'commander';
 import { version } from '../index.ts';
 import { resolve, dirname, join } from 'node:path';
 import { stat } from 'node:fs/promises';
-import { findFiles, createProject, extractFile, storeExtracted, type ExtractedFile } from '../extractor/ast.ts';
+import {
+  findFiles,
+  createProject,
+  extractFile,
+  storeExtracted,
+  type ExtractedFile,
+} from '../extractor/ast.ts';
 import { extractGitInfo } from '../extractor/git.ts';
 import { extractDocs } from '../extractor/docs.ts';
 import { addPatternsToExtractedFile } from '../extractor/patterns.ts';
@@ -32,11 +38,7 @@ import {
   updateCrossFileCalls,
   type WikiNode,
 } from '../builder/index.ts';
-import {
-  generateProse,
-  updateNodeWithProse,
-  type GeneratorConfig,
-} from '../generator/index.ts';
+import { generateProse, updateNodeWithProse, type GeneratorConfig } from '../generator/index.ts';
 import { createApp } from '../api/index.ts';
 import { loadConfig } from '../config/index.ts';
 import { PithError, formatError, groupErrorsBySeverity } from '../errors/index.ts';
@@ -160,7 +162,9 @@ program
             skippedCount++;
           }
         }
-        log(`Incremental extraction: ${filesToExtract.length} to extract, ${skippedCount} unchanged`);
+        log(
+          `Incremental extraction: ${filesToExtract.length} to extract, ${skippedCount} unchanged`
+        );
       }
 
       // Extract and store each file with parallel processing
@@ -214,6 +218,8 @@ program
           const result = results[j];
           const relativePath = batch[j];
 
+          if (!result || !relativePath) continue;
+
           if (result.status === 'fulfilled') {
             // Store in database (sequential to avoid file corruption)
             await storeExtracted(db, result.value.extracted);
@@ -230,7 +236,8 @@ program
               log(`Progress: ${processedCount}/${filesToExtract.length} files`);
             }
           } else {
-            const error = result.reason instanceof Error ? result.reason : new Error(String(result.reason));
+            const reason = result.reason;
+            const error = reason instanceof Error ? reason : new Error(String(reason));
             errors.push({ path: relativePath, error });
             log(`  ✗ ${relativePath}: ${error.message}`, 'verbose');
           }
@@ -245,19 +252,22 @@ program
 
       // Report summary
       const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
-      log(`\nCompleted in ${elapsedSec}s: ${processedCount} files extracted, ${skippedCount} skipped, ${errors.length} errors`);
+      log(
+        `\nCompleted in ${elapsedSec}s: ${processedCount} files extracted, ${skippedCount} skipped, ${errors.length} errors`
+      );
 
       if (errors.length > 0) {
         logError('\nErrors:');
 
         // Group and display errors by severity
-        const errorList = errors.map(e => e.error);
+        const errorList = errors.map((e) => e.error);
         const grouped = groupErrorsBySeverity(errorList);
 
         // Show fatal errors first
         if (grouped.fatal.length > 0) {
           logError('\nFatal errors:');
-          errors.filter(e => e.error instanceof PithError && e.error.severity === 'fatal')
+          errors
+            .filter((e) => e.error instanceof PithError && e.error.severity === 'fatal')
             .forEach(({ path, error }) => {
               logError(`  - ${path}:`);
               logError(`    ${formatError(error).split('\n').join('\n    ')}`);
@@ -267,13 +277,16 @@ program
         // Show regular errors
         if (grouped.error.length > 0) {
           logError('\nErrors:');
-          errors.filter(e => !(e.error instanceof PithError && e.error.severity === 'fatal'))
+          errors
+            .filter((e) => !(e.error instanceof PithError && e.error.severity === 'fatal'))
             .forEach(({ path, error }) => {
               logError(`  - ${path}: ${error.message}`);
             });
         }
 
-        logError('\nSuggestion: Try --force to reprocess all files, or check the error messages above.');
+        logError(
+          '\nSuggestion: Try --force to reprocess all files, or check the error messages above.'
+        );
       }
     } catch (error) {
       logError('Error during extraction:');
@@ -353,7 +366,7 @@ program
           // Get README from one of the extracted files in this directory
           // (READMEs are extracted during the extract phase)
           let readme: string | undefined;
-          const extractedInDir = extractedFiles.find(f => dirname(f.path) === dirPath);
+          const extractedInDir = extractedFiles.find((f) => dirname(f.path) === dirPath);
           if (extractedInDir?.docs?.readme) {
             readme = extractedInDir.docs.readme;
           }
@@ -368,12 +381,12 @@ program
       const allNodes = [...fileNodes, ...functionNodes, ...moduleNodes];
 
       // Build edges
-      const allFilePaths = fileNodes.map(node => node.id);
+      const allFilePaths = fileNodes.map((node) => node.id);
 
       // Add contains edges: module → files
       for (const moduleNode of moduleNodes) {
-        const filesInModule = fileNodes.filter(fileNode =>
-          dirname(fileNode.path) === moduleNode.path
+        const filesInModule = fileNodes.filter(
+          (fileNode) => dirname(fileNode.path) === moduleNode.path
         );
         const containsEdges = buildContainsEdges(moduleNode, filesInModule);
         moduleNode.edges.push(...containsEdges);
@@ -381,9 +394,7 @@ program
 
       // Add contains edges: file → functions
       for (const fileNode of fileNodes) {
-        const functionsInFile = functionNodes.filter(funcNode =>
-          funcNode.path === fileNode.path
-        );
+        const functionsInFile = functionNodes.filter((funcNode) => funcNode.path === fileNode.path);
         const containsEdges = buildContainsEdges(fileNode, functionsInFile);
         fileNode.edges.push(...containsEdges);
       }
@@ -396,8 +407,8 @@ program
 
       // Add parent edges: file → module
       for (const fileNode of fileNodes) {
-        const parentModule = moduleNodes.find(moduleNode =>
-          moduleNode.path === dirname(fileNode.path)
+        const parentModule = moduleNodes.find(
+          (moduleNode) => moduleNode.path === dirname(fileNode.path)
         );
         if (parentModule) {
           const parentEdge = buildParentEdge(fileNode, parentModule);
@@ -408,7 +419,7 @@ program
       // Add test file edges: source → test file (Phase 6.2.2)
       const testFileEdges = buildTestFileEdges(fileNodes);
       for (const { sourceId, type, target, weight } of testFileEdges) {
-        const sourceNode = fileNodes.find(n => n.id === sourceId);
+        const sourceNode = fileNodes.find((n) => n.id === sourceId);
         if (sourceNode) {
           sourceNode.edges.push({ type, target, weight });
         }
@@ -417,7 +428,7 @@ program
       // Add importedBy edges: file → dependents (Phase 6.3.1)
       const dependentEdges = buildDependentEdges(fileNodes);
       for (const { sourceId, type, target, weight } of dependentEdges) {
-        const sourceNode = fileNodes.find(n => n.id === sourceId);
+        const sourceNode = fileNodes.find((n) => n.id === sourceId);
         if (sourceNode) {
           sourceNode.edges.push({ type, target, weight });
         }
@@ -452,15 +463,13 @@ program
       // Store all nodes in database
       const nodesCollection = db.collection<WikiNode>('nodes');
       for (const node of allNodes) {
-        await nodesCollection.updateOne(
-          { id: node.id },
-          { $set: node },
-          { upsert: true }
-        );
+        await nodesCollection.updateOne({ id: node.id }, { $set: node }, { upsert: true });
       }
 
       const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
-      log(`\nBuild complete in ${elapsedSec}s: ${fileNodes.length} file nodes, ${functionNodes.length} function nodes, ${moduleNodes.length} module nodes`);
+      log(
+        `\nBuild complete in ${elapsedSec}s: ${fileNodes.length} file nodes, ${functionNodes.length} function nodes, ${moduleNodes.length} module nodes`
+      );
 
       // Close database connection
       await closeDb();
@@ -479,194 +488,207 @@ program
   .option('--node <nodeId>', 'Generate for specific node only')
   .option('--force', 'Regenerate prose even if already exists')
   .option('--estimate', 'Show cost estimate without generating')
-  .action(async (options: { model?: string; node?: string; force?: boolean; estimate?: boolean }) => {
-    const startTime = Date.now();
-    // Load configuration
-    const config = await loadConfig();
+  .action(
+    async (options: { model?: string; node?: string; force?: boolean; estimate?: boolean }) => {
+      const startTime = Date.now();
+      // Load configuration
+      const config = await loadConfig();
 
-    const dataDir = process.env.PITH_DATA_DIR || config.output.dataDir;
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    const model = options.model || process.env.OPENROUTER_MODEL || config.llm?.model || 'anthropic/claude-sonnet-4';
+      const dataDir = process.env.PITH_DATA_DIR || config.output.dataDir;
+      const apiKey = process.env.OPENROUTER_API_KEY;
+      const model =
+        options.model ||
+        process.env.OPENROUTER_MODEL ||
+        config.llm?.model ||
+        'anthropic/claude-sonnet-4';
 
-    // For estimation and dry-run, we don't need the API key
-    const needsApiKey = !options.estimate && !outputOptions.dryRun;
-    if (!apiKey && needsApiKey) {
-      logError('Error: OPENROUTER_API_KEY is required');
-      logError('Set it in .env file or with: export OPENROUTER_API_KEY=your-key');
-      process.exit(1);
-    }
-
-    const generatorConfig: GeneratorConfig = {
-      provider: 'openrouter',
-      model,
-      apiKey: apiKey ?? '', // Empty string for estimate/dry-run modes
-    };
-
-    try {
-      const db = await getDb(dataDir);
-      const nodesCollection = db.collection<WikiNode>('nodes');
-
-      // Get nodes to generate for
-      let query: Record<string, unknown> = {};
-      if (options.node) {
-        query = { id: options.node };
-      } else if (!options.force) {
-        // Only nodes without prose
-        query = { prose: { $exists: false } };
+      // For estimation and dry-run, we don't need the API key
+      const needsApiKey = !options.estimate && !outputOptions.dryRun;
+      if (!apiKey && needsApiKey) {
+        logError('Error: OPENROUTER_API_KEY is required');
+        logError('Set it in .env file or with: export OPENROUTER_API_KEY=your-key');
+        process.exit(1);
       }
 
-      const nodes = await nodesCollection.find(query).toArray();
+      const generatorConfig: GeneratorConfig = {
+        provider: 'openrouter',
+        model,
+        apiKey: apiKey ?? '', // Empty string for estimate/dry-run modes
+      };
 
-      if (nodes.length === 0) {
+      try {
+        const db = await getDb(dataDir);
+        const nodesCollection = db.collection<WikiNode>('nodes');
+
+        // Get nodes to generate for
+        let query: Record<string, unknown> = {};
         if (options.node) {
-          logError(`No node found with id: ${options.node}`);
-        } else {
-          log('No nodes found that need prose generation.');
-          log('Use --force to regenerate existing prose.');
+          query = { id: options.node };
+        } else if (!options.force) {
+          // Only nodes without prose
+          query = { prose: { $exists: false } };
         }
+
+        const nodes = await nodesCollection.find(query).toArray();
+
+        if (nodes.length === 0) {
+          if (options.node) {
+            logError(`No node found with id: ${options.node}`);
+          } else {
+            log('No nodes found that need prose generation.');
+            log('Use --force to regenerate existing prose.');
+          }
+          await closeDb();
+          return;
+        }
+
+        // Cost estimation mode
+        if (options.estimate || outputOptions.dryRun) {
+          // Estimate tokens based on raw data size
+          let totalInputTokens = 0;
+          const AVG_CHARS_PER_TOKEN = 4; // Rough estimate
+          const AVG_OUTPUT_TOKENS = 500; // Typical output size
+
+          for (const node of nodes) {
+            // Estimate input tokens from prompt (rough calculation)
+            const rawDataSize = JSON.stringify(node.raw).length;
+            const metadataSize = JSON.stringify(node.metadata).length;
+            const estimatedPromptSize = rawDataSize + metadataSize + 500; // +500 for prompt template
+            totalInputTokens += Math.ceil(estimatedPromptSize / AVG_CHARS_PER_TOKEN);
+          }
+
+          const totalOutputTokens = nodes.length * AVG_OUTPUT_TOKENS;
+
+          // OpenRouter pricing for Anthropic Claude Sonnet 4 (approximate)
+          const INPUT_COST_PER_1K = 0.003; // $3 per 1M tokens
+          const OUTPUT_COST_PER_1K = 0.015; // $15 per 1M tokens
+
+          const inputCost = (totalInputTokens / 1000) * INPUT_COST_PER_1K;
+          const outputCost = (totalOutputTokens / 1000) * OUTPUT_COST_PER_1K;
+          const totalCost = inputCost + outputCost;
+
+          log('\nProse generation estimate:');
+          log(`  Nodes without prose: ${nodes.length}`);
+          log(`  Estimated input tokens: ~${totalInputTokens.toLocaleString()}`);
+          log(`  Estimated output tokens: ~${totalOutputTokens.toLocaleString()}`);
+          log(`  Estimated cost: ~$${totalCost.toFixed(2)}`);
+          log(`  Using model: ${model}`);
+
+          if (outputOptions.dryRun) {
+            log('\n[DRY-RUN] Would generate prose for these nodes:');
+            for (const node of nodes.slice(0, 10)) {
+              log(`  - ${node.type}: ${node.id}`);
+            }
+            if (nodes.length > 10) {
+              log(`  ... and ${nodes.length - 10} more`);
+            }
+          }
+
+          await closeDb();
+          return;
+        }
+
+        log(`Generating prose for ${nodes.length} nodes...`);
+        log(`Using model: ${model}`);
+
+        let generated = 0;
+        const generationErrors: Array<{ nodeId: string; error: Error | PithError }> = [];
+
+        // Process nodes (file nodes first for fractal generation)
+        const fileNodes = nodes.filter((n) => n.type === 'file');
+        const moduleNodes = nodes.filter((n) => n.type === 'module');
+        const orderedNodes = [...fileNodes, ...moduleNodes];
+
+        for (const node of orderedNodes) {
+          try {
+            log(`  Generating: ${node.id}`, 'verbose');
+            if (!outputOptions.verbose && generated % 5 === 0 && generated > 0) {
+              log(`Progress: ${generated}/${orderedNodes.length} nodes`);
+            }
+
+            // For module nodes, gather child summaries
+            let childSummaries: Map<string, string> | undefined;
+            if (node.type === 'module') {
+              const childIds = node.edges.filter((e) => e.type === 'contains').map((e) => e.target);
+
+              const children = await nodesCollection.find({ id: { $in: childIds } }).toArray();
+
+              childSummaries = new Map(
+                children.filter((c) => c.prose?.summary).map((c) => [c.id, c.prose!.summary])
+              );
+            }
+
+            const prose = await generateProse(node, generatorConfig, { childSummaries });
+            await updateNodeWithProse(db, node.id, prose);
+
+            generated++;
+            log(`    ✓ ${node.id}`, 'verbose');
+          } catch (error) {
+            const pithError =
+              error instanceof Error
+                ? error.message.includes('Rate limited') || error.message.includes('429')
+                  ? new PithError(
+                      'LLM_ERROR',
+                      error.message,
+                      'error',
+                      'Wait a few minutes and try again'
+                    )
+                  : error instanceof PithError
+                    ? error
+                    : new Error(error.message)
+                : new Error(String(error));
+
+            generationErrors.push({ nodeId: node.id, error: pithError });
+            log(`    ✗ ${node.id}: ${(error as Error).message}`, 'verbose');
+          }
+        }
+
+        const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+        log(
+          `\nCompleted in ${elapsedSec}s: ${generated} generated, ${generationErrors.length} errors`
+        );
+
+        if (generationErrors.length > 0) {
+          logError('\nDetailed error information:');
+
+          // Group errors by severity
+          const errorList = generationErrors.map((e) => e.error);
+          const grouped = groupErrorsBySeverity(errorList);
+
+          // Show warnings (like rate limits that might retry)
+          if (grouped.warning.length > 0) {
+            logError('\nWarnings:');
+            generationErrors
+              .filter((e) => e.error instanceof PithError && e.error.severity === 'warning')
+              .forEach(({ nodeId, error }) => {
+                logError(`  - ${nodeId}:`);
+                logError(`    ${formatError(error).split('\n').join('\n    ')}`);
+              });
+          }
+
+          // Show errors
+          if (grouped.error.length > 0) {
+            logError('\nErrors:');
+            generationErrors
+              .filter((e) => !(e.error instanceof PithError && e.error.severity === 'warning'))
+              .forEach(({ nodeId, error }) => {
+                logError(`  - ${nodeId}: ${error.message}`);
+              });
+          }
+
+          logError(
+            '\nSuggestion: Check your OPENROUTER_API_KEY and rate limits. Use --force to regenerate failed nodes.'
+          );
+        }
+
         await closeDb();
-        return;
-      }
-
-      // Cost estimation mode
-      if (options.estimate || outputOptions.dryRun) {
-        // Estimate tokens based on raw data size
-        let totalInputTokens = 0;
-        const AVG_CHARS_PER_TOKEN = 4; // Rough estimate
-        const AVG_OUTPUT_TOKENS = 500; // Typical output size
-
-        for (const node of nodes) {
-          // Estimate input tokens from prompt (rough calculation)
-          const rawDataSize = JSON.stringify(node.raw).length;
-          const metadataSize = JSON.stringify(node.metadata).length;
-          const estimatedPromptSize = rawDataSize + metadataSize + 500; // +500 for prompt template
-          totalInputTokens += Math.ceil(estimatedPromptSize / AVG_CHARS_PER_TOKEN);
-        }
-
-        const totalOutputTokens = nodes.length * AVG_OUTPUT_TOKENS;
-
-        // OpenRouter pricing for Anthropic Claude Sonnet 4 (approximate)
-        const INPUT_COST_PER_1K = 0.003;  // $3 per 1M tokens
-        const OUTPUT_COST_PER_1K = 0.015; // $15 per 1M tokens
-
-        const inputCost = (totalInputTokens / 1000) * INPUT_COST_PER_1K;
-        const outputCost = (totalOutputTokens / 1000) * OUTPUT_COST_PER_1K;
-        const totalCost = inputCost + outputCost;
-
-        log('\nProse generation estimate:');
-        log(`  Nodes without prose: ${nodes.length}`);
-        log(`  Estimated input tokens: ~${totalInputTokens.toLocaleString()}`);
-        log(`  Estimated output tokens: ~${totalOutputTokens.toLocaleString()}`);
-        log(`  Estimated cost: ~$${totalCost.toFixed(2)}`);
-        log(`  Using model: ${model}`);
-
-        if (outputOptions.dryRun) {
-          log('\n[DRY-RUN] Would generate prose for these nodes:');
-          for (const node of nodes.slice(0, 10)) {
-            log(`  - ${node.type}: ${node.id}`);
-          }
-          if (nodes.length > 10) {
-            log(`  ... and ${nodes.length - 10} more`);
-          }
-        }
-
+      } catch (error) {
+        logError(`Error: ${(error as Error).message}`);
         await closeDb();
-        return;
+        process.exit(1);
       }
-
-      log(`Generating prose for ${nodes.length} nodes...`);
-      log(`Using model: ${model}`);
-
-      let generated = 0;
-      const generationErrors: Array<{ nodeId: string; error: Error | PithError }> = [];
-
-      // Process nodes (file nodes first for fractal generation)
-      const fileNodes = nodes.filter(n => n.type === 'file');
-      const moduleNodes = nodes.filter(n => n.type === 'module');
-      const orderedNodes = [...fileNodes, ...moduleNodes];
-
-      for (const node of orderedNodes) {
-        try {
-          log(`  Generating: ${node.id}`, 'verbose');
-          if (!outputOptions.verbose && generated % 5 === 0 && generated > 0) {
-            log(`Progress: ${generated}/${orderedNodes.length} nodes`);
-          }
-
-          // For module nodes, gather child summaries
-          let childSummaries: Map<string, string> | undefined;
-          if (node.type === 'module') {
-            const childIds = node.edges
-              .filter(e => e.type === 'contains')
-              .map(e => e.target);
-
-            const children = await nodesCollection
-              .find({ id: { $in: childIds } })
-              .toArray();
-
-            childSummaries = new Map(
-              children
-                .filter(c => c.prose?.summary)
-                .map(c => [c.id, c.prose!.summary])
-            );
-          }
-
-          const prose = await generateProse(node, generatorConfig, { childSummaries });
-          await updateNodeWithProse(db, node.id, prose);
-
-          generated++;
-          log(`    ✓ ${node.id}`, 'verbose');
-        } catch (error) {
-          const pithError = error instanceof Error
-            ? (error.message.includes('Rate limited') || error.message.includes('429')
-              ? new PithError('LLM_ERROR', error.message, 'error', 'Wait a few minutes and try again')
-              : error instanceof PithError ? error : new Error(error.message))
-            : new Error(String(error));
-
-          generationErrors.push({ nodeId: node.id, error: pithError });
-          log(`    ✗ ${node.id}: ${(error as Error).message}`, 'verbose');
-        }
-      }
-
-      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
-      log(`\nCompleted in ${elapsedSec}s: ${generated} generated, ${generationErrors.length} errors`);
-
-      if (generationErrors.length > 0) {
-        logError('\nDetailed error information:');
-
-        // Group errors by severity
-        const errorList = generationErrors.map(e => e.error);
-        const grouped = groupErrorsBySeverity(errorList);
-
-        // Show warnings (like rate limits that might retry)
-        if (grouped.warning.length > 0) {
-          logError('\nWarnings:');
-          generationErrors.filter(e => e.error instanceof PithError && e.error.severity === 'warning')
-            .forEach(({ nodeId, error }) => {
-              logError(`  - ${nodeId}:`);
-              logError(`    ${formatError(error).split('\n').join('\n    ')}`);
-            });
-        }
-
-        // Show errors
-        if (grouped.error.length > 0) {
-          logError('\nErrors:');
-          generationErrors.filter(e => !(e.error instanceof PithError && e.error.severity === 'warning'))
-            .forEach(({ nodeId, error }) => {
-              logError(`  - ${nodeId}: ${error.message}`);
-            });
-        }
-
-        logError('\nSuggestion: Check your OPENROUTER_API_KEY and rate limits. Use --force to regenerate failed nodes.');
-      }
-
-      await closeDb();
-
-    } catch (error) {
-      logError(`Error: ${(error as Error).message}`);
-      await closeDb();
-      process.exit(1);
     }
-  });
+  );
 
 program
   .command('serve')
@@ -698,7 +720,8 @@ program
       let generatorConfig: GeneratorConfig | undefined;
       if (lazy) {
         const apiKey = process.env.OPENROUTER_API_KEY;
-        const model = process.env.OPENROUTER_MODEL || config.llm?.model || 'anthropic/claude-sonnet-4';
+        const model =
+          process.env.OPENROUTER_MODEL || config.llm?.model || 'anthropic/claude-sonnet-4';
 
         if (apiKey) {
           generatorConfig = {
@@ -708,7 +731,10 @@ program
           };
           log('Lazy prose generation enabled', 'verbose');
         } else {
-          log('Warning: OPENROUTER_API_KEY not set. On-demand prose generation disabled.', 'verbose');
+          log(
+            'Warning: OPENROUTER_API_KEY not set. On-demand prose generation disabled.',
+            'verbose'
+          );
         }
       }
 

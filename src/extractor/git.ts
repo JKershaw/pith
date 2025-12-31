@@ -1,4 +1,4 @@
-import simpleGit from 'simple-git';
+import { simpleGit, type DefaultLogFields } from 'simple-git';
 
 /**
  * Commit information.
@@ -53,7 +53,7 @@ export async function extractGitInfo(repoDir: string, relativePath: string): Pro
   }
 
   // Parse commits
-  const parsedCommits: Commit[] = commits.map((c) => ({
+  const parsedCommits: Commit[] = commits.map((c: DefaultLogFields) => ({
     hash: c.hash,
     message: c.message,
     author: c.author_email,
