@@ -386,6 +386,21 @@ export function formatContextAsMarkdown(context: BundledContext): string {
               lines.push(`- Line ${c.line}: \`${c.condition}\` → ${c.action}`);
             }
           }
+
+          // Phase 6.7.4.4: Link to test files that cover error paths
+          const testFileEdges = node.edges.filter(e => e.type === 'testFile');
+          if (testFileEdges.length > 0) {
+            lines.push('');
+            lines.push('*Test coverage:*');
+            for (const edge of testFileEdges) {
+              const testFileNode = context.nodes.find(n => n.id === edge.target);
+              if (testFileNode?.metadata.testCommand) {
+                lines.push(`- Run: \`${testFileNode.metadata.testCommand}\``);
+              } else {
+                lines.push(`- See: \`${edge.target}\``);
+              }
+            }
+          }
         }
 
         // Call Flow (Phase 6.6.7b.4) - show for functions with >3 cross-file calls

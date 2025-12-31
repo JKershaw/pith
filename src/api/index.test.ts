@@ -1065,6 +1065,91 @@ return app;`,
       assert.ok(markdown.includes('Windows') || markdown.includes('backslash'), 'Should mention Windows path issue');
       assert.ok(markdown.includes('slash') || markdown.includes("startsWith('/')"), 'Should mention slash requirement');
     });
+
+    it('links error paths to test files - Phase 6.7.4.4', async () => {
+      const db = client.db('pith');
+      const nodes = db.collection<WikiNode>('nodes');
+
+      const fileWithErrors: WikiNode = {
+        id: 'src/service/api.ts',
+        type: 'file',
+        path: 'src/service/api.ts',
+        name: 'api.ts',
+        metadata: {
+          lines: 120,
+          commits: 10,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+        },
+        edges: [
+          { type: 'testFile', target: 'src/service/api.test.ts' },
+        ],
+        raw: {
+          functions: [
+            {
+              name: 'fetchData',
+              signature: 'async function fetchData(id: string): Promise<Data>',
+              startLine: 20,
+              endLine: 60,
+              isAsync: true,
+              isExported: true,
+              codeSnippet: `async function fetchData(id: string): Promise<Data> {
+  if (!id) throw new Error('ID required');
+  const response = await fetch(\`/api/\${id}\`);
+  if (!response.ok) throw new Error(\`HTTP \${response.status}\`);
+  return response.json();
+}`,
+              keyStatements: [],
+              errorPaths: [
+                { type: 'guard', line: 21, condition: '!id', action: "throws Error('ID required')" },
+                { type: 'guard', line: 24, condition: '!response.ok', action: 'throws Error(HTTP status)' },
+              ],
+            },
+          ],
+        },
+      };
+
+      // Add test file with info about what it tests
+      const testFile: WikiNode = {
+        id: 'src/service/api.test.ts',
+        type: 'file',
+        path: 'src/service/api.test.ts',
+        name: 'api.test.ts',
+        metadata: {
+          lines: 80,
+          commits: 5,
+          lastModified: new Date('2024-12-01'),
+          authors: ['alice'],
+          createdAt: new Date('2024-01-01'),
+          testCommand: 'npm test -- src/service/api.test.ts',
+        },
+        edges: [],
+        raw: {
+          functions: [
+            {
+              name: 'testFetchDataWithMissingId',
+              signature: 'function testFetchDataWithMissingId(): void',
+              startLine: 10,
+              endLine: 15,
+              isAsync: false,
+              isExported: false,
+              codeSnippet: 'expect(() => fetchData("")).toThrow("ID required");',
+              keyStatements: [],
+            },
+          ],
+        },
+      };
+
+      await nodes.insertOne(fileWithErrors);
+      await nodes.insertOne(testFile);
+
+      const context = await bundleContext(db, ['src/service/api.ts']);
+      const markdown = formatContextAsMarkdown(context);
+
+      // Should link to test file for coverage
+      assert.ok(markdown.includes('api.test.ts') || markdown.includes('test'), 'Should reference test file');
+    });
   });
 
   describe('createApp', () => {
