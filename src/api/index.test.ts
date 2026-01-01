@@ -3377,3 +3377,169 @@ describe('Function Consumers API - Phase 6.9.2', () => {
     });
   });
 });
+
+// Phase 7: Query API
+describe('Query API - Phase 7', () => {
+  let client: MangoClient;
+
+  beforeEach(async () => {
+    client = new MangoClient('./data/query-test');
+    await client.connect();
+    const db = client.db('pith');
+    const nodes = db.collection<WikiNode>('nodes');
+
+    // Insert test nodes
+    await nodes.insertOne({
+      id: 'src/generator/index.ts',
+      type: 'file',
+      path: 'src/generator/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 500, commits: 20, lastModified: new Date(), authors: [], fanIn: 8 },
+      edges: [{ type: 'parent', target: 'src/generator/' }],
+      raw: {
+        exports: [{ name: 'generateProse', kind: 'function' }],
+        patterns: [
+          {
+            name: 'retry',
+            confidence: 'high',
+            evidence: [],
+            location: 'src/generator/index.ts:callLLM',
+          },
+        ],
+      },
+      prose: {
+        summary: 'LLM prose generation with retry logic',
+        purpose: 'Generate documentation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    } as unknown as WikiNode);
+
+    await nodes.insertOne({
+      id: 'src/generator/',
+      type: 'module',
+      path: 'src/generator/',
+      name: 'generator',
+      metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+      prose: {
+        summary: 'Module for generating prose from code',
+        purpose: 'Documentation generation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    } as unknown as WikiNode);
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await rm('./data/query-test', { recursive: true, force: true });
+  });
+
+  describe('POST /query', () => {
+    it('returns 400 for missing query', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 400);
+        assert.strictEqual(data.error, 'INVALID_REQUEST');
+      } finally {
+        server.close();
+      }
+    });
+
+    it('returns 400 for empty query', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: '   ' }),
+        });
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 400);
+        assert.strictEqual(data.error, 'INVALID_REQUEST');
+      } finally {
+        server.close();
+      }
+    });
+
+    it('returns candidates for valid query', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: 'How does retry work?' }),
+        });
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.query, 'How does retry work?');
+        assert.ok(data.candidatesConsidered > 0);
+        assert.ok(Array.isArray(data.candidates));
+
+        // Should find generator/index.ts which has retry pattern
+        const match = data.candidates.find(
+          (c: { path: string }) => c.path === 'src/generator/index.ts'
+        );
+        assert.ok(match, 'Should find generator/index.ts');
+        assert.ok(match.matchReasons.some((r: string) => r.includes('retry')));
+      } finally {
+        server.close();
+      }
+    });
+
+    it('matches exports by camelCase parts', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(`http://localhost:${port}/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: 'prose generation' }),
+        });
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+
+        // Should match generateProse by "prose" and "generate" parts
+        const match = data.candidates.find(
+          (c: { path: string }) => c.path === 'src/generator/index.ts'
+        );
+        assert.ok(match, 'Should find generator/index.ts by export parts');
+      } finally {
+        server.close();
+      }
+    });
+  });
+});

@@ -22,6 +22,7 @@ import {
   type FuzzyMatchInfo,
 } from './fuzzy.ts';
 import { stat } from 'node:fs/promises';
+import { buildKeywordIndex, preFilter, formatCandidatesForPlanner } from '../query/index.ts';
 
 /**
  * Pattern-specific usage guidance for detected design patterns.
@@ -1164,6 +1165,73 @@ export function createApp(
       }
 
       res.json(consumers);
+    } catch (error) {
+      res.status(500).json({
+        error: 'INTERNAL_ERROR',
+        message: (error as Error).message,
+      });
+    }
+  });
+
+  // POST /query - Query the codebase with natural language
+  // Phase 7: Query Planner
+  app.post('/query', async (req: Request, res: Response) => {
+    try {
+      const { query } = req.body as { query?: string };
+
+      // Step 7.1.1: Validate request
+      if (!query || typeof query !== 'string') {
+        res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'Missing required field: query (string)',
+        });
+        return;
+      }
+
+      if (query.trim().length === 0) {
+        res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'Query cannot be empty',
+        });
+        return;
+      }
+
+      // Get all nodes from database
+      const nodesCollection = db.collection<WikiNode>('nodes');
+      const allNodes = await nodesCollection.find({}).toArray();
+
+      if (allNodes.length === 0) {
+        res.status(404).json({
+          error: 'NO_DATA',
+          message: 'No nodes found in database. Run refresh first.',
+        });
+        return;
+      }
+
+      // Step 7.1.2: Build keyword index and pre-filter candidates
+      const keywordIndex = buildKeywordIndex(allNodes);
+      const candidates = preFilter(query, keywordIndex, allNodes);
+
+      // Step 7.1.3-7.1.7: For now, return pre-filter results
+      // TODO: Add planner LLM call and synthesis in subsequent steps
+      const candidatesFormatted = formatCandidatesForPlanner(candidates, allNodes);
+
+      res.json({
+        query,
+        candidatesConsidered: candidates.length,
+        candidates: candidates.map((c) => ({
+          path: c.path,
+          score: c.score,
+          matchReasons: c.matchReasons,
+          isHighFanIn: c.isHighFanIn,
+          isModule: c.isModule,
+        })),
+        candidatesFormatted,
+        // Placeholder - will be filled by LLM in later steps
+        answer: null,
+        filesUsed: [],
+        reasoning: 'Pre-filter only - LLM integration pending',
+      });
     } catch (error) {
       res.status(500).json({
         error: 'INTERNAL_ERROR',
