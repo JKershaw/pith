@@ -3,7 +3,7 @@
 ## Current Status
 
 **Last completed phase**: Phase 6.9 (Response Optimization) - ALL COMPLETE ✅
-**Current step**: Phase 7 - Query Planner (Planning)
+**Current step**: Phase 7.1.5 - Fetch prose for selected files
 **Date**: 2026-01-01
 
 ### Latest Benchmark: 2025-12-31 (v4)
@@ -50,35 +50,37 @@ See [2025-12-31 v4 benchmark results](benchmark-results/2025-12-31-self-test-v4.
 **Goal**: Accept natural language queries and return relevant context automatically.
 
 **Architecture**: Two-stage approach for token efficiency:
+
 1. **Pre-filter** (deterministic): Keyword matching reduces 100+ files to ~25 candidates
 2. **Planner LLM**: Selects 3-8 most relevant files from candidates
 3. **Synthesizer LLM**: Generates complete answer from selected file prose
 
-### 7.0 Prep Work
+### 7.0 Prep Work - COMPLETE ✅
 
-| Step  | What                                                | Status  |
-| ----- | --------------------------------------------------- | ------- |
-| 7.0.1 | Keyword index from deterministic data               | Pending |
-| 7.0.2 | Extend index with summary words (when prose exists) | Pending |
-| 7.0.3 | Query tokenizer with stopword filtering             | Pending |
-| 7.0.4 | Pre-filter: match tokens, score, add modules        | Pending |
-| 7.0.5 | Candidate formatter with relationships              | Pending |
+| Step  | What                                                | Status       |
+| ----- | --------------------------------------------------- | ------------ |
+| 7.0.1 | Keyword index from deterministic data               | **Complete** |
+| 7.0.2 | Extend index with summary words (when prose exists) | **Complete** |
+| 7.0.3 | Query tokenizer with stopword filtering             | **Complete** |
+| 7.0.4 | Pre-filter: match tokens, score, add modules        | **Complete** |
+| 7.0.5 | Candidate formatter with relationships              | **Complete** |
 
-### 7.1 Query Endpoint
+### 7.1 Query Endpoint - IN PROGRESS
 
-| Step  | What                                           | Status  |
-| ----- | ---------------------------------------------- | ------- |
-| 7.1.1 | `POST /query` endpoint                         | Pending |
-| 7.1.2 | Integrate pre-filter: query → candidates       | Pending |
-| 7.1.3 | Build planner prompt from candidates           | Pending |
-| 7.1.4 | Call LLM, parse file selection                 | Pending |
-| 7.1.5 | Fetch prose for selected files                 | Pending |
-| 7.1.6 | Build synthesis prompt                         | Pending |
-| 7.1.7 | Call LLM, return synthesized answer            | Pending |
+| Step  | What                                     | Status       |
+| ----- | ---------------------------------------- | ------------ |
+| 7.1.1 | `POST /query` endpoint                   | **Complete** |
+| 7.1.2 | Integrate pre-filter: query → candidates | **Complete** |
+| 7.1.3 | Build planner prompt from candidates     | **Complete** |
+| 7.1.4 | Call LLM, parse file selection           | **Complete** |
+| 7.1.5 | Fetch prose for selected files           | Pending      |
+| 7.1.6 | Build synthesis prompt                   | Pending      |
+| 7.1.7 | Call LLM, return synthesized answer      | Pending      |
 
 ### Phase 7 Design Analysis (2026-01-01)
 
 **Prompt Review - Key Questions**:
+
 1. What is the goal of each LLM call?
 2. What would be perfect starting context?
 3. How close can we get with our current plan?
