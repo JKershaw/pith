@@ -113,7 +113,7 @@ See [2025-12-31 v4 benchmark results](benchmark-results/2025-12-31-self-test-v4.
 | Efficiency | 2.1/5       | ≥4/5   | Implemented |
 | R3         | 13/25       | ≥20/25 | Implemented |
 
-**Total tests**: 472
+**Total tests**: 474
 **Note**: 6.9.3 (Debugging Prose) and 6.9.4 (Context Adaptation) removed - Phase 7 Query Planner handles these better by seeing the actual user question.
 
 ---
@@ -533,7 +533,7 @@ Phase 6.6 is complete, but v7 benchmark shows gaps remain. Analysis of why:
 
 ---
 
-## Phase 6.7: Enhanced Output Integration ⬅️ CURRENT
+## Phase 6.7: Enhanced Output Integration - COMPLETE ✅
 
 **Goal**: Surface extracted data more effectively in API output to close actionability and completeness gaps.
 

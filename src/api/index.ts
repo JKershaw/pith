@@ -237,8 +237,10 @@ function shouldExpandFunction(
   // 6.9.1.4: Include full code for functions with patterns
   if (node.raw.patterns && node.raw.patterns.length > 0) {
     // Check if any pattern references this function
+    // Use regex with word boundary to avoid false positives (e.g., 'fetch' matching 'fetchWithRetry')
+    const funcNamePattern = new RegExp(`:${func.name}(?:\\b|$)`);
     for (const pattern of node.raw.patterns) {
-      if (pattern.location && pattern.location.includes(`:${func.name}`)) {
+      if (pattern.location && funcNamePattern.test(pattern.location)) {
         return true;
       }
     }

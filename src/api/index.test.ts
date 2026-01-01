@@ -1986,6 +1986,132 @@ return app;`,
         );
       });
 
+      it('does not false-positive match similar function names for patterns', async () => {
+        // Bug: substring matching could cause 'foo' to match 'fooBar' pattern
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Create a file with a pattern on 'fetchWithRetry' but also has 'fetch' function
+        const fileWithSimilarNames: WikiNode = {
+          id: 'src/api/network.ts',
+          type: 'file',
+          path: 'src/api/network.ts',
+          name: 'network.ts',
+          metadata: {
+            lines: 200,
+            commits: 5,
+            lastModified: new Date('2024-12-01'),
+            authors: ['alice'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 2, // Low fan-in - won't trigger expand
+          },
+          edges: [],
+          raw: {
+            patterns: [
+              {
+                name: 'retry',
+                confidence: 'high',
+                evidence: ['line 50: maxRetries = 3'],
+                // Pattern is on 'fetchWithRetry', NOT on 'fetch'
+                location: 'src/api/network.ts:fetchWithRetry',
+              },
+            ],
+            functions: [
+              // This function name is a PREFIX of the pattern's function name
+              // It should NOT be expanded just because 'fetch' is in 'fetchWithRetry'
+              {
+                name: 'fetch',
+                signature: 'function fetch(url: string): Promise<Response>',
+                startLine: 10,
+                endLine: 15,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function fetch(url: string): Promise<Response> {\n  return globalFetch(url);\n}',
+                keyStatements: [],
+              },
+              // This function HAS the pattern - should be expanded
+              {
+                name: 'fetchWithRetry',
+                signature: 'async function fetchWithRetry(url: string): Promise<Response>',
+                startLine: 45,
+                endLine: 70,
+                isAsync: true,
+                isExported: true,
+                codeSnippet:
+                  'async function fetchWithRetry(url: string): Promise<Response> {\n  const maxRetries = 3;\n  // retry logic...\n}',
+                keyStatements: [{ line: 50, text: 'maxRetries = 3', category: 'config' }],
+              },
+              // Filler functions to exceed small file threshold
+              {
+                name: 'post',
+                signature: 'function post(): void',
+                startLine: 80,
+                endLine: 82,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function post(): void {}',
+                keyStatements: [],
+              },
+              {
+                name: 'put',
+                signature: 'function put(): void',
+                startLine: 85,
+                endLine: 87,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function put(): void {}',
+                keyStatements: [],
+              },
+              {
+                name: 'del',
+                signature: 'function del(): void',
+                startLine: 90,
+                endLine: 92,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function del(): void {}',
+                keyStatements: [],
+              },
+              {
+                name: 'patch',
+                signature: 'function patch(): void',
+                startLine: 95,
+                endLine: 97,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function patch(): void {}',
+                keyStatements: [],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(fileWithSimilarNames);
+
+        const context = await bundleContext(db, ['src/api/network.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // fetchWithRetry SHOULD be expanded (has the pattern)
+        assert.ok(
+          markdown.includes('```typescript\nasync function fetchWithRetry'),
+          'Function with pattern should be expanded'
+        );
+
+        // 'fetch' should NOT be expanded - it's a different function!
+        // The pattern is on 'fetchWithRetry', not 'fetch'
+        assert.ok(
+          markdown.includes('`function fetch(url: string): Promise<Response>`'),
+          'Function "fetch" should use compact format - pattern is on "fetchWithRetry", not "fetch"'
+        );
+
+        // Verify we're NOT showing fetch as a code block
+        assert.ok(
+          !markdown.includes('```typescript\nfunction fetch(url: string)'),
+          'Function "fetch" should NOT be expanded just because "fetch" is a prefix of "fetchWithRetry"'
+        );
+      });
+
       it('expands functions with error paths', async () => {
         const db = client.db('pith');
         const nodes = db.collection<WikiNode>('nodes');
