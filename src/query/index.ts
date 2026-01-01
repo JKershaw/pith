@@ -735,3 +735,163 @@ export function parsePlannerResponse(
     return { error: `Failed to parse JSON: ${response.slice(0, 100)}...` };
   }
 }
+
+/**
+ * Build the synthesis prompt for the LLM.
+ * Step 7.1.6: Construct a prompt that presents selected file context and asks LLM to answer.
+ *
+ * @param query - The user's natural language query
+ * @param nodes - Selected WikiNodes with their prose and details
+ * @param plannerInfo - The planner's reasoning and information needs
+ * @returns The prompt string for the synthesis LLM
+ */
+export function buildSynthesisPrompt(
+  query: string,
+  nodes: WikiNode[],
+  plannerInfo: PlannerResponse
+): string {
+  const lines: string[] = [];
+
+  lines.push(
+    "You are a codebase documentation assistant. Answer the developer's question based on the provided file context."
+  );
+  lines.push('');
+  lines.push('## Question');
+  lines.push(query);
+  lines.push('');
+
+  // Include planner's reasoning for context
+  lines.push('## Analysis Context');
+  lines.push(`*Why these files were selected:* ${plannerInfo.reasoning}`);
+  lines.push(`*Information to extract:* ${plannerInfo.informationNeeded}`);
+  lines.push('');
+
+  // Build detailed context for each selected file
+  lines.push('## Relevant Files');
+  lines.push('');
+
+  for (const node of nodes) {
+    lines.push(`### ${node.path}`);
+    lines.push('');
+
+    // Summary and purpose
+    if (node.prose) {
+      lines.push(`**Summary:** ${node.prose.summary}`);
+      lines.push('');
+      lines.push(`**Purpose:** ${node.prose.purpose}`);
+      lines.push('');
+
+      // Gotchas (important warnings)
+      if (node.prose.gotchas && node.prose.gotchas.length > 0) {
+        lines.push('**Gotchas:**');
+        for (const gotcha of node.prose.gotchas) {
+          lines.push(`- ${gotcha}`);
+        }
+        lines.push('');
+      }
+
+      // Patterns
+      if (node.prose.patterns && node.prose.patterns.length > 0) {
+        lines.push('**Patterns:**');
+        for (const pattern of node.prose.patterns) {
+          lines.push(`- ${pattern}`);
+        }
+        lines.push('');
+      }
+    }
+
+    // Detected patterns from raw data
+    if (node.raw.patterns && node.raw.patterns.length > 0) {
+      lines.push('**Detected Patterns:**');
+      for (const pattern of node.raw.patterns) {
+        lines.push(`- ${pattern.name} (${pattern.confidence}): ${pattern.evidence.join(', ')}`);
+      }
+      lines.push('');
+    }
+
+    // Functions with key statements
+    if (node.raw.functions && node.raw.functions.length > 0) {
+      lines.push('**Key Functions:**');
+      for (const func of node.raw.functions) {
+        lines.push(`- \`${func.name}\` (lines ${func.startLine}-${func.endLine})`);
+
+        // Show key statements (config values, important logic)
+        if (func.keyStatements && func.keyStatements.length > 0) {
+          for (const stmt of func.keyStatements) {
+            lines.push(`  - [${stmt.category}] line ${stmt.line}: \`${stmt.text}\``);
+          }
+        }
+      }
+      lines.push('');
+    }
+
+    // Exports for reference
+    if (node.raw.exports && node.raw.exports.length > 0) {
+      const exportNames = node.raw.exports.map((e) => e.name).join(', ');
+      lines.push(`**Exports:** ${exportNames}`);
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+  }
+
+  // Instructions for the answer
+  lines.push('## Instructions');
+  lines.push('');
+  lines.push(
+    "Based on the file context above, provide a clear, technical answer to the developer's question."
+  );
+  lines.push('');
+  lines.push('Guidelines:');
+  lines.push('- Be specific: reference function names, line numbers, and configuration values');
+  lines.push('- Be concise: focus on directly answering the question');
+  lines.push('- Include code references when relevant (e.g., "see `callLLM` at line 100")');
+  lines.push('- Mention gotchas or edge cases if they relate to the question');
+  lines.push('');
+  lines.push('Provide your answer as plain text (no JSON or special formatting needed).');
+
+  return lines.join('\n');
+}
+
+/**
+ * Synthesis response result.
+ */
+export interface SynthesisResult {
+  answer: string;
+  error?: boolean;
+}
+
+/**
+ * Parse the LLM response from the synthesis step.
+ * Step 7.1.7: Extract the answer from the LLM response.
+ *
+ * @param response - Raw LLM response string
+ * @returns Parsed synthesis result
+ */
+export function parseSynthesisResponse(response: string): SynthesisResult {
+  const trimmed = response.trim();
+
+  // Handle empty response
+  if (!trimmed) {
+    return {
+      answer: 'Unable to generate an answer. Please try rephrasing your question.',
+      error: true,
+    };
+  }
+
+  // Try to extract JSON answer if response is JSON
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as { answer?: string };
+      if (typeof parsed.answer === 'string') {
+        return { answer: parsed.answer };
+      }
+    } catch {
+      // Not JSON, treat as plain text
+    }
+  }
+
+  // Return plain text response as-is
+  return { answer: trimmed };
+}

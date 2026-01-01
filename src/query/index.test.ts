@@ -1010,3 +1010,179 @@ describe('parsePlannerResponse', () => {
     assert.ok(parsed.informationNeeded.includes('General information'));
   });
 });
+
+// Phase 7.1.6: Synthesis prompt builder
+import { buildSynthesisPrompt, parseSynthesisResponse } from './index.ts';
+
+describe('buildSynthesisPrompt', () => {
+  const sampleNodes: WikiNode[] = [
+    {
+      id: 'src/generator/index.ts',
+      type: 'file',
+      path: 'src/generator/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 500, commits: 20, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {
+        functions: [
+          {
+            name: 'callLLM',
+            signature: 'async function callLLM(prompt: string, config: Config): Promise<string>',
+            startLine: 100,
+            endLine: 150,
+            isAsync: true,
+            isExported: true,
+            isDefaultExport: false,
+            codeSnippet: 'async function callLLM(prompt, config) {\n  // retry logic\n}',
+            keyStatements: [{ line: 110, text: 'maxRetries = 3', category: 'config' as const }],
+            calls: [],
+            calledBy: [],
+            crossFileCalls: [],
+            crossFileCalledBy: [],
+            errorPaths: [],
+          },
+        ],
+        patterns: [
+          { name: 'retry', confidence: 'high', evidence: ['maxRetries = 3'], location: 'callLLM' },
+        ],
+      },
+      prose: {
+        summary: 'LLM prose generation with retry logic',
+        purpose: 'Generates documentation from code using LLM API calls with retry handling',
+        gotchas: ['Retries 3 times with exponential backoff'],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+  ];
+
+  it('includes user question in prompt', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Contains retry logic',
+      informationNeeded: 'How retry works',
+    };
+
+    const prompt = buildSynthesisPrompt('How does retry work?', sampleNodes, plannerInfo);
+
+    assert.ok(prompt.includes('How does retry work?'));
+    assert.ok(prompt.includes('Question'));
+  });
+
+  it('includes file prose and context', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Contains retry logic',
+      informationNeeded: 'How retry works',
+    };
+
+    const prompt = buildSynthesisPrompt('How does retry work?', sampleNodes, plannerInfo);
+
+    assert.ok(prompt.includes('src/generator/index.ts'));
+    assert.ok(prompt.includes('LLM prose generation'));
+    assert.ok(prompt.includes('Retries 3 times'));
+  });
+
+  it('includes function details when available', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Contains retry logic',
+      informationNeeded: 'How retry works',
+    };
+
+    const prompt = buildSynthesisPrompt('How does retry work?', sampleNodes, plannerInfo);
+
+    assert.ok(prompt.includes('callLLM'));
+    assert.ok(prompt.includes('maxRetries = 3'));
+  });
+
+  it('includes detected patterns', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Contains retry logic',
+      informationNeeded: 'How retry works',
+    };
+
+    const prompt = buildSynthesisPrompt('How does retry work?', sampleNodes, plannerInfo);
+
+    assert.ok(prompt.includes('retry'));
+    assert.ok(prompt.includes('pattern') || prompt.includes('Pattern'));
+  });
+
+  it('includes planner reasoning for context', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Contains retry logic implementation',
+      informationNeeded: 'Specific retry mechanism details',
+    };
+
+    const prompt = buildSynthesisPrompt('How does retry work?', sampleNodes, plannerInfo);
+
+    assert.ok(prompt.includes('Contains retry logic implementation'));
+  });
+
+  it('requests specific answer format', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Test',
+      informationNeeded: 'Test',
+    };
+
+    const prompt = buildSynthesisPrompt('test query', sampleNodes, plannerInfo);
+
+    // Should request developer-focused answer
+    assert.ok(prompt.includes('developer') || prompt.includes('technical'));
+    assert.ok(prompt.includes('answer') || prompt.includes('response'));
+  });
+});
+
+// Phase 7.1.7: Synthesis response parser
+describe('parseSynthesisResponse', () => {
+  it('extracts answer from plain text response', () => {
+    const response =
+      'The retry logic works by attempting the operation up to 3 times with exponential backoff.';
+
+    const result = parseSynthesisResponse(response);
+
+    assert.strictEqual(result.answer, response);
+    assert.ok(!result.error);
+  });
+
+  it('extracts answer from JSON response', () => {
+    const response = JSON.stringify({
+      answer: 'The retry logic uses maxRetries = 3',
+      confidence: 'high',
+    });
+
+    const result = parseSynthesisResponse(response);
+
+    assert.strictEqual(result.answer, 'The retry logic uses maxRetries = 3');
+  });
+
+  it('handles markdown code blocks in response', () => {
+    const response = `Here's how it works:
+
+\`\`\`
+The retry logic retries 3 times
+\`\`\`
+
+This ensures reliability.`;
+
+    const result = parseSynthesisResponse(response);
+
+    assert.ok(result.answer.includes('retry logic'));
+  });
+
+  it('returns error indicator for empty response', () => {
+    const result = parseSynthesisResponse('');
+
+    assert.ok(result.error);
+    assert.ok(result.answer.includes('Unable') || result.answer.includes('failed'));
+  });
+
+  it('returns error indicator for whitespace-only response', () => {
+    const result = parseSynthesisResponse('   \n\t  ');
+
+    assert.ok(result.error);
+  });
+});

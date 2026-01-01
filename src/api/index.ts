@@ -22,7 +22,16 @@ import {
   type FuzzyMatchInfo,
 } from './fuzzy.ts';
 import { stat } from 'node:fs/promises';
-import { buildKeywordIndex, preFilter, formatCandidatesForPlanner } from '../query/index.ts';
+import {
+  buildKeywordIndex,
+  preFilter,
+  formatCandidatesForPlanner,
+  buildPlannerPrompt,
+  parsePlannerResponse,
+  buildSynthesisPrompt,
+  parseSynthesisResponse,
+} from '../query/index.ts';
+import { callLLM } from '../generator/index.ts';
 
 /**
  * Pattern-specific usage guidance for detected design patterns.
@@ -1212,25 +1221,92 @@ export function createApp(
       const keywordIndex = buildKeywordIndex(allNodes);
       const candidates = preFilter(query, keywordIndex, allNodes);
 
-      // Step 7.1.3-7.1.7: For now, return pre-filter results
-      // TODO: Add planner LLM call and synthesis in subsequent steps
-      const candidatesFormatted = formatCandidatesForPlanner(candidates, allNodes);
+      // If no generator config, return pre-filter results only (graceful degradation)
+      if (!generatorConfig) {
+        const candidatesFormatted = formatCandidatesForPlanner(candidates, allNodes);
+        res.json({
+          query,
+          candidatesConsidered: candidates.length,
+          candidates: candidates.map((c) => ({
+            path: c.path,
+            score: c.score,
+            matchReasons: c.matchReasons,
+            isHighFanIn: c.isHighFanIn,
+            isModule: c.isModule,
+          })),
+          candidatesFormatted,
+          answer: null,
+          filesUsed: [],
+          reasoning: 'LLM not configured - showing pre-filter results only',
+        });
+        return;
+      }
+
+      // Step 7.1.3: Build planner prompt
+      const plannerPrompt = buildPlannerPrompt(query, candidates, allNodes);
+
+      // Step 7.1.4: Call planner LLM
+      const plannerRawResponse = await callLLM(plannerPrompt, generatorConfig, fetchFn);
+
+      // Parse planner response
+      const candidatePaths = new Set(candidates.map((c) => c.path));
+      const plannerResult = parsePlannerResponse(plannerRawResponse, candidatePaths);
+
+      // Handle planner parsing errors
+      if ('error' in plannerResult) {
+        res.json({
+          query,
+          candidatesConsidered: candidates.length,
+          candidates: candidates.map((c) => ({
+            path: c.path,
+            score: c.score,
+            matchReasons: c.matchReasons,
+            isHighFanIn: c.isHighFanIn,
+            isModule: c.isModule,
+          })),
+          answer: null,
+          filesUsed: [],
+          reasoning: `Planner error: ${plannerResult.error}`,
+        });
+        return;
+      }
+
+      // Step 7.1.5: Fetch prose for selected files
+      const selectedNodes: WikiNode[] = [];
+      for (const filePath of plannerResult.selectedFiles) {
+        let node = allNodes.find((n) => n.id === filePath);
+
+        // Generate prose if missing and config available
+        if (node && !node.prose) {
+          try {
+            const updatedNode = await generateProseForNode(filePath, db, generatorConfig, fetchFn);
+            if (updatedNode) {
+              node = updatedNode;
+            }
+          } catch {
+            // Continue without prose if generation fails
+          }
+        }
+
+        if (node) {
+          selectedNodes.push(node);
+        }
+      }
+
+      // Step 7.1.6: Build synthesis prompt
+      const synthesisPrompt = buildSynthesisPrompt(query, selectedNodes, plannerResult);
+
+      // Step 7.1.7: Call synthesis LLM and return answer
+      const synthesisRawResponse = await callLLM(synthesisPrompt, generatorConfig, fetchFn);
+      const synthesisResult = parseSynthesisResponse(synthesisRawResponse);
 
       res.json({
         query,
         candidatesConsidered: candidates.length,
-        candidates: candidates.map((c) => ({
-          path: c.path,
-          score: c.score,
-          matchReasons: c.matchReasons,
-          isHighFanIn: c.isHighFanIn,
-          isModule: c.isModule,
-        })),
-        candidatesFormatted,
-        // Placeholder - will be filled by LLM in later steps
-        answer: null,
-        filesUsed: [],
-        reasoning: 'Pre-filter only - LLM integration pending',
+        filesUsed: plannerResult.selectedFiles,
+        reasoning: plannerResult.reasoning,
+        answer: synthesisResult.answer,
+        answerError: synthesisResult.error || undefined,
       });
     } catch (error) {
       res.status(500).json({
