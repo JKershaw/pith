@@ -1014,67 +1014,41 @@ When querying `src/extractor/index.ts`:
 
 ---
 
-### Phase 7: Query Planner Architecture
+### Phase 7: Query Planner
 
-**Goal**: Enable intelligent file selection by processing user queries with codebase context.
+**Goal**: Accept natural language queries and return relevant context automatically.
 
-**Rationale**: Currently, callers (like Claude Code) guess which files to request based on path names alone. The Query Planner brings file selection INTO Pith, where the deterministic codebase index enables informed decisions.
+**Rationale**: Currently, callers guess which files to request. The Query Planner brings file selection INTO Pith, where the codebase index enables informed decisions.
 
-**Current flow**:
+**Flow**:
 ```
-User Query → Claude Code (guesses paths) → Pith API (returns prose) → Claude Code → response
+POST /query { query: "How does retry work?" }
+         ↓
+   Planner LLM sees: query + codebase index (summaries, relationships)
+         ↓
+   Planner outputs: prioritized file list
+         ↓
+   Fetch existing prose for selected files (no additional LLM call)
+         ↓
+   Return assembled context
 ```
 
-**Proposed flow**:
-```
-User Query → Pith Query Planner (sees index) → picks files → Pith API → response
-```
+**Key design decisions**:
+- One LLM call (planning), then deterministic assembly
+- Uses existing pre-generated prose - no query-specific generation
+- Intent detection is implicit in planner reasoning, not a separate step
 
-The key insight: LLM is used twice - (1) parse input/select files, (2) synthesize output for user. The change is minimal: just moving file selection into Pith where the knowledge lives.
-
-#### 7.1 Query Planner MVP
+#### 7.1 Query Endpoint
 
 | Step  | What                                                              | Test                                                    |
 | ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.1.1 | New `POST /query` endpoint accepting natural language             | Endpoint accepts `{ query: "..." }` body                |
-| 7.1.2 | Planner receives: query + file summaries + relationship graph     | Planner prompt includes codebase structure              |
-| 7.1.3 | Returns: prioritized file list with relevance reasoning           | Response includes `files: [{ path, relevance, reason }]`|
-| 7.1.4 | Fetches and bundles context for selected files                    | Response includes assembled context                     |
+| 7.1.1 | New `POST /query` endpoint accepting `{ query: "..." }`           | Endpoint accepts natural language query                 |
+| 7.1.2 | Build planner prompt: query + file summaries + relationship graph | Prompt includes codebase structure                      |
+| 7.1.3 | Planner returns file list with relevance scores                   | Response is `{ files: [path, ...], reasoning: "..." }`  |
+| 7.1.4 | Fetch and assemble context from selected files' existing prose    | Returns bundled markdown context                        |
+| 7.1.5 | End-to-end response: query in → context out                       | Single request returns complete answer context          |
 
-**Benchmark target**: Demonstrate file selection matches Control's accuracy
-
-#### 7.2 Intent Detection
-
-| Step  | What                                                              | Test                                                    |
-| ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.2.1 | Classify query intent: architecture, debugging, modification, behavior, relationship | Classification matches human judgment on 15 benchmark tasks |
-| 7.2.2 | Architecture queries → module-level files, entry points           | A1-A3 get correct file sets                             |
-| 7.2.3 | Debugging queries → error handlers, validation paths, related tests| D1-D3 get error-relevant files                          |
-| 7.2.4 | Modification queries → type definitions + full consumer tree      | M1-M3 get all affected files                            |
-| 7.2.5 | Behavior queries → call chains, implementations                   | B1-B3 get complete call paths                           |
-| 7.2.6 | Relationship queries → source + all dependents with call sites    | R1-R3 get full impact                                   |
-
-**Benchmark target**: Each task category gets optimal file selection
-
-#### 7.3 Targeted Context Assembly
-
-| Step  | What                                                              | Test                                                    |
-| ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.3.1 | Generate query-specific prose instead of generic file prose       | "How does retry work?" gets retry-focused context       |
-| 7.3.2 | Synthesize across multiple files for complete answers             | Cross-file call chains assembled coherently             |
-| 7.3.3 | Include only relevant sections from each file                     | Token count ≤ Control average                           |
-| 7.3.4 | Add query-specific "Answer Hints" section                         | Hints point to key lines for the specific question      |
-
-**Benchmark target**: Efficiency 2.1/5 → 4.5/5
-
-#### 7.4 Optimization
-
-| Step  | What                                                              | Test                                                    |
-| ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.4.1 | Use lightweight model for planning (e.g., qwen-turbo)             | Planning cost < 10% of total request cost               |
-| 7.4.2 | Cache file summaries and relationship data in planner context     | Index lookup is O(1), not O(n) LLM calls                |
-| 7.4.3 | Track query patterns for common questions                         | Repeated query types use cached strategies              |
-| 7.4.4 | Measure planning overhead vs context accuracy gain                | Planner adds <2s latency, gains >10% accuracy           |
+**Benchmark target**: File selection matches Control's accuracy; overall 71% → 80%+
 
 ---
 
@@ -1082,12 +1056,16 @@ The key insight: LLM is used twice - (1) parse input/select files, (2) synthesiz
 
 | Metric         | v4 Baseline   | Target       |
 | -------------- | ------------- | ------------ |
-| Overall        | 17.8/25 (71%) | ≥21/25 (84%) |
-| Gap to Control | 6.2 points    | ≤2 points    |
-| Efficiency     | 2.1/5         | ≥4.5/5       |
-| Win rate       | 0/15          | ≥5/15        |
+| Overall        | 17.8/25 (71%) | ≥20/25 (80%) |
+| Gap to Control | 6.2 points    | ≤3 points    |
+| Win rate       | 0/15          | ≥3/15        |
 
-**Why this works**: The Query Planner sees both the user's actual question AND the complete codebase index. This is the information asymmetry that causes the current gap - Claude Code has the question but not the codebase structure, while Pith has the structure but not the question. Phase 7 bridges this gap.
+**Why this works**: The planner sees both the user's question AND the codebase index. This bridges the information asymmetry - callers have questions but not structure, Pith has structure but not questions.
+
+**Future extensions** (not in MVP):
+- Query-specific prose synthesis (additional LLM call per request)
+- Caching common query patterns
+- Lightweight planning model for cost optimization
 
 ---
 
@@ -1143,10 +1121,10 @@ Based on v4 benchmark (2025-12-31), focus on:
 2. **Function-level consumer tracking** (Phase 6.9.2) - Close R3's 12-point gap
 3. **Debugging-specific prose** (Phase 6.9.3) - Improve D1-D3 scores by 4+ points
 4. **Automatic context adaptation** (Phase 6.9.4) - Detect file type and adjust output automatically
-5. **Query Planner** (Phase 7) - Accept user queries, not just file paths; bridge the information asymmetry
+5. **Query Planner** (Phase 7) - One LLM call to select files, then assemble existing prose
 6. **MCP server** (Phase 10) - LLM tool integration after quality gaps closed
 
-**Design principle**: Pith should be a smart context provider that "just works", not a data store requiring the caller to specify what they need. The Query Planner (Phase 7) is the logical evolution of this principle - Pith should understand what the user needs, not require them to specify file paths.
+**Design principle**: Pith should be a smart context provider that "just works". The Query Planner is the logical evolution - accept questions, not file paths.
 
 Skip for now:
 
