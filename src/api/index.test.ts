@@ -1569,6 +1569,785 @@ return app;`,
         'Should reference test file'
       );
     });
+
+    describe('Phase 6.9.1: Smarter Default Output', () => {
+      it('defaults to compact output for large files with simple functions', async () => {
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Add a file with 6+ functions (large file)
+        const largeFileNode: WikiNode = {
+          id: 'src/utils/helpers.ts',
+          type: 'file',
+          path: 'src/utils/helpers.ts',
+          name: 'helpers.ts',
+          metadata: {
+            lines: 200,
+            commits: 10,
+            lastModified: new Date('2024-12-01'),
+            authors: ['alice'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 3, // Low fan-in, not a critical file
+          },
+          edges: [],
+          raw: {
+            functions: [
+              {
+                name: 'formatDate',
+                signature: 'function formatDate(date: Date): string',
+                startLine: 10,
+                endLine: 15,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function formatDate(date: Date): string {\n  return date.toISOString();\n}',
+                keyStatements: [{ line: 11, text: 'date.toISOString()', category: 'call' }],
+              },
+              {
+                name: 'formatTime',
+                signature: 'function formatTime(date: Date): string',
+                startLine: 20,
+                endLine: 25,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function formatTime(date: Date): string {\n  return date.toTimeString();\n}',
+                keyStatements: [{ line: 21, text: 'date.toTimeString()', category: 'call' }],
+              },
+              {
+                name: 'capitalize',
+                signature: 'function capitalize(str: string): string',
+                startLine: 30,
+                endLine: 35,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function capitalize(str: string): string {\n  return str.charAt(0).toUpperCase() + str.slice(1);\n}',
+                keyStatements: [
+                  { line: 31, text: 'str.charAt(0).toUpperCase()', category: 'call' },
+                ],
+              },
+              {
+                name: 'trim',
+                signature: 'function trim(str: string): string',
+                startLine: 40,
+                endLine: 45,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function trim(str: string): string {\n  return str.trim();\n}',
+                keyStatements: [{ line: 41, text: 'str.trim()', category: 'call' }],
+              },
+              {
+                name: 'toLowerCase',
+                signature: 'function toLowerCase(str: string): string',
+                startLine: 50,
+                endLine: 55,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function toLowerCase(str: string): string {\n  return str.toLowerCase();\n}',
+                keyStatements: [{ line: 51, text: 'str.toLowerCase()', category: 'call' }],
+              },
+              {
+                name: 'toUpperCase',
+                signature: 'function toUpperCase(str: string): string',
+                startLine: 60,
+                endLine: 65,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function toUpperCase(str: string): string {\n  return str.toUpperCase();\n}',
+                keyStatements: [{ line: 61, text: 'str.toUpperCase()', category: 'call' }],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(largeFileNode);
+
+        const context = await bundleContext(db, ['src/utils/helpers.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // Should show compact format (signature as inline code, not full snippet)
+        assert.ok(markdown.includes('formatDate'), 'Should show function name');
+        assert.ok(markdown.includes('10-15'), 'Should show line numbers');
+
+        // Should show signature inline with backticks
+        assert.ok(
+          markdown.includes('`function formatDate(date: Date): string`'),
+          'Should show signature as inline code'
+        );
+
+        // Should NOT include full code snippet in a code block for simple functions
+        const codeBlockPattern = /```typescript\nfunction formatDate\(date: Date\): string \{/;
+        assert.ok(
+          !codeBlockPattern.test(markdown),
+          'Should not show full code snippet for simple functions in large files'
+        );
+
+        // Should still show key statements
+        assert.ok(markdown.includes('Key statements'), 'Should show key statements section');
+        assert.ok(markdown.includes('date.toISOString()'), 'Should show key statement');
+      });
+
+      it('auto-expands small files with <5 functions', async () => {
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Add a small file with 3 functions
+        const smallFileNode: WikiNode = {
+          id: 'src/utils/small.ts',
+          type: 'file',
+          path: 'src/utils/small.ts',
+          name: 'small.ts',
+          metadata: {
+            lines: 50,
+            commits: 3,
+            lastModified: new Date('2024-12-01'),
+            authors: ['bob'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 2, // Low fan-in
+          },
+          edges: [],
+          raw: {
+            functions: [
+              {
+                name: 'add',
+                signature: 'function add(a: number, b: number): number',
+                startLine: 5,
+                endLine: 10,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function add(a: number, b: number): number {\n  return a + b;\n}',
+                keyStatements: [{ line: 6, text: 'return a + b', category: 'return' }],
+              },
+              {
+                name: 'subtract',
+                signature: 'function subtract(a: number, b: number): number',
+                startLine: 15,
+                endLine: 20,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function subtract(a: number, b: number): number {\n  return a - b;\n}',
+                keyStatements: [{ line: 16, text: 'return a - b', category: 'return' }],
+              },
+              {
+                name: 'multiply',
+                signature: 'function multiply(a: number, b: number): number',
+                startLine: 25,
+                endLine: 30,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function multiply(a: number, b: number): number {\n  return a * b;\n}',
+                keyStatements: [{ line: 26, text: 'return a * b', category: 'return' }],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(smallFileNode);
+
+        const context = await bundleContext(db, ['src/utils/small.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // Small files should show full code snippets
+        assert.ok(
+          markdown.includes('```typescript\nfunction add(a: number, b: number): number {'),
+          'Small files should show full code snippet'
+        );
+        assert.ok(markdown.includes('return a + b'), 'Should show full function body');
+      });
+
+      it('expands high fan-in files (fanIn > 5)', async () => {
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Add a high fan-in file with 6 functions
+        const highFanInNode: WikiNode = {
+          id: 'src/core/types.ts',
+          type: 'file',
+          path: 'src/core/types.ts',
+          name: 'types.ts',
+          metadata: {
+            lines: 150,
+            commits: 20,
+            lastModified: new Date('2024-12-01'),
+            authors: ['alice'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 8, // High fan-in - widely used
+          },
+          edges: [],
+          raw: {
+            functions: [
+              {
+                name: 'validateUser',
+                signature: 'function validateUser(user: User): boolean',
+                startLine: 10,
+                endLine: 20,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function validateUser(user: User): boolean {\n  return user.id && user.name;\n}',
+                keyStatements: [{ line: 11, text: 'user.id && user.name', category: 'condition' }],
+              },
+              {
+                name: 'createUser',
+                signature: 'function createUser(data: UserData): User',
+                startLine: 25,
+                endLine: 35,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function createUser(data: UserData): User {\n  return { id: uuid(), ...data };\n}',
+                keyStatements: [{ line: 26, text: 'uuid()', category: 'call' }],
+              },
+              {
+                name: 'deleteUser',
+                signature: 'function deleteUser(id: string): void',
+                startLine: 40,
+                endLine: 50,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function deleteUser(id: string): void {\n  users.delete(id);\n}',
+                keyStatements: [{ line: 41, text: 'users.delete(id)', category: 'call' }],
+              },
+              {
+                name: 'updateUser',
+                signature: 'function updateUser(id: string, data: Partial<User>): User',
+                startLine: 55,
+                endLine: 65,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function updateUser(id: string, data: Partial<User>): User {\n  return { ...users.get(id), ...data };\n}',
+                keyStatements: [{ line: 56, text: 'users.get(id)', category: 'call' }],
+              },
+              {
+                name: 'findUser',
+                signature: 'function findUser(query: Query): User | null',
+                startLine: 70,
+                endLine: 80,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function findUser(query: Query): User | null {\n  return users.find(query) ?? null;\n}',
+                keyStatements: [{ line: 71, text: 'users.find(query)', category: 'call' }],
+              },
+              {
+                name: 'listUsers',
+                signature: 'function listUsers(): User[]',
+                startLine: 85,
+                endLine: 95,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function listUsers(): User[] {\n  return Array.from(users.values());\n}',
+                keyStatements: [{ line: 86, text: 'Array.from(users.values())', category: 'call' }],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(highFanInNode);
+
+        const context = await bundleContext(db, ['src/core/types.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // High fan-in files should show full code snippets
+        assert.ok(
+          markdown.includes('```typescript\nfunction validateUser(user: User): boolean {'),
+          'High fan-in files should show full code snippet'
+        );
+        assert.ok(
+          markdown.includes('return user.id && user.name'),
+          'Should show full function body for high fan-in files'
+        );
+      });
+
+      it('expands functions with detected patterns', async () => {
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Add a file with a function that has a retry pattern
+        // Must have 5+ functions to avoid small file auto-expansion
+        const fileWithPattern: WikiNode = {
+          id: 'src/api/fetch.ts',
+          type: 'file',
+          path: 'src/api/fetch.ts',
+          name: 'fetch.ts',
+          metadata: {
+            lines: 150,
+            commits: 5,
+            lastModified: new Date('2024-12-01'),
+            authors: ['alice'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 3, // Low fan-in
+          },
+          edges: [],
+          raw: {
+            patterns: [
+              {
+                name: 'retry',
+                confidence: 'high',
+                evidence: ['line 15: maxRetries = 3', 'line 20: exponential backoff'],
+                location: 'src/api/fetch.ts:fetchWithRetry',
+              },
+            ],
+            functions: [
+              {
+                name: 'fetchWithRetry',
+                signature: 'async function fetchWithRetry(url: string): Promise<Response>',
+                startLine: 10,
+                endLine: 30,
+                isAsync: true,
+                isExported: true,
+                codeSnippet:
+                  'async function fetchWithRetry(url: string): Promise<Response> {\n  const maxRetries = 3;\n  for (let i = 0; i < maxRetries; i++) {\n    try {\n      return await fetch(url);\n    } catch (e) {\n      await sleep(Math.pow(2, i) * 1000);\n    }\n  }\n}',
+                keyStatements: [
+                  { line: 15, text: 'maxRetries = 3', category: 'config' },
+                  { line: 20, text: 'Math.pow(2, i) * 1000', category: 'math' },
+                ],
+              },
+              {
+                name: 'simpleGet',
+                signature: 'function simpleGet(url: string): Promise<Response>',
+                startLine: 35,
+                endLine: 40,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function simpleGet(url: string): Promise<Response> {\n  return fetch(url);\n}',
+                keyStatements: [{ line: 36, text: 'fetch(url)', category: 'call' }],
+              },
+              {
+                name: 'simplePost',
+                signature: 'function simplePost(url: string, data: unknown): Promise<Response>',
+                startLine: 45,
+                endLine: 50,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function simplePost(url: string, data: unknown): Promise<Response> {\n  return fetch(url, { method: "POST", body: JSON.stringify(data) });\n}',
+                keyStatements: [
+                  { line: 46, text: 'fetch(url, { method: "POST" })', category: 'call' },
+                ],
+              },
+              {
+                name: 'simplePut',
+                signature: 'function simplePut(url: string, data: unknown): Promise<Response>',
+                startLine: 55,
+                endLine: 60,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function simplePut(url: string, data: unknown): Promise<Response> {\n  return fetch(url, { method: "PUT", body: JSON.stringify(data) });\n}',
+                keyStatements: [
+                  { line: 56, text: 'fetch(url, { method: "PUT" })', category: 'call' },
+                ],
+              },
+              {
+                name: 'simpleDelete',
+                signature: 'function simpleDelete(url: string): Promise<Response>',
+                startLine: 65,
+                endLine: 70,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function simpleDelete(url: string): Promise<Response> {\n  return fetch(url, { method: "DELETE" });\n}',
+                keyStatements: [
+                  { line: 66, text: 'fetch(url, { method: "DELETE" })', category: 'call' },
+                ],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(fileWithPattern);
+
+        const context = await bundleContext(db, ['src/api/fetch.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // Function with pattern should show full code snippet
+        assert.ok(
+          markdown.includes(
+            '```typescript\nasync function fetchWithRetry(url: string): Promise<Response> {'
+          ),
+          'Function with detected pattern should show full code snippet'
+        );
+        assert.ok(markdown.includes('maxRetries = 3'), 'Should show retry logic in full snippet');
+
+        // Simple function without patterns should use compact format
+        // Check that simpleGet uses compact format (signature as inline code)
+        assert.ok(
+          markdown.includes('`function simpleGet(url: string): Promise<Response>`'),
+          'Simple function should show compact format with inline signature'
+        );
+      });
+
+      it('does not false-positive match similar function names for patterns', async () => {
+        // Bug: substring matching could cause 'foo' to match 'fooBar' pattern
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Create a file with a pattern on 'fetchWithRetry' but also has 'fetch' function
+        const fileWithSimilarNames: WikiNode = {
+          id: 'src/api/network.ts',
+          type: 'file',
+          path: 'src/api/network.ts',
+          name: 'network.ts',
+          metadata: {
+            lines: 200,
+            commits: 5,
+            lastModified: new Date('2024-12-01'),
+            authors: ['alice'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 2, // Low fan-in - won't trigger expand
+          },
+          edges: [],
+          raw: {
+            patterns: [
+              {
+                name: 'retry',
+                confidence: 'high',
+                evidence: ['line 50: maxRetries = 3'],
+                // Pattern is on 'fetchWithRetry', NOT on 'fetch'
+                location: 'src/api/network.ts:fetchWithRetry',
+              },
+            ],
+            functions: [
+              // This function name is a PREFIX of the pattern's function name
+              // It should NOT be expanded just because 'fetch' is in 'fetchWithRetry'
+              {
+                name: 'fetch',
+                signature: 'function fetch(url: string): Promise<Response>',
+                startLine: 10,
+                endLine: 15,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function fetch(url: string): Promise<Response> {\n  return globalFetch(url);\n}',
+                keyStatements: [],
+              },
+              // This function HAS the pattern - should be expanded
+              {
+                name: 'fetchWithRetry',
+                signature: 'async function fetchWithRetry(url: string): Promise<Response>',
+                startLine: 45,
+                endLine: 70,
+                isAsync: true,
+                isExported: true,
+                codeSnippet:
+                  'async function fetchWithRetry(url: string): Promise<Response> {\n  const maxRetries = 3;\n  // retry logic...\n}',
+                keyStatements: [{ line: 50, text: 'maxRetries = 3', category: 'config' }],
+              },
+              // Filler functions to exceed small file threshold
+              {
+                name: 'post',
+                signature: 'function post(): void',
+                startLine: 80,
+                endLine: 82,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function post(): void {}',
+                keyStatements: [],
+              },
+              {
+                name: 'put',
+                signature: 'function put(): void',
+                startLine: 85,
+                endLine: 87,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function put(): void {}',
+                keyStatements: [],
+              },
+              {
+                name: 'del',
+                signature: 'function del(): void',
+                startLine: 90,
+                endLine: 92,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function del(): void {}',
+                keyStatements: [],
+              },
+              {
+                name: 'patch',
+                signature: 'function patch(): void',
+                startLine: 95,
+                endLine: 97,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function patch(): void {}',
+                keyStatements: [],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(fileWithSimilarNames);
+
+        const context = await bundleContext(db, ['src/api/network.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // fetchWithRetry SHOULD be expanded (has the pattern)
+        assert.ok(
+          markdown.includes('```typescript\nasync function fetchWithRetry'),
+          'Function with pattern should be expanded'
+        );
+
+        // 'fetch' should NOT be expanded - it's a different function!
+        // The pattern is on 'fetchWithRetry', not 'fetch'
+        assert.ok(
+          markdown.includes('`function fetch(url: string): Promise<Response>`'),
+          'Function "fetch" should use compact format - pattern is on "fetchWithRetry", not "fetch"'
+        );
+
+        // Verify we're NOT showing fetch as a code block
+        assert.ok(
+          !markdown.includes('```typescript\nfunction fetch(url: string)'),
+          'Function "fetch" should NOT be expanded just because "fetch" is a prefix of "fetchWithRetry"'
+        );
+      });
+
+      it('expands functions with error paths', async () => {
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Add a file with a function that has error paths
+        // Must have 5+ functions to avoid small file auto-expansion
+        const fileWithErrors: WikiNode = {
+          id: 'src/validation/check.ts',
+          type: 'file',
+          path: 'src/validation/check.ts',
+          name: 'check.ts',
+          metadata: {
+            lines: 150,
+            commits: 7,
+            lastModified: new Date('2024-12-01'),
+            authors: ['bob'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 2, // Low fan-in
+          },
+          edges: [],
+          raw: {
+            functions: [
+              {
+                name: 'validateInput',
+                signature: 'function validateInput(input: string): boolean',
+                startLine: 10,
+                endLine: 25,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function validateInput(input: string): boolean {\n  if (!input) throw new Error("Required");\n  if (input.length < 3) return false;\n  return true;\n}',
+                keyStatements: [
+                  { line: 11, text: 'if (!input)', category: 'condition' },
+                  { line: 12, text: 'input.length < 3', category: 'condition' },
+                ],
+                errorPaths: [
+                  {
+                    type: 'guard',
+                    line: 11,
+                    condition: '!input',
+                    action: 'throws Error("Required")',
+                  },
+                  {
+                    type: 'early-return',
+                    line: 12,
+                    condition: 'input.length < 3',
+                    action: 'returns false',
+                  },
+                ],
+              },
+              {
+                name: 'simpleCheck',
+                signature: 'function simpleCheck(value: boolean): boolean',
+                startLine: 30,
+                endLine: 35,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function simpleCheck(value: boolean): boolean {\n  return value;\n}',
+                keyStatements: [{ line: 31, text: 'return value', category: 'return' }],
+              },
+              {
+                name: 'isPositive',
+                signature: 'function isPositive(num: number): boolean',
+                startLine: 40,
+                endLine: 45,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function isPositive(num: number): boolean {\n  return num > 0;\n}',
+                keyStatements: [{ line: 41, text: 'num > 0', category: 'condition' }],
+              },
+              {
+                name: 'isNegative',
+                signature: 'function isNegative(num: number): boolean',
+                startLine: 50,
+                endLine: 55,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function isNegative(num: number): boolean {\n  return num < 0;\n}',
+                keyStatements: [{ line: 51, text: 'num < 0', category: 'condition' }],
+              },
+              {
+                name: 'isZero',
+                signature: 'function isZero(num: number): boolean',
+                startLine: 60,
+                endLine: 65,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function isZero(num: number): boolean {\n  return num === 0;\n}',
+                keyStatements: [{ line: 61, text: 'num === 0', category: 'condition' }],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(fileWithErrors);
+
+        const context = await bundleContext(db, ['src/validation/check.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // Function with error paths should show full code snippet
+        assert.ok(
+          markdown.includes('```typescript\nfunction validateInput(input: string): boolean {'),
+          'Function with error paths should show full code snippet'
+        );
+        assert.ok(
+          markdown.includes('throw new Error("Required")'),
+          'Should show error handling in full snippet'
+        );
+
+        // Simple function without error paths should use compact format
+        assert.ok(
+          markdown.includes('`function simpleCheck(value: boolean): boolean`'),
+          'Simple function should show compact format with inline signature'
+        );
+      });
+
+      it('handles multi-line signatures in compact mode by showing only first line', async () => {
+        // Bug fix test: real extraction produces multi-line signatures (full function body)
+        // Compact mode should extract and show only the first line (actual signature)
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Simulate real extraction data where signature = full function body
+        const fileWithMultiLineSig: WikiNode = {
+          id: 'src/utils/multiline.ts',
+          type: 'file',
+          path: 'src/utils/multiline.ts',
+          name: 'multiline.ts',
+          metadata: {
+            lines: 200,
+            commits: 5,
+            lastModified: new Date('2024-12-01'),
+            authors: ['alice'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 2, // Low fan-in
+          },
+          edges: [],
+          raw: {
+            functions: [
+              // 6 functions to exceed small file threshold
+              {
+                name: 'func1',
+                // Multi-line signature like real extraction produces
+                signature: `export function func1(a: string, b: number): string {
+  const result = a + b;
+  return result.toString();
+}`,
+                startLine: 10,
+                endLine: 15,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: `export function func1(a: string, b: number): string {
+  const result = a + b;
+  return result.toString();
+}`,
+                keyStatements: [],
+              },
+              {
+                name: 'func2',
+                signature: 'function func2(): void',
+                startLine: 20,
+                endLine: 22,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function func2(): void { }',
+                keyStatements: [],
+              },
+              {
+                name: 'func3',
+                signature: 'function func3(): void',
+                startLine: 25,
+                endLine: 27,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function func3(): void { }',
+                keyStatements: [],
+              },
+              {
+                name: 'func4',
+                signature: 'function func4(): void',
+                startLine: 30,
+                endLine: 32,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function func4(): void { }',
+                keyStatements: [],
+              },
+              {
+                name: 'func5',
+                signature: 'function func5(): void',
+                startLine: 35,
+                endLine: 37,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function func5(): void { }',
+                keyStatements: [],
+              },
+              {
+                name: 'func6',
+                signature: 'function func6(): void',
+                startLine: 40,
+                endLine: 42,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function func6(): void { }',
+                keyStatements: [],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(fileWithMultiLineSig);
+
+        const context = await bundleContext(db, ['src/utils/multiline.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // Should show only the first line of signature in compact mode
+        // NOT the full multi-line body
+        assert.ok(
+          markdown.includes('`export function func1(a: string, b: number): string {`'),
+          'Compact mode should show only first line of multi-line signature'
+        );
+        assert.ok(
+          !markdown.includes('`export function func1(a: string, b: number): string {\n'),
+          'Compact mode should NOT include newlines in inline signature'
+        );
+
+        // Verify we're not showing full code as a code block for this function
+        const fullCodeBlock =
+          /```typescript\nexport function func1\(a: string, b: number\): string \{[\s\S]*?```/;
+        assert.ok(
+          !fullCodeBlock.test(markdown),
+          'Compact mode should NOT show full code block for simple large-file function'
+        );
+      });
+    });
   });
 
   describe('createApp', () => {
@@ -2339,6 +3118,262 @@ describe('Change Impact API - Phase 6.6.5', () => {
         'Should show dependent function or file'
       );
       assert.ok(markdown.includes('User'), 'Should show used export');
+    });
+  });
+});
+
+describe('Function Consumers API - Phase 6.9.2', () => {
+  let client: MangoClient;
+
+  beforeEach(async () => {
+    client = new MangoClient('./data/consumers-test');
+    await client.connect();
+    const db = client.db('pith');
+    const extracted = db.collection<import('../extractor/ast.ts').ExtractedFile>('extracted');
+
+    // Set up test data with extracted files containing symbol usages
+    const testFiles: import('../extractor/ast.ts').ExtractedFile[] = [
+      // auth.ts with exported functions
+      {
+        path: 'src/auth.ts',
+        lines: 39,
+        imports: [{ from: './types.ts', names: ['User', 'Session'], isTypeOnly: true }],
+        exports: [
+          { name: 'createSession', kind: 'function', isReExport: false },
+          { name: 'validateToken', kind: 'function', isReExport: false },
+        ],
+        functions: [
+          {
+            name: 'createSession',
+            signature: 'async function createSession(user: User): Promise<Session>',
+            params: [],
+            returnType: 'Promise<Session>',
+            isAsync: true,
+            isExported: true,
+            isDefaultExport: false,
+            startLine: 9,
+            endLine: 19,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            errorPaths: [],
+          },
+          {
+            name: 'validateToken',
+            signature: 'function validateToken(token: string): boolean',
+            params: [],
+            returnType: 'boolean',
+            isAsync: false,
+            isExported: true,
+            isDefaultExport: false,
+            startLine: 26,
+            endLine: 29,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            errorPaths: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      },
+      // controller.ts that uses auth functions
+      {
+        path: 'src/controller.ts',
+        lines: 54,
+        imports: [
+          { from: './auth.ts', names: ['createSession', 'validateToken'], isTypeOnly: false },
+        ],
+        exports: [],
+        functions: [],
+        classes: [],
+        interfaces: [],
+        symbolUsages: [
+          {
+            symbol: 'createSession',
+            sourceFile: './auth.ts',
+            usageLines: [23],
+            usageType: 'call',
+          },
+          {
+            symbol: 'validateToken',
+            sourceFile: './auth.ts',
+            usageLines: [39],
+            usageType: 'call',
+          },
+        ],
+      },
+      // auth.test.ts that uses auth functions
+      {
+        path: 'src/auth.test.ts',
+        lines: 100,
+        imports: [{ from: './auth.ts', names: ['validateToken'], isTypeOnly: false }],
+        exports: [],
+        functions: [],
+        classes: [],
+        interfaces: [],
+        symbolUsages: [
+          {
+            symbol: 'validateToken',
+            sourceFile: './auth.ts',
+            usageLines: [10, 15, 20],
+            usageType: 'call',
+          },
+        ],
+      },
+    ];
+
+    for (const file of testFiles) {
+      await extracted.insertOne(file);
+    }
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await rm('./data/consumers-test', { recursive: true, force: true });
+  });
+
+  describe('GET /consumers/:file/:function', () => {
+    it('returns consumers for exported function', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(
+          `http://localhost:${port}/consumers/src/auth.ts/createSession`
+        );
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.functionName, 'createSession');
+        assert.strictEqual(data.sourceFile, 'src/auth.ts');
+        assert.strictEqual(data.totalConsumers, 1);
+        assert.strictEqual(data.productionConsumers.length, 1);
+        assert.strictEqual(data.testConsumers.length, 0);
+
+        const consumer = data.productionConsumers[0];
+        assert.strictEqual(consumer.file, 'src/controller.ts');
+        assert.strictEqual(consumer.line, 23);
+        assert.strictEqual(consumer.isTest, false);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('distinguishes production vs test consumers', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(
+          `http://localhost:${port}/consumers/src/auth.ts/validateToken`
+        );
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.functionName, 'validateToken');
+        assert.strictEqual(data.totalConsumers, 4); // 1 production + 3 test
+        assert.strictEqual(data.productionConsumers.length, 1);
+        assert.strictEqual(data.testConsumers.length, 3);
+
+        // Check production consumer
+        const prodConsumer = data.productionConsumers[0];
+        assert.strictEqual(prodConsumer.file, 'src/controller.ts');
+        assert.strictEqual(prodConsumer.line, 39);
+        assert.strictEqual(prodConsumer.isTest, false);
+
+        // Check test consumers
+        const testConsumers = data.testConsumers;
+        assert.strictEqual(testConsumers[0].file, 'src/auth.test.ts');
+        assert.strictEqual(testConsumers[0].line, 10);
+        assert.strictEqual(testConsumers[0].isTest, true);
+        assert.strictEqual(testConsumers[1].line, 15);
+        assert.strictEqual(testConsumers[2].line, 20);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('returns 404 for non-existent function', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(
+          `http://localhost:${port}/consumers/src/auth.ts/nonExistentFunction`
+        );
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 404);
+        assert.strictEqual(data.error, 'NOT_FOUND');
+        assert.ok(data.message.includes('Function not found'));
+      } finally {
+        server.close();
+      }
+    });
+
+    it('returns empty consumers for function with no usages', async () => {
+      const db = client.db('pith');
+      const extracted = db.collection<import('../extractor/ast.ts').ExtractedFile>('extracted');
+
+      // Add a function that's exported but never called
+      await extracted.insertOne({
+        path: 'src/unused.ts',
+        lines: 20,
+        imports: [],
+        exports: [{ name: 'unusedFunction', kind: 'function', isReExport: false }],
+        functions: [
+          {
+            name: 'unusedFunction',
+            signature: 'function unusedFunction(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: true,
+            isDefaultExport: false,
+            startLine: 5,
+            endLine: 10,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            errorPaths: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      });
+
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(
+          `http://localhost:${port}/consumers/src/unused.ts/unusedFunction`
+        );
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.functionName, 'unusedFunction');
+        assert.strictEqual(data.totalConsumers, 0);
+        assert.strictEqual(data.productionConsumers.length, 0);
+        assert.strictEqual(data.testConsumers.length, 0);
+      } finally {
+        server.close();
+      }
     });
   });
 });

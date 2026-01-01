@@ -2937,3 +2937,284 @@ describe('Symbol-Level Import Tracking - Phase 6.8.1', () => {
     });
   });
 });
+
+// Phase 6.9.2: Function-Level Consumer Tracking Tests
+describe('Function-Level Consumer Tracking - Phase 6.9.2', () => {
+  describe('buildFunctionConsumers', () => {
+    it('finds call sites for exported functions across files', async () => {
+      // Test: createSession is called in controller.ts at line 23
+      const authFile: ExtractedFile = {
+        path: 'src/auth.ts',
+        lines: 39,
+        imports: [{ from: './types.ts', names: ['User', 'Session'], isTypeOnly: true }],
+        exports: [
+          { name: 'createSession', kind: 'function', isReExport: false },
+          { name: 'validateToken', kind: 'function', isReExport: false },
+        ],
+        functions: [
+          {
+            name: 'createSession',
+            signature: 'async function createSession(user: User): Promise<Session>',
+            params: [],
+            returnType: 'Promise<Session>',
+            isAsync: true,
+            isExported: true,
+            isDefaultExport: false,
+            startLine: 9,
+            endLine: 19,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: ['generateToken'],
+            calledBy: [],
+            errorPaths: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      };
+
+      const controllerFile: ExtractedFile = {
+        path: 'src/controller.ts',
+        lines: 54,
+        imports: [
+          { from: './service.ts', names: ['registerUser', 'updateUserName'], isTypeOnly: false },
+          { from: './auth.ts', names: ['createSession', 'validateToken'], isTypeOnly: false },
+          { from: './types.ts', names: ['User', 'Session'], isTypeOnly: true },
+        ],
+        exports: [
+          { name: 'handleRegister', kind: 'function', isReExport: false },
+          { name: 'handleUpdateProfile', kind: 'function', isReExport: false },
+        ],
+        functions: [
+          {
+            name: 'handleRegister',
+            signature:
+              'async function handleRegister(...): Promise<{ user: User; session: Session }>',
+            params: [],
+            returnType: 'Promise<{ user: User; session: Session }>',
+            isAsync: true,
+            isExported: true,
+            isDefaultExport: false,
+            startLine: 13,
+            endLine: 26,
+            codeSnippet: 'const session = await createSession(user);',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            errorPaths: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+        symbolUsages: [
+          {
+            symbol: 'createSession',
+            sourceFile: './auth.ts',
+            usageLines: [23],
+            usageType: 'call',
+          },
+        ],
+      };
+
+      // Build function consumers
+      const { buildFunctionConsumers } = await import('./index.ts');
+      const consumers = buildFunctionConsumers([authFile, controllerFile]);
+
+      // Should find createSession with consumer in controller.ts
+      const createSessionConsumers = consumers.get('src/auth.ts:createSession');
+      assert.ok(createSessionConsumers);
+      assert.strictEqual(createSessionConsumers.functionName, 'createSession');
+      assert.strictEqual(createSessionConsumers.sourceFile, 'src/auth.ts');
+      assert.strictEqual(createSessionConsumers.totalConsumers, 1);
+      assert.strictEqual(createSessionConsumers.productionConsumers.length, 1);
+      assert.strictEqual(createSessionConsumers.testConsumers.length, 0);
+
+      const consumer = createSessionConsumers.productionConsumers[0];
+      assert.ok(consumer);
+      assert.strictEqual(consumer.file, 'src/controller.ts');
+      assert.strictEqual(consumer.line, 23);
+      assert.strictEqual(consumer.isTest, false);
+    });
+
+    it('distinguishes production vs test consumers', async () => {
+      const authFile: ExtractedFile = {
+        path: 'src/auth.ts',
+        lines: 39,
+        imports: [],
+        exports: [{ name: 'validateToken', kind: 'function', isReExport: false }],
+        functions: [
+          {
+            name: 'validateToken',
+            signature: 'function validateToken(token: string): boolean',
+            params: [],
+            returnType: 'boolean',
+            isAsync: false,
+            isExported: true,
+            isDefaultExport: false,
+            startLine: 26,
+            endLine: 29,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            errorPaths: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      };
+
+      const controllerFile: ExtractedFile = {
+        path: 'src/controller.ts',
+        lines: 54,
+        imports: [{ from: './auth.ts', names: ['validateToken'], isTypeOnly: false }],
+        exports: [],
+        functions: [],
+        classes: [],
+        interfaces: [],
+        symbolUsages: [
+          {
+            symbol: 'validateToken',
+            sourceFile: './auth.ts',
+            usageLines: [39],
+            usageType: 'call',
+          },
+        ],
+      };
+
+      const testFile: ExtractedFile = {
+        path: 'src/auth.test.ts',
+        lines: 100,
+        imports: [{ from: './auth.ts', names: ['validateToken'], isTypeOnly: false }],
+        exports: [],
+        functions: [],
+        classes: [],
+        interfaces: [],
+        symbolUsages: [
+          {
+            symbol: 'validateToken',
+            sourceFile: './auth.ts',
+            usageLines: [10, 15, 20],
+            usageType: 'call',
+          },
+        ],
+      };
+
+      const { buildFunctionConsumers } = await import('./index.ts');
+      const consumers = buildFunctionConsumers([authFile, controllerFile, testFile]);
+
+      const validateTokenConsumers = consumers.get('src/auth.ts:validateToken');
+      assert.ok(validateTokenConsumers);
+      assert.strictEqual(validateTokenConsumers.totalConsumers, 4); // 1 production + 3 test
+      assert.strictEqual(validateTokenConsumers.productionConsumers.length, 1);
+      assert.strictEqual(validateTokenConsumers.testConsumers.length, 3);
+
+      // Check production consumer
+      const prodConsumer = validateTokenConsumers.productionConsumers[0];
+      assert.ok(prodConsumer);
+      assert.strictEqual(prodConsumer.file, 'src/controller.ts');
+      assert.strictEqual(prodConsumer.line, 39);
+      assert.strictEqual(prodConsumer.isTest, false);
+
+      // Check test consumers
+      const testConsumers = validateTokenConsumers.testConsumers;
+      assert.strictEqual(testConsumers[0]?.file, 'src/auth.test.ts');
+      assert.strictEqual(testConsumers[0]?.line, 10);
+      assert.strictEqual(testConsumers[0]?.isTest, true);
+      assert.strictEqual(testConsumers[1]?.line, 15);
+      assert.strictEqual(testConsumers[2]?.line, 20);
+    });
+
+    it('handles functions with no consumers', async () => {
+      const authFile: ExtractedFile = {
+        path: 'src/auth.ts',
+        lines: 39,
+        imports: [],
+        exports: [{ name: 'createSession', kind: 'function', isReExport: false }],
+        functions: [
+          {
+            name: 'createSession',
+            signature: 'async function createSession(user: User): Promise<Session>',
+            params: [],
+            returnType: 'Promise<Session>',
+            isAsync: true,
+            isExported: true,
+            isDefaultExport: false,
+            startLine: 9,
+            endLine: 19,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            errorPaths: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      };
+
+      const { buildFunctionConsumers } = await import('./index.ts');
+      const consumers = buildFunctionConsumers([authFile]);
+
+      const createSessionConsumers = consumers.get('src/auth.ts:createSession');
+      assert.ok(createSessionConsumers);
+      assert.strictEqual(createSessionConsumers.totalConsumers, 0);
+      assert.strictEqual(createSessionConsumers.productionConsumers.length, 0);
+      assert.strictEqual(createSessionConsumers.testConsumers.length, 0);
+    });
+
+    it('only tracks exported functions', async () => {
+      const authFile: ExtractedFile = {
+        path: 'src/auth.ts',
+        lines: 39,
+        imports: [],
+        exports: [{ name: 'createSession', kind: 'function', isReExport: false }],
+        functions: [
+          {
+            name: 'createSession',
+            signature: 'async function createSession(user: User): Promise<Session>',
+            params: [],
+            returnType: 'Promise<Session>',
+            isAsync: true,
+            isExported: true,
+            isDefaultExport: false,
+            startLine: 9,
+            endLine: 19,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: ['generateToken'],
+            calledBy: [],
+            errorPaths: [],
+          },
+          {
+            name: 'generateToken',
+            signature: 'function generateToken(): string',
+            params: [],
+            returnType: 'string',
+            isAsync: false,
+            isExported: false,
+            isDefaultExport: false,
+            startLine: 31,
+            endLine: 33,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            errorPaths: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      };
+
+      const { buildFunctionConsumers } = await import('./index.ts');
+      const consumers = buildFunctionConsumers([authFile]);
+
+      // Should have entry for createSession (exported)
+      assert.ok(consumers.has('src/auth.ts:createSession'));
+
+      // Should NOT have entry for generateToken (not exported)
+      assert.ok(!consumers.has('src/auth.ts:generateToken'));
+    });
+  });
+});

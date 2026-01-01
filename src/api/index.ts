@@ -5,10 +5,12 @@ import {
   findAffectedFunctions,
   getTestFilesForImpact,
   getUsedSymbolsFromFile,
+  buildFunctionConsumers,
   type ImpactTree,
   type AffectedFunction,
   type TestFileImpact,
 } from '../builder/index.ts';
+import type { ExtractedFile } from '../extractor/ast.ts';
 import type { GeneratorConfig } from '../generator/index.ts';
 import { generateProseForNode } from '../generator/index.ts';
 import type { ErrorPath } from '../extractor/errors.ts';
@@ -197,6 +199,60 @@ export async function bundleContext(
     depth: maxDepth,
     fuzzyMatches: fuzzyMatches.length > 0 ? fuzzyMatches : undefined,
   };
+}
+
+/**
+ * Determine if a function should be expanded (show full code snippet) or use compact format.
+ * Phase 6.9.1: Smarter Default Output
+ *
+ * Expands when:
+ * - File has <5 functions (small file)
+ * - File has fanIn > 5 (widely-used file)
+ * - Function has detected patterns (retry, cache, etc.)
+ * - Function has error paths (guards, throws, catches)
+ *
+ * @param func - The function metadata
+ * @param node - The node containing the function
+ * @param allFunctions - All functions in the file (to count)
+ * @returns true if function should show full code snippet, false for compact format
+ */
+function shouldExpandFunction(
+  func: {
+    errorPaths?: unknown[];
+    [key: string]: unknown;
+  },
+  node: WikiNode,
+  allFunctions: unknown[]
+): boolean {
+  // 6.9.1.2: Auto-expand for small files (<5 functions)
+  if (allFunctions.length < 5) {
+    return true;
+  }
+
+  // 6.9.1.3: Prioritize by relevance (high fan-in → more detail)
+  if (node.metadata.fanIn !== undefined && node.metadata.fanIn > 5) {
+    return true;
+  }
+
+  // 6.9.1.4: Include full code for functions with patterns
+  if (node.raw.patterns && node.raw.patterns.length > 0) {
+    // Check if any pattern references this function
+    // Use regex with word boundary to avoid false positives (e.g., 'fetch' matching 'fetchWithRetry')
+    const funcNamePattern = new RegExp(`:${func.name}(?:\\b|$)`);
+    for (const pattern of node.raw.patterns) {
+      if (pattern.location && funcNamePattern.test(pattern.location)) {
+        return true;
+      }
+    }
+  }
+
+  // 6.9.1.4: Include full code for functions with error paths
+  if (func.errorPaths && func.errorPaths.length > 0) {
+    return true;
+  }
+
+  // Default: compact format
+  return false;
 }
 
 /**
@@ -476,9 +532,23 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       for (const func of node.raw.functions) {
         lines.push('');
         lines.push(`### ${func.name} (lines ${func.startLine}-${func.endLine})`);
-        lines.push('```typescript');
-        lines.push(func.codeSnippet);
-        lines.push('```');
+
+        // Phase 6.9.1: Determine if we should expand this function
+        const shouldExpand = shouldExpandFunction(func, node, node.raw.functions);
+
+        if (shouldExpand) {
+          // Expanded format: show full code snippet
+          lines.push('```typescript');
+          lines.push(func.codeSnippet);
+          lines.push('```');
+        } else {
+          // Compact format: show signature as inline code (first line only)
+          // Note: func.signature may contain the full function body due to extraction,
+          // so we extract only the first line (the actual signature)
+          const signatureLine = func.signature.split('\n')[0];
+          lines.push(`\`${signatureLine}\``);
+          lines.push('');
+        }
 
         // Key statements (Phase 6.6.1.3)
         if (func.keyStatements && func.keyStatements.length > 0) {
@@ -1055,6 +1125,45 @@ export function createApp(
         message: `Refresh triggered for ${projectPath}`,
         projectPath,
       });
+    } catch (error) {
+      res.status(500).json({
+        error: 'INTERNAL_ERROR',
+        message: (error as Error).message,
+      });
+    }
+  });
+
+  // GET /consumers/:file/:function - Get all consumers of a specific function
+  // Phase 6.9.2: Function-level consumer tracking
+  app.get('/consumers/*file/:function', async (req: Request, res: Response) => {
+    try {
+      // Parse file path from wildcard
+      const pathParts = req.params.file as unknown as string[];
+      const filePath = pathParts.join('/');
+      const functionName = req.params.function as string;
+
+      // Build the function ID
+      const functionId = `${filePath}:${functionName}`;
+
+      // Get all extracted files from the database
+      const extractedCollection = db.collection<ExtractedFile>('extracted');
+      const allExtractedFiles = await extractedCollection.find({}).toArray();
+
+      // Build function consumers map
+      const consumersMap = buildFunctionConsumers(allExtractedFiles);
+
+      // Get consumers for this function
+      const consumers = consumersMap.get(functionId);
+
+      if (!consumers) {
+        res.status(404).json({
+          error: 'NOT_FOUND',
+          message: `Function not found or not exported: ${functionId}`,
+        });
+        return;
+      }
+
+      res.json(consumers);
     } catch (error) {
       res.status(500).json({
         error: 'INTERNAL_ERROR',
