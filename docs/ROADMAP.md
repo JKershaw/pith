@@ -1034,9 +1034,11 @@ Foundational components that simplify Phase 7 implementation.
 
 | Step  | What                                                              | Test                                                    |
 | ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.0.1 | Keyword index builder: map keywords → files                       | Index contains exports, patterns, summary words, modules |
-| 7.0.2 | Query pre-filter: extract keywords, match, include modules        | Returns ~20-25 candidates with match reasons + parent modules |
-| 7.0.3 | Compact file formatter with relationships                         | Shows path, summary, exports, `Uses:` imports           |
+| 7.0.1 | Keyword index from deterministic data                             | Index contains exports, patterns, key statements, errors, modules |
+| 7.0.2 | Extend index with summary words (when prose exists)               | Index contains summary words; logs warning for missing prose |
+| 7.0.3 | Query tokenizer with stopword filtering                           | "How does retry work?" → ["retry", "work"] |
+| 7.0.4 | Pre-filter: match tokens, score, add modules                      | Returns ~20-25 candidates with match reasons + parent modules |
+| 7.0.5 | Candidate formatter with relationships                            | Shows path, summary, exports, `Uses:` imports (~40 tokens) |
 
 **Keyword index structure**:
 ```typescript
@@ -1044,19 +1046,25 @@ interface KeywordIndex {
   byExport: Map<string, string[]>;      // "callLLM" → ["src/generator/index.ts"]
   byPattern: Map<string, string[]>;     // "retry" → ["src/generator/index.ts"]
   byKeyStatement: Map<string, string[]>; // "timeout" → ["src/generator/index.ts"]
-  bySummaryWord: Map<string, string[]>; // "llm" → ["src/generator/index.ts"]
+  bySummaryWord: Map<string, string[]>; // "llm" → ["src/generator/index.ts"] (when prose exists)
   byErrorType: Map<string, string[]>;   // "404" → ["src/api/index.ts"]
   byModule: Map<string, string[]>;      // "generator" → ["src/generator/"]
 }
 ```
 
-**Pre-filter logic**:
-1. Tokenize query, extract meaningful words (skip stopwords)
-2. Look up each word in all index maps
-3. Score files by relevance (direct function match > pattern > summary word)
-4. Always include: high-fanIn files (top 5), parent modules of matched files
-5. Track import relationships between candidates
-6. Cap at 25 candidates
+**Index lifecycle**:
+- Built on server start from all nodes in database
+- 7.0.1: Index deterministic data (exports, patterns, key statements, error types, module names)
+- 7.0.2: Add summary words when `node.prose?.summary` exists; log warning for nodes without prose
+- Index held in memory for fast lookup during queries
+
+**Pre-filter logic** (7.0.4):
+1. Tokenize query using 7.0.3
+2. Look up each token in all index maps
+3. Score by match type: export (10) > pattern (8) > keyStatement (5) > summary (3) > module (2)
+4. Always include: top 5 high-fanIn files, parent modules of matched files
+5. Track which candidates import from each other (for `Uses:` display)
+6. Cap at 25 candidates, sorted by score
 
 #### 7.1 Query Endpoint
 

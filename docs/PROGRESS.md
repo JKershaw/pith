@@ -56,11 +56,13 @@ See [2025-12-31 v4 benchmark results](benchmark-results/2025-12-31-self-test-v4.
 
 ### 7.0 Prep Work
 
-| Step  | What                                      | Status  |
-| ----- | ----------------------------------------- | ------- |
-| 7.0.1 | Keyword index builder: map keywords → files | Pending |
-| 7.0.2 | Query pre-filter: extract keywords, match  | Pending |
-| 7.0.3 | Compact file formatter for planner prompt  | Pending |
+| Step  | What                                                | Status  |
+| ----- | --------------------------------------------------- | ------- |
+| 7.0.1 | Keyword index from deterministic data               | Pending |
+| 7.0.2 | Extend index with summary words (when prose exists) | Pending |
+| 7.0.3 | Query tokenizer with stopword filtering             | Pending |
+| 7.0.4 | Pre-filter: match tokens, score, add modules        | Pending |
+| 7.0.5 | Candidate formatter with relationships              | Pending |
 
 ### 7.1 Query Endpoint
 
