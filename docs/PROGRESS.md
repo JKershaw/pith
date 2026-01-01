@@ -51,16 +51,18 @@ See [2025-12-31 v4 benchmark results](benchmark-results/2025-12-31-self-test-v4.
 
 **Context**: v4 benchmark shows Efficiency at 2.1/5 (worst criterion) and token usage 1.2x higher than Control on average.
 
-### 6.9.1 Response Targeting
+### 6.9.1 Smarter Default Output
 
 **Problem**: B2, D1, D2 return full files instead of specific functions. M1 uses 4.9x more tokens than Control.
 
+**Approach**: Make defaults smarter instead of adding parameters. Pith should automatically decide what to include.
+
 | Step    | What                                                          | Status  |
 | ------- | ------------------------------------------------------------- | ------- |
-| 6.9.1.1 | Add `?section=function_name` param to `/context` endpoint     | Pending |
-| 6.9.1.2 | Return only requested function + immediate context (±10 lines)| Pending |
-| 6.9.1.3 | Add `?compact=true` for summary-only responses                | Pending |
-| 6.9.1.4 | Limit code snippets to relevant sections (not full file)      | Pending |
+| 6.9.1.1 | Default to compact output (prose + key statements only)       | Pending |
+| 6.9.1.2 | Auto-expand for small files (<5 functions)                    | Pending |
+| 6.9.1.3 | Prioritize by relevance (high fan-in → more detail)           | Pending |
+| 6.9.1.4 | Include full code only for functions with patterns/errors     | Pending |
 
 **Benchmark target**: Efficiency 2.1/5 → 4/5
 
@@ -90,16 +92,18 @@ See [2025-12-31 v4 benchmark results](benchmark-results/2025-12-31-self-test-v4.
 
 **Benchmark target**: D1-D3: 16.3/25 → 20/25
 
-### 6.9.4 Query-Type Routing
+### 6.9.4 Automatic Context Adaptation
 
 **Problem**: Same context bundle strategy used for all query types, but different queries need different information.
 
+**Approach**: Detect file characteristics and automatically adjust output - no query parameters needed.
+
 | Step    | What                                                          | Status  |
 | ------- | ------------------------------------------------------------- | ------- |
-| 6.9.4.1 | Detect query type from requested endpoints/patterns           | Pending |
-| 6.9.4.2 | Architecture queries: include module summaries, skip details  | Pending |
-| 6.9.4.3 | Modification queries: include full impact tree + tests        | Pending |
-| 6.9.4.4 | Debugging queries: include error paths + config values        | Pending |
+| 6.9.4.1 | Detect file type from characteristics                         | Pending |
+| 6.9.4.2 | Module requests: return summaries, skip function details      | Pending |
+| 6.9.4.3 | High fan-in files: auto-include impact tree + tests           | Pending |
+| 6.9.4.4 | Files with error handling: auto-include debugging hints       | Pending |
 
 **Benchmark target**: Relevance 3.7/5 → 4.5/5
 

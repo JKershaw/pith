@@ -931,18 +931,22 @@ When querying `src/extractor/index.ts`:
 - D1-D3: Prose lacks debugging-specific insights
 - M1-M3: Missing step-by-step implementation guides
 
-##### 6.9.1 Response Targeting
+##### 6.9.1 Smarter Default Output
 
 **Problem**: API returns full file context when targeted excerpts would suffice. M1 uses 27,055 tokens vs Control's 5,500.
 
+**Approach**: Make defaults smarter instead of adding parameters. Pith should automatically decide what to include.
+
 | Step    | What                                                          | Test                                                    |
 | ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
-| 6.9.1.1 | Add `?section=function_name` param to `/context` endpoint     | Returns only specified function + ±10 lines context     |
-| 6.9.1.2 | Add `?compact=true` for summary-only responses                | Returns prose summary without code snippets             |
-| 6.9.1.3 | Limit code snippets to relevant sections based on query       | B2 query returns buildPrompt function only, not full file |
-| 6.9.1.4 | Add token budget parameter `?max_tokens=N`                    | Response truncated intelligently to stay within budget  |
+| 6.9.1.1 | Default to compact output (prose + key statements only)       | `/context` returns ~50% fewer tokens than current       |
+| 6.9.1.2 | Auto-expand for small files (<5 functions)                    | Small utility files show full content                   |
+| 6.9.1.3 | Prioritize by relevance (high fan-in → more detail)           | Widely-used types get full signatures, others get summary |
+| 6.9.1.4 | Include full code only for functions with patterns/errors     | `callLLM` shows retry logic, simple getters show signature only |
 
 **Benchmark target**: Efficiency 2.1/5 → 4/5, token usage ≤ Control average
+
+**Rationale**: Shifting complexity to the caller (via parameters) contradicts Pith's goal of providing ready-to-use context. Pith should be smart about what to return.
 
 ##### 6.9.2 Function-Level Consumer Tracking
 
@@ -970,18 +974,22 @@ When querying `src/extractor/index.ts`:
 
 **Benchmark target**: D1-D3: 16.3/25 → 20/25
 
-##### 6.9.4 Query-Type Routing
+##### 6.9.4 Automatic Context Adaptation
 
 **Problem**: Same context bundle strategy used for all query types, but different queries need different information.
 
+**Approach**: Detect file characteristics and automatically adjust output - no query parameters needed.
+
 | Step    | What                                                          | Test                                                    |
 | ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
-| 6.9.4.1 | Detect query type from keywords/patterns                      | "design patterns" → architecture mode                   |
-| 6.9.4.2 | Architecture queries: module summaries, skip implementation   | A1 returns 5,000 tokens (matching Control)              |
-| 6.9.4.3 | Modification queries: full impact tree + affected tests       | M3 includes all 9 dependent files with change checklist |
-| 6.9.4.4 | Debugging queries: error paths + config values + bottlenecks  | D2 identifies sequential processing bottleneck          |
+| 6.9.4.1 | Detect file type from characteristics                         | API files → include error paths; types → include consumers |
+| 6.9.4.2 | Module requests: return summaries, skip function details      | `/context?files=src/extractor` returns module overview  |
+| 6.9.4.3 | High fan-in files: auto-include impact tree + tests           | WikiNode context includes 9 dependents + test commands  |
+| 6.9.4.4 | Files with error handling: auto-include debugging hints       | API file context shows 404/500 causes automatically     |
 
 **Benchmark target**: Relevance 3.7/5 → 4.5/5
+
+**Rationale**: The requested files themselves indicate what the user needs. API files → likely debugging. Types → likely modification. Modules → likely architecture.
 
 ---
 
@@ -1053,11 +1061,13 @@ Only needed for very large codebases.
 
 Based on v4 benchmark (2025-12-31), focus on:
 
-1. **Response targeting** (Phase 6.9.1) - Reduce token usage by returning excerpts not full files
+1. **Smarter defaults** (Phase 6.9.1) - Reduce token usage via intelligent output sizing, not parameters
 2. **Function-level consumer tracking** (Phase 6.9.2) - Close R3's 12-point gap
 3. **Debugging-specific prose** (Phase 6.9.3) - Improve D1-D3 scores by 4+ points
-4. **Query-type routing** (Phase 6.9.4) - Optimize context bundling per query type
+4. **Automatic context adaptation** (Phase 6.9.4) - Detect file type and adjust output automatically
 5. **MCP server** (Phase 9) - LLM tool integration after quality gaps closed
+
+**Design principle**: Pith should be a smart context provider that "just works", not a data store requiring the caller to specify what they need.
 
 Skip for now:
 

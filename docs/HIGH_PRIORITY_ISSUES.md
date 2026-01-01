@@ -89,11 +89,12 @@ This meant v1 never received wrong files with false confidence.
 
 The fuzzy matching issue was resolved. v4 benchmark confirms improvement from 65% to 71%.
 
-### 2. High: Response Sizing (Phase 6.9.1)
+### 2. High: Smarter Default Output (Phase 6.9.1)
 
-- Return focused excerpts for `/context` queries
-- Add `?compact=true` parameter for summary-only responses
-- Limit code snippets to relevant sections
+- Default to compact output (prose + key statements only)
+- Auto-expand for small files, prioritize by fan-in
+- Include full code only for functions with patterns/errors
+- No new parameters - Pith decides automatically
 
 **Status**: Planned in Phase 6.9.1
 
