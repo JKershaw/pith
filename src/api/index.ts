@@ -200,6 +200,58 @@ export async function bundleContext(
 }
 
 /**
+ * Determine if a function should be expanded (show full code snippet) or use compact format.
+ * Phase 6.9.1: Smarter Default Output
+ *
+ * Expands when:
+ * - File has <5 functions (small file)
+ * - File has fanIn > 5 (widely-used file)
+ * - Function has detected patterns (retry, cache, etc.)
+ * - Function has error paths (guards, throws, catches)
+ *
+ * @param func - The function metadata
+ * @param node - The node containing the function
+ * @param allFunctions - All functions in the file (to count)
+ * @returns true if function should show full code snippet, false for compact format
+ */
+function shouldExpandFunction(
+  func: {
+    errorPaths?: unknown[];
+    [key: string]: unknown;
+  },
+  node: WikiNode,
+  allFunctions: unknown[]
+): boolean {
+  // 6.9.1.2: Auto-expand for small files (<5 functions)
+  if (allFunctions.length < 5) {
+    return true;
+  }
+
+  // 6.9.1.3: Prioritize by relevance (high fan-in → more detail)
+  if (node.metadata.fanIn !== undefined && node.metadata.fanIn > 5) {
+    return true;
+  }
+
+  // 6.9.1.4: Include full code for functions with patterns
+  if (node.raw.patterns && node.raw.patterns.length > 0) {
+    // Check if any pattern references this function
+    for (const pattern of node.raw.patterns) {
+      if (pattern.location && pattern.location.includes(`:${func.name}`)) {
+        return true;
+      }
+    }
+  }
+
+  // 6.9.1.4: Include full code for functions with error paths
+  if (func.errorPaths && func.errorPaths.length > 0) {
+    return true;
+  }
+
+  // Default: compact format
+  return false;
+}
+
+/**
  * Format bundled context as markdown for LLM consumption.
  *
  * @param context - Bundled context to format
@@ -476,9 +528,20 @@ export function formatContextAsMarkdown(context: BundledContext): string {
       for (const func of node.raw.functions) {
         lines.push('');
         lines.push(`### ${func.name} (lines ${func.startLine}-${func.endLine})`);
-        lines.push('```typescript');
-        lines.push(func.codeSnippet);
-        lines.push('```');
+
+        // Phase 6.9.1: Determine if we should expand this function
+        const shouldExpand = shouldExpandFunction(func, node, node.raw.functions);
+
+        if (shouldExpand) {
+          // Expanded format: show full code snippet
+          lines.push('```typescript');
+          lines.push(func.codeSnippet);
+          lines.push('```');
+        } else {
+          // Compact format: show signature as inline code
+          lines.push(`\`${func.signature}\``);
+          lines.push('');
+        }
 
         // Key statements (Phase 6.6.1.3)
         if (func.keyStatements && func.keyStatements.length > 0) {

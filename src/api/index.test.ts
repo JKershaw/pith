@@ -1569,6 +1569,539 @@ return app;`,
         'Should reference test file'
       );
     });
+
+    describe('Phase 6.9.1: Smarter Default Output', () => {
+      it('defaults to compact output for large files with simple functions', async () => {
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Add a file with 6+ functions (large file)
+        const largeFileNode: WikiNode = {
+          id: 'src/utils/helpers.ts',
+          type: 'file',
+          path: 'src/utils/helpers.ts',
+          name: 'helpers.ts',
+          metadata: {
+            lines: 200,
+            commits: 10,
+            lastModified: new Date('2024-12-01'),
+            authors: ['alice'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 3, // Low fan-in, not a critical file
+          },
+          edges: [],
+          raw: {
+            functions: [
+              {
+                name: 'formatDate',
+                signature: 'function formatDate(date: Date): string',
+                startLine: 10,
+                endLine: 15,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function formatDate(date: Date): string {\n  return date.toISOString();\n}',
+                keyStatements: [{ line: 11, text: 'date.toISOString()', category: 'call' }],
+              },
+              {
+                name: 'formatTime',
+                signature: 'function formatTime(date: Date): string',
+                startLine: 20,
+                endLine: 25,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function formatTime(date: Date): string {\n  return date.toTimeString();\n}',
+                keyStatements: [{ line: 21, text: 'date.toTimeString()', category: 'call' }],
+              },
+              {
+                name: 'capitalize',
+                signature: 'function capitalize(str: string): string',
+                startLine: 30,
+                endLine: 35,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function capitalize(str: string): string {\n  return str.charAt(0).toUpperCase() + str.slice(1);\n}',
+                keyStatements: [
+                  { line: 31, text: 'str.charAt(0).toUpperCase()', category: 'call' },
+                ],
+              },
+              {
+                name: 'trim',
+                signature: 'function trim(str: string): string',
+                startLine: 40,
+                endLine: 45,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function trim(str: string): string {\n  return str.trim();\n}',
+                keyStatements: [{ line: 41, text: 'str.trim()', category: 'call' }],
+              },
+              {
+                name: 'toLowerCase',
+                signature: 'function toLowerCase(str: string): string',
+                startLine: 50,
+                endLine: 55,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function toLowerCase(str: string): string {\n  return str.toLowerCase();\n}',
+                keyStatements: [{ line: 51, text: 'str.toLowerCase()', category: 'call' }],
+              },
+              {
+                name: 'toUpperCase',
+                signature: 'function toUpperCase(str: string): string',
+                startLine: 60,
+                endLine: 65,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function toUpperCase(str: string): string {\n  return str.toUpperCase();\n}',
+                keyStatements: [{ line: 61, text: 'str.toUpperCase()', category: 'call' }],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(largeFileNode);
+
+        const context = await bundleContext(db, ['src/utils/helpers.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // Should show compact format (signature as inline code, not full snippet)
+        assert.ok(markdown.includes('formatDate'), 'Should show function name');
+        assert.ok(markdown.includes('10-15'), 'Should show line numbers');
+
+        // Should show signature inline with backticks
+        assert.ok(
+          markdown.includes('`function formatDate(date: Date): string`'),
+          'Should show signature as inline code'
+        );
+
+        // Should NOT include full code snippet in a code block for simple functions
+        const codeBlockPattern = /```typescript\nfunction formatDate\(date: Date\): string \{/;
+        assert.ok(
+          !codeBlockPattern.test(markdown),
+          'Should not show full code snippet for simple functions in large files'
+        );
+
+        // Should still show key statements
+        assert.ok(markdown.includes('Key statements'), 'Should show key statements section');
+        assert.ok(markdown.includes('date.toISOString()'), 'Should show key statement');
+      });
+
+      it('auto-expands small files with <5 functions', async () => {
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Add a small file with 3 functions
+        const smallFileNode: WikiNode = {
+          id: 'src/utils/small.ts',
+          type: 'file',
+          path: 'src/utils/small.ts',
+          name: 'small.ts',
+          metadata: {
+            lines: 50,
+            commits: 3,
+            lastModified: new Date('2024-12-01'),
+            authors: ['bob'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 2, // Low fan-in
+          },
+          edges: [],
+          raw: {
+            functions: [
+              {
+                name: 'add',
+                signature: 'function add(a: number, b: number): number',
+                startLine: 5,
+                endLine: 10,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function add(a: number, b: number): number {\n  return a + b;\n}',
+                keyStatements: [{ line: 6, text: 'return a + b', category: 'return' }],
+              },
+              {
+                name: 'subtract',
+                signature: 'function subtract(a: number, b: number): number',
+                startLine: 15,
+                endLine: 20,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function subtract(a: number, b: number): number {\n  return a - b;\n}',
+                keyStatements: [{ line: 16, text: 'return a - b', category: 'return' }],
+              },
+              {
+                name: 'multiply',
+                signature: 'function multiply(a: number, b: number): number',
+                startLine: 25,
+                endLine: 30,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function multiply(a: number, b: number): number {\n  return a * b;\n}',
+                keyStatements: [{ line: 26, text: 'return a * b', category: 'return' }],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(smallFileNode);
+
+        const context = await bundleContext(db, ['src/utils/small.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // Small files should show full code snippets
+        assert.ok(
+          markdown.includes('```typescript\nfunction add(a: number, b: number): number {'),
+          'Small files should show full code snippet'
+        );
+        assert.ok(markdown.includes('return a + b'), 'Should show full function body');
+      });
+
+      it('expands high fan-in files (fanIn > 5)', async () => {
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Add a high fan-in file with 6 functions
+        const highFanInNode: WikiNode = {
+          id: 'src/core/types.ts',
+          type: 'file',
+          path: 'src/core/types.ts',
+          name: 'types.ts',
+          metadata: {
+            lines: 150,
+            commits: 20,
+            lastModified: new Date('2024-12-01'),
+            authors: ['alice'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 8, // High fan-in - widely used
+          },
+          edges: [],
+          raw: {
+            functions: [
+              {
+                name: 'validateUser',
+                signature: 'function validateUser(user: User): boolean',
+                startLine: 10,
+                endLine: 20,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function validateUser(user: User): boolean {\n  return user.id && user.name;\n}',
+                keyStatements: [{ line: 11, text: 'user.id && user.name', category: 'condition' }],
+              },
+              {
+                name: 'createUser',
+                signature: 'function createUser(data: UserData): User',
+                startLine: 25,
+                endLine: 35,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function createUser(data: UserData): User {\n  return { id: uuid(), ...data };\n}',
+                keyStatements: [{ line: 26, text: 'uuid()', category: 'call' }],
+              },
+              {
+                name: 'deleteUser',
+                signature: 'function deleteUser(id: string): void',
+                startLine: 40,
+                endLine: 50,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function deleteUser(id: string): void {\n  users.delete(id);\n}',
+                keyStatements: [{ line: 41, text: 'users.delete(id)', category: 'call' }],
+              },
+              {
+                name: 'updateUser',
+                signature: 'function updateUser(id: string, data: Partial<User>): User',
+                startLine: 55,
+                endLine: 65,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function updateUser(id: string, data: Partial<User>): User {\n  return { ...users.get(id), ...data };\n}',
+                keyStatements: [{ line: 56, text: 'users.get(id)', category: 'call' }],
+              },
+              {
+                name: 'findUser',
+                signature: 'function findUser(query: Query): User | null',
+                startLine: 70,
+                endLine: 80,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function findUser(query: Query): User | null {\n  return users.find(query) ?? null;\n}',
+                keyStatements: [{ line: 71, text: 'users.find(query)', category: 'call' }],
+              },
+              {
+                name: 'listUsers',
+                signature: 'function listUsers(): User[]',
+                startLine: 85,
+                endLine: 95,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function listUsers(): User[] {\n  return Array.from(users.values());\n}',
+                keyStatements: [{ line: 86, text: 'Array.from(users.values())', category: 'call' }],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(highFanInNode);
+
+        const context = await bundleContext(db, ['src/core/types.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // High fan-in files should show full code snippets
+        assert.ok(
+          markdown.includes('```typescript\nfunction validateUser(user: User): boolean {'),
+          'High fan-in files should show full code snippet'
+        );
+        assert.ok(
+          markdown.includes('return user.id && user.name'),
+          'Should show full function body for high fan-in files'
+        );
+      });
+
+      it('expands functions with detected patterns', async () => {
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Add a file with a function that has a retry pattern
+        // Must have 5+ functions to avoid small file auto-expansion
+        const fileWithPattern: WikiNode = {
+          id: 'src/api/fetch.ts',
+          type: 'file',
+          path: 'src/api/fetch.ts',
+          name: 'fetch.ts',
+          metadata: {
+            lines: 150,
+            commits: 5,
+            lastModified: new Date('2024-12-01'),
+            authors: ['alice'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 3, // Low fan-in
+          },
+          edges: [],
+          raw: {
+            patterns: [
+              {
+                name: 'retry',
+                confidence: 'high',
+                evidence: ['line 15: maxRetries = 3', 'line 20: exponential backoff'],
+                location: 'src/api/fetch.ts:fetchWithRetry',
+              },
+            ],
+            functions: [
+              {
+                name: 'fetchWithRetry',
+                signature: 'async function fetchWithRetry(url: string): Promise<Response>',
+                startLine: 10,
+                endLine: 30,
+                isAsync: true,
+                isExported: true,
+                codeSnippet:
+                  'async function fetchWithRetry(url: string): Promise<Response> {\n  const maxRetries = 3;\n  for (let i = 0; i < maxRetries; i++) {\n    try {\n      return await fetch(url);\n    } catch (e) {\n      await sleep(Math.pow(2, i) * 1000);\n    }\n  }\n}',
+                keyStatements: [
+                  { line: 15, text: 'maxRetries = 3', category: 'config' },
+                  { line: 20, text: 'Math.pow(2, i) * 1000', category: 'math' },
+                ],
+              },
+              {
+                name: 'simpleGet',
+                signature: 'function simpleGet(url: string): Promise<Response>',
+                startLine: 35,
+                endLine: 40,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function simpleGet(url: string): Promise<Response> {\n  return fetch(url);\n}',
+                keyStatements: [{ line: 36, text: 'fetch(url)', category: 'call' }],
+              },
+              {
+                name: 'simplePost',
+                signature: 'function simplePost(url: string, data: unknown): Promise<Response>',
+                startLine: 45,
+                endLine: 50,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function simplePost(url: string, data: unknown): Promise<Response> {\n  return fetch(url, { method: "POST", body: JSON.stringify(data) });\n}',
+                keyStatements: [
+                  { line: 46, text: 'fetch(url, { method: "POST" })', category: 'call' },
+                ],
+              },
+              {
+                name: 'simplePut',
+                signature: 'function simplePut(url: string, data: unknown): Promise<Response>',
+                startLine: 55,
+                endLine: 60,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function simplePut(url: string, data: unknown): Promise<Response> {\n  return fetch(url, { method: "PUT", body: JSON.stringify(data) });\n}',
+                keyStatements: [
+                  { line: 56, text: 'fetch(url, { method: "PUT" })', category: 'call' },
+                ],
+              },
+              {
+                name: 'simpleDelete',
+                signature: 'function simpleDelete(url: string): Promise<Response>',
+                startLine: 65,
+                endLine: 70,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function simpleDelete(url: string): Promise<Response> {\n  return fetch(url, { method: "DELETE" });\n}',
+                keyStatements: [
+                  { line: 66, text: 'fetch(url, { method: "DELETE" })', category: 'call' },
+                ],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(fileWithPattern);
+
+        const context = await bundleContext(db, ['src/api/fetch.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // Function with pattern should show full code snippet
+        assert.ok(
+          markdown.includes(
+            '```typescript\nasync function fetchWithRetry(url: string): Promise<Response> {'
+          ),
+          'Function with detected pattern should show full code snippet'
+        );
+        assert.ok(markdown.includes('maxRetries = 3'), 'Should show retry logic in full snippet');
+
+        // Simple function without patterns should use compact format
+        // Check that simpleGet uses compact format (signature as inline code)
+        assert.ok(
+          markdown.includes('`function simpleGet(url: string): Promise<Response>`'),
+          'Simple function should show compact format with inline signature'
+        );
+      });
+
+      it('expands functions with error paths', async () => {
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Add a file with a function that has error paths
+        // Must have 5+ functions to avoid small file auto-expansion
+        const fileWithErrors: WikiNode = {
+          id: 'src/validation/check.ts',
+          type: 'file',
+          path: 'src/validation/check.ts',
+          name: 'check.ts',
+          metadata: {
+            lines: 150,
+            commits: 7,
+            lastModified: new Date('2024-12-01'),
+            authors: ['bob'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 2, // Low fan-in
+          },
+          edges: [],
+          raw: {
+            functions: [
+              {
+                name: 'validateInput',
+                signature: 'function validateInput(input: string): boolean',
+                startLine: 10,
+                endLine: 25,
+                isAsync: false,
+                isExported: true,
+                codeSnippet:
+                  'function validateInput(input: string): boolean {\n  if (!input) throw new Error("Required");\n  if (input.length < 3) return false;\n  return true;\n}',
+                keyStatements: [
+                  { line: 11, text: 'if (!input)', category: 'condition' },
+                  { line: 12, text: 'input.length < 3', category: 'condition' },
+                ],
+                errorPaths: [
+                  {
+                    type: 'guard',
+                    line: 11,
+                    condition: '!input',
+                    action: 'throws Error("Required")',
+                  },
+                  {
+                    type: 'early-return',
+                    line: 12,
+                    condition: 'input.length < 3',
+                    action: 'returns false',
+                  },
+                ],
+              },
+              {
+                name: 'simpleCheck',
+                signature: 'function simpleCheck(value: boolean): boolean',
+                startLine: 30,
+                endLine: 35,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function simpleCheck(value: boolean): boolean {\n  return value;\n}',
+                keyStatements: [{ line: 31, text: 'return value', category: 'return' }],
+              },
+              {
+                name: 'isPositive',
+                signature: 'function isPositive(num: number): boolean',
+                startLine: 40,
+                endLine: 45,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function isPositive(num: number): boolean {\n  return num > 0;\n}',
+                keyStatements: [{ line: 41, text: 'num > 0', category: 'condition' }],
+              },
+              {
+                name: 'isNegative',
+                signature: 'function isNegative(num: number): boolean',
+                startLine: 50,
+                endLine: 55,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function isNegative(num: number): boolean {\n  return num < 0;\n}',
+                keyStatements: [{ line: 51, text: 'num < 0', category: 'condition' }],
+              },
+              {
+                name: 'isZero',
+                signature: 'function isZero(num: number): boolean',
+                startLine: 60,
+                endLine: 65,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function isZero(num: number): boolean {\n  return num === 0;\n}',
+                keyStatements: [{ line: 61, text: 'num === 0', category: 'condition' }],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(fileWithErrors);
+
+        const context = await bundleContext(db, ['src/validation/check.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // Function with error paths should show full code snippet
+        assert.ok(
+          markdown.includes('```typescript\nfunction validateInput(input: string): boolean {'),
+          'Function with error paths should show full code snippet'
+        );
+        assert.ok(
+          markdown.includes('throw new Error("Required")'),
+          'Should show error handling in full snippet'
+        );
+
+        // Simple function without error paths should use compact format
+        assert.ok(
+          markdown.includes('`function simpleCheck(value: boolean): boolean`'),
+          'Simple function should show compact format with inline signature'
+        );
+      });
+    });
   });
 
   describe('createApp', () => {
