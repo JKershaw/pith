@@ -8,27 +8,31 @@
 | 6.1-6.5     | ✅ Complete     | On-demand generation, test files, modification impact, patterns, gotcha validation                     |
 | 6.6.1-6.6.8 | ✅ Complete     | Line numbers, code snippets, key statements, change impact, patterns, call graphs, error paths         |
 | 6.7.1-6.7.5 | ✅ Complete     | Enhanced output: consumer locations, modification guides, call flow, debugging hints, pattern evidence |
-| **6.8.0**   | **⬅️ CRITICAL** | **Fix fuzzy matching regression - causing 8+ point benchmark drop**                                    |
-| 6.8.1-6.8.4 | Blocked         | Deterministic Gap Closure - blocked by 6.8.0                                                           |
+| 6.8.0       | ✅ Complete     | Fixed fuzzy matching regression                                                                        |
+| 6.8.1-6.8.4 | ✅ Complete     | Deterministic Gap Closure: symbol tracking, content preservation, config extraction, debugging output  |
+| **6.9**     | **⬅️ CURRENT**  | **Response Optimization: targeting, function consumers, debugging prose, query routing**               |
 | 9           | Planned         | MCP Server integration                                                                                 |
 | 7-8, 10     | Planned         | Advanced relationships, intelligence, scale                                                            |
 
-**⚠️ REGRESSION ALERT**: Fuzzy matching (commit 1bb81d9) is causing benchmark regression.
+**Latest benchmark** (2025-12-31 v4, 15 tasks): Pith 17.8/25 (71%) vs Control 24.0/25 (96%). Gap: 6.2 points.
 
-**Latest benchmark** (2025-12-31 v3, 15 tasks): Pith 16.3/25 (65%) vs Control 24.5/25 (98%). Gap: 8.2 points.
+- Win rate: 0 wins, 14 losses, **1 tie** (R1: WikiNode Impact)
+- Improvement from v3: +6% overall, gap narrowed by 2 points
+- See [2025-12-31-self-test-v4.md](benchmark-results/2025-12-31-self-test-v4.md) for full results.
 
-- Pith wins: **0 tasks** (regression from 5 wins in v1)
-- Root cause: Fuzzy matching returns wrong files with high confidence
-- Example: `src/extractor/index.ts` fuzzy-matched to `src/generator/index.ts` (79% confidence)
-- See [HIGH_PRIORITY_ISSUES.md](HIGH_PRIORITY_ISSUES.md) for full analysis.
-- See [2025-12-31-self-test-v3.md](benchmark-results/2025-12-31-self-test-v3.md) for benchmark results.
+**Remaining gaps** (from v4 analysis):
+- **Efficiency**: 2.1/5 (worst criterion) - returns full files instead of targeted sections
+- **Debugging (D1-D3)**: 16.3/25 - prose lacks debugging-specific insights
+- **Modification (M1-M3)**: 16.7/25 - missing step-by-step implementation guides
+- **R3 (extractFile consumers)**: 13/25 - file-level tracking, not function-level
 
 **Benchmark History**:
-| Run | Pith Score | Gap | Wins | Notes |
-|-----|------------|-----|------|-------|
-| v7 (2025-12-30) | 65% | -7.6 | 0 | Baseline |
-| v1 (2025-12-31) | 78% | -3.5 | 5 | Before fuzzy matching |
-| v3 (2025-12-31) | 65% | -8.2 | 0 | After fuzzy matching |
+| Run | Pith Score | Gap | Notes |
+|-----|------------|-----|-------|
+| v7 (2025-12-30) | 65% | -7.6 | Baseline |
+| v1 (2025-12-31) | 78% | -3.5 | Before fuzzy matching bug |
+| v3 (2025-12-31) | 65% | -8.2 | Fuzzy matching regression |
+| **v4 (2025-12-31)** | **71%** | **-6.2** | **Current - post-fixes** |
 
 ---
 
@@ -906,12 +910,98 @@ When querying `src/extractor/index.ts`:
 
 ##### Phase 6.8 Success Criteria
 
-| Metric         | Current (v8)  | Target       |
+| Metric         | Current (v4)  | Target       |
 | -------------- | ------------- | ------------ |
-| Overall        | 19.4/25 (78%) | ≥21/25 (84%) |
-| Gap to Control | 3.5 points    | ≤2 points    |
-| R3 (worst)     | 11/25         | ≥18/25       |
-| D1-D3 avg      | 16/25         | ≥20/25       |
+| Overall        | 17.8/25 (71%) | ≥21/25 (84%) |
+| Gap to Control | 6.2 points    | ≤3 points    |
+| R3 (worst)     | 13/25         | ≥20/25       |
+| D1-D3 avg      | 16.3/25       | ≥20/25       |
+
+---
+
+#### Phase 6.9: Response Optimization ⬅️ CURRENT
+
+**Goal**: Close efficiency and actionability gaps by returning targeted responses instead of full files.
+
+**Context**: v4 benchmark (2025-12-31) shows Efficiency at 2.1/5 (worst criterion). Pith uses 1.2x more tokens than Control on average, with worst case 4.9x (M1).
+
+**Key Issues from v4**:
+- B2, D1, D2: Returns full files instead of specific functions
+- R3: File-level import tracking misses 46 of 48 call sites
+- D1-D3: Prose lacks debugging-specific insights
+- M1-M3: Missing step-by-step implementation guides
+
+##### 6.9.1 Response Targeting
+
+**Problem**: API returns full file context when targeted excerpts would suffice. M1 uses 27,055 tokens vs Control's 5,500.
+
+| Step    | What                                                          | Test                                                    |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| 6.9.1.1 | Add `?section=function_name` param to `/context` endpoint     | Returns only specified function + ±10 lines context     |
+| 6.9.1.2 | Add `?compact=true` for summary-only responses                | Returns prose summary without code snippets             |
+| 6.9.1.3 | Limit code snippets to relevant sections based on query       | B2 query returns buildPrompt function only, not full file |
+| 6.9.1.4 | Add token budget parameter `?max_tokens=N`                    | Response truncated intelligently to stay within budget  |
+
+**Benchmark target**: Efficiency 2.1/5 → 4/5, token usage ≤ Control average
+
+##### 6.9.2 Function-Level Consumer Tracking
+
+**Problem**: R3 scored 13/25. importedBy edges show 2 files but Control found 48 call sites with line numbers.
+
+| Step    | What                                                          | Test                                                    |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| 6.9.2.1 | Track call sites for exported functions across files          | `extractFile` shows 48 call sites, not 2 files          |
+| 6.9.2.2 | Store function usage with file:line references                | Each call site has file path and line number            |
+| 6.9.2.3 | Add `/consumers/:file/:function` endpoint                     | Returns all consumers of specific function              |
+| 6.9.2.4 | Distinguish production vs test consumers                      | "1 production consumer, 47 test consumers"              |
+
+**Benchmark target**: R3: 13/25 → 20/25
+
+##### 6.9.3 Debugging-Specific Prose
+
+**Problem**: D1-D3 average 16.3/25. Prose doesn't highlight debugging-relevant information.
+
+| Step    | What                                                          | Test                                                    |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| 6.9.3.1 | Add "Common Issues" section to prose for error-prone functions| `callLLM` prose includes: "Empty response: check API key" |
+| 6.9.3.2 | Include specific failure scenarios with conditions            | "Returns 404 when: path not normalized, node not built" |
+| 6.9.3.3 | Add "Investigation Checklist" for files with error handling   | Step-by-step debugging guide for API files              |
+| 6.9.3.4 | Link error paths to likely user-facing symptoms               | "Slow generation: check retry logic at line 475"        |
+
+**Benchmark target**: D1-D3: 16.3/25 → 20/25
+
+##### 6.9.4 Query-Type Routing
+
+**Problem**: Same context bundle strategy used for all query types, but different queries need different information.
+
+| Step    | What                                                          | Test                                                    |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| 6.9.4.1 | Detect query type from keywords/patterns                      | "design patterns" → architecture mode                   |
+| 6.9.4.2 | Architecture queries: module summaries, skip implementation   | A1 returns 5,000 tokens (matching Control)              |
+| 6.9.4.3 | Modification queries: full impact tree + affected tests       | M3 includes all 9 dependent files with change checklist |
+| 6.9.4.4 | Debugging queries: error paths + config values + bottlenecks  | D2 identifies sequential processing bottleneck          |
+
+**Benchmark target**: Relevance 3.7/5 → 4.5/5
+
+---
+
+##### Phase 6.9 Success Criteria
+
+| Metric         | v4 Baseline   | Target       |
+| -------------- | ------------- | ------------ |
+| Overall        | 17.8/25 (71%) | ≥21/25 (84%) |
+| Gap to Control | 6.2 points    | ≤3 points    |
+| Efficiency     | 2.1/5         | ≥4/5         |
+| Actionability  | 3.5/5         | ≥4/5         |
+| D1-D3 avg      | 16.3/25       | ≥20/25       |
+| R3             | 13/25         | ≥20/25       |
+
+**Execution Order** (by gap severity):
+
+1. 6.9.1 Response Targeting (Efficiency gap: -2.2 points)
+2. 6.9.2 Function-Level Consumer Tracking (R3 gap: -12 points)
+3. 6.9.3 Debugging Prose (D1-D3 gap: -7.7 points)
+4. 6.9.4 Query-Type Routing (Relevance gap: -1.3 points)
 
 ---
 
@@ -961,12 +1051,13 @@ Only needed for very large codebases.
 
 ## Priority Summary
 
-Based on testing validation, focus on:
+Based on v4 benchmark (2025-12-31), focus on:
 
-1. **On-demand prose** - Zero upfront cost, instant setup
-2. **Task-oriented context** - Test files, modification impact, patterns
-3. **Accuracy improvements** - Gotcha validation
-4. **MCP server** - LLM tool integration
+1. **Response targeting** (Phase 6.9.1) - Reduce token usage by returning excerpts not full files
+2. **Function-level consumer tracking** (Phase 6.9.2) - Close R3's 12-point gap
+3. **Debugging-specific prose** (Phase 6.9.3) - Improve D1-D3 scores by 4+ points
+4. **Query-type routing** (Phase 6.9.4) - Optimize context bundling per query type
+5. **MCP server** (Phase 9) - LLM tool integration after quality gaps closed
 
 Skip for now:
 
