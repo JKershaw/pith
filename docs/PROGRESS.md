@@ -79,44 +79,14 @@ See [2025-12-31 v4 benchmark results](benchmark-results/2025-12-31-self-test-v4.
 
 **Benchmark target**: R3: 13/25 → 20/25
 
-### 6.9.3 Debugging-Specific Prose
-
-**Problem**: D1-D3 average 16.3/25. Prose doesn't highlight debugging-relevant information.
-
-| Step    | What                                                          | Status  |
-| ------- | ------------------------------------------------------------- | ------- |
-| 6.9.3.1 | Add "Common Issues" section to prose for error-prone functions| Pending |
-| 6.9.3.2 | Include specific failure scenarios with conditions            | Pending |
-| 6.9.3.3 | Add "Investigation Checklist" for debugging queries           | Pending |
-| 6.9.3.4 | Link error paths to likely user-facing symptoms               | Pending |
-
-**Benchmark target**: D1-D3: 16.3/25 → 20/25
-
-### 6.9.4 Automatic Context Adaptation
-
-**Problem**: Same context bundle strategy used for all query types, but different queries need different information.
-
-**Approach**: Detect file characteristics and automatically adjust output - no query parameters needed.
-
-| Step    | What                                                          | Status  |
-| ------- | ------------------------------------------------------------- | ------- |
-| 6.9.4.1 | Detect file type from characteristics                         | Pending |
-| 6.9.4.2 | Module requests: return summaries, skip function details      | Pending |
-| 6.9.4.3 | High fan-in files: auto-include impact tree + tests           | Pending |
-| 6.9.4.4 | Files with error handling: auto-include debugging hints       | Pending |
-
-**Benchmark target**: Relevance 3.7/5 → 4.5/5
-
 ### Phase 6.9 Success Criteria
 
 | Metric       | v4 Baseline   | Target       |
 | ------------ | ------------- | ------------ |
-| Overall      | 17.8/25 (71%) | ≥21/25 (84%) |
-| Gap          | 6.2 points    | ≤3 points    |
 | Efficiency   | 2.1/5         | ≥4/5         |
-| Actionability| 3.5/5         | ≥4/5         |
-| D1-D3 avg    | 16.3/25       | ≥20/25       |
 | R3           | 13/25         | ≥20/25       |
+
+**Note**: 6.9.3 (Debugging Prose) and 6.9.4 (Context Adaptation) removed - Phase 7 Query Planner handles these better by seeing the actual user question.
 
 ---
 

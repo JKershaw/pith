@@ -106,13 +106,14 @@ The fuzzy matching issue was resolved. v4 benchmark confirms improvement from 65
 
 **Status**: Planned in Phase 6.9.2
 
-### 4. Medium: Debugging-Specific Prose (Phase 6.9.3)
+### 4. Query Planner (Phase 7)
 
-- Add "Common Issues" section to prose
-- Include investigation checklists
-- Link error paths to user-facing symptoms
+- Accept natural language queries, not file paths
+- Planner LLM selects files with reasoning
+- Final LLM synthesizes answer from query + reasoning + prose
+- Handles debugging/modification queries by seeing actual question
 
-**Status**: Planned in Phase 6.9.3
+**Status**: Planned in Phase 7 (replaces 6.9.3 and 6.9.4)
 
 ---
 
@@ -132,11 +133,10 @@ The fuzzy matching issue was resolved. v4 benchmark confirms improvement from 65
 1. [x] ~~Review fuzzy matching thresholds~~ - Fixed
 2. [x] ~~Re-run benchmark after fixes~~ - v4 shows improvement
 3. [x] ~~Update roadmap with findings~~ - Phase 6.9 added
-4. [ ] Implement response targeting (6.9.1)
+4. [ ] Implement smarter defaults (6.9.1)
 5. [ ] Implement function-level tracking (6.9.2)
-6. [ ] Add debugging prose sections (6.9.3)
-7. [ ] Add query-type routing (6.9.4)
-8. [ ] Re-run benchmark after Phase 6.9
+6. [ ] Implement Query Planner (Phase 7)
+7. [ ] Re-run benchmark after Phase 7
 
 ---
 

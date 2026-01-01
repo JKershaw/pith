@@ -10,7 +10,7 @@
 | 6.7.1-6.7.5 | ✅ Complete     | Enhanced output: consumer locations, modification guides, call flow, debugging hints, pattern evidence |
 | 6.8.0       | ✅ Complete     | Fixed fuzzy matching regression                                                                        |
 | 6.8.1-6.8.4 | ✅ Complete     | Deterministic Gap Closure: symbol tracking, content preservation, config extraction, debugging output  |
-| **6.9**     | **⬅️ CURRENT**  | **Response Optimization: targeting, function consumers, debugging prose, query routing**               |
+| **6.9**     | **⬅️ CURRENT**  | **Response Optimization: smarter defaults, function-level consumer tracking**                          |
 | 7           | Planned         | Query Planner: LLM-driven file selection with codebase context                                         |
 | 10          | Planned         | MCP Server integration                                                                                 |
 | 8-9, 11     | Planned         | Advanced relationships, intelligence, scale                                                            |
@@ -926,11 +926,13 @@ When querying `src/extractor/index.ts`:
 
 **Context**: v4 benchmark (2025-12-31) shows Efficiency at 2.1/5 (worst criterion). Pith uses 1.2x more tokens than Control on average, with worst case 4.9x (M1).
 
-**Key Issues from v4**:
-- B2, D1, D2: Returns full files instead of specific functions
+**Key Issues from v4** (addressed here):
+- Token inefficiency: Returns full files instead of targeted excerpts
 - R3: File-level import tracking misses 46 of 48 call sites
-- D1-D3: Prose lacks debugging-specific insights
-- M1-M3: Missing step-by-step implementation guides
+
+**Deferred to Phase 7** (Query Planner handles better):
+- D1-D3: Debugging-specific insights (planner sees the actual question)
+- M1-M3: Query-type adaptation (planner routes appropriately)
 
 ##### 6.9.1 Smarter Default Output
 
@@ -962,55 +964,19 @@ When querying `src/extractor/index.ts`:
 
 **Benchmark target**: R3: 13/25 → 20/25
 
-##### 6.9.3 Debugging-Specific Prose
-
-**Problem**: D1-D3 average 16.3/25. Prose doesn't highlight debugging-relevant information.
-
-| Step    | What                                                          | Test                                                    |
-| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
-| 6.9.3.1 | Add "Common Issues" section to prose for error-prone functions| `callLLM` prose includes: "Empty response: check API key" |
-| 6.9.3.2 | Include specific failure scenarios with conditions            | "Returns 404 when: path not normalized, node not built" |
-| 6.9.3.3 | Add "Investigation Checklist" for files with error handling   | Step-by-step debugging guide for API files              |
-| 6.9.3.4 | Link error paths to likely user-facing symptoms               | "Slow generation: check retry logic at line 475"        |
-
-**Benchmark target**: D1-D3: 16.3/25 → 20/25
-
-##### 6.9.4 Automatic Context Adaptation
-
-**Problem**: Same context bundle strategy used for all query types, but different queries need different information.
-
-**Approach**: Detect file characteristics and automatically adjust output - no query parameters needed.
-
-| Step    | What                                                          | Test                                                    |
-| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
-| 6.9.4.1 | Detect file type from characteristics                         | API files → include error paths; types → include consumers |
-| 6.9.4.2 | Module requests: return summaries, skip function details      | `/context?files=src/extractor` returns module overview  |
-| 6.9.4.3 | High fan-in files: auto-include impact tree + tests           | WikiNode context includes 9 dependents + test commands  |
-| 6.9.4.4 | Files with error handling: auto-include debugging hints       | API file context shows 404/500 causes automatically     |
-
-**Benchmark target**: Relevance 3.7/5 → 4.5/5
-
-**Rationale**: The requested files themselves indicate what the user needs. API files → likely debugging. Types → likely modification. Modules → likely architecture.
-
 ---
 
 ##### Phase 6.9 Success Criteria
 
 | Metric         | v4 Baseline   | Target       |
 | -------------- | ------------- | ------------ |
-| Overall        | 17.8/25 (71%) | ≥21/25 (84%) |
-| Gap to Control | 6.2 points    | ≤3 points    |
 | Efficiency     | 2.1/5         | ≥4/5         |
-| Actionability  | 3.5/5         | ≥4/5         |
-| D1-D3 avg      | 16.3/25       | ≥20/25       |
 | R3             | 13/25         | ≥20/25       |
 
-**Execution Order** (by gap severity):
+**Execution Order**:
 
-1. 6.9.1 Response Targeting (Efficiency gap: -2.2 points)
-2. 6.9.2 Function-Level Consumer Tracking (R3 gap: -12 points)
-3. 6.9.3 Debugging Prose (D1-D3 gap: -7.7 points)
-4. 6.9.4 Query-Type Routing (Relevance gap: -1.3 points)
+1. 6.9.1 Smarter Default Output (Efficiency gap)
+2. 6.9.2 Function-Level Consumer Tracking (R3 gap)
 
 ---
 
@@ -1119,10 +1085,8 @@ Based on v4 benchmark (2025-12-31), focus on:
 
 1. **Smarter defaults** (Phase 6.9.1) - Reduce token usage via intelligent output sizing
 2. **Function-level consumer tracking** (Phase 6.9.2) - Close R3's 12-point gap
-3. **Debugging-specific prose** (Phase 6.9.3) - Improve D1-D3 scores by 4+ points
-4. **Automatic context adaptation** (Phase 6.9.4) - Detect file type and adjust output automatically
-5. **Query Planner** (Phase 7) - Two LLM calls: planner selects files, final synthesizes answer
-6. **MCP server** (Phase 10) - LLM tool integration after quality gaps closed
+3. **Query Planner** (Phase 7) - Two LLM calls: planner selects files, final synthesizes answer
+4. **MCP server** (Phase 10) - LLM tool integration after quality gaps closed
 
 **Design principle**: Pith should be a smart context provider that "just works". The Query Planner is the logical evolution - accept questions, not file paths.
 
