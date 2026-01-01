@@ -6,8 +6,10 @@ import {
   preFilter,
   formatCandidatesForPlanner,
   buildPlannerPrompt,
+  parsePlannerResponse,
   type KeywordIndex,
   type PreFilterCandidate,
+  type PlannerResponse,
 } from './index.ts';
 import type { WikiNode } from '../builder/index.ts';
 
@@ -893,5 +895,118 @@ describe('buildPlannerPrompt', () => {
     assert.ok(prompt.includes('high relevance scores'));
     assert.ok(prompt.includes('match the query keywords'));
     assert.ok(prompt.includes('[Uses: ...]'));
+  });
+});
+
+// Phase 7.1.4: Planner response parser
+describe('parsePlannerResponse', () => {
+  const validPaths = new Set([
+    'src/api/index.ts',
+    'src/generator/index.ts',
+    'src/builder/index.ts',
+  ]);
+
+  it('parses valid JSON response', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['src/api/index.ts', 'src/generator/index.ts'],
+      reasoning: 'API handles requests, generator creates prose',
+      informationNeeded: 'How they interact',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok(!('error' in result));
+    const parsed = result as PlannerResponse;
+    assert.deepStrictEqual(parsed.selectedFiles, ['src/api/index.ts', 'src/generator/index.ts']);
+    assert.strictEqual(parsed.reasoning, 'API handles requests, generator creates prose');
+    assert.strictEqual(parsed.informationNeeded, 'How they interact');
+  });
+
+  it('handles markdown code blocks', () => {
+    const response = `\`\`\`json
+{
+  "selectedFiles": ["src/api/index.ts"],
+  "reasoning": "Main entry point",
+  "informationNeeded": "API structure"
+}
+\`\`\``;
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok(!('error' in result));
+    const parsed = result as PlannerResponse;
+    assert.deepStrictEqual(parsed.selectedFiles, ['src/api/index.ts']);
+  });
+
+  it('returns error for invalid JSON', () => {
+    const response = 'This is not JSON';
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok('error' in result);
+    assert.ok(result.error.includes('Failed to parse JSON'));
+  });
+
+  it('returns error for missing selectedFiles', () => {
+    const response = JSON.stringify({
+      reasoning: 'Some reasoning',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok('error' in result);
+    assert.ok(result.error.includes('selectedFiles'));
+  });
+
+  it('returns error for missing reasoning', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['src/api/index.ts'],
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok('error' in result);
+    assert.ok(result.error.includes('reasoning'));
+  });
+
+  it('filters out invalid paths but continues with valid ones', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['src/api/index.ts', 'invalid/path.ts'],
+      reasoning: 'Mixed paths',
+      informationNeeded: 'Test',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok(!('error' in result));
+    const parsed = result as PlannerResponse;
+    assert.deepStrictEqual(parsed.selectedFiles, ['src/api/index.ts']);
+    assert.ok(parsed.reasoning.includes('filtered out'));
+  });
+
+  it('returns error when all paths are invalid', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['invalid/path1.ts', 'invalid/path2.ts'],
+      reasoning: 'All invalid',
+      informationNeeded: 'Test',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok('error' in result);
+    assert.ok(result.error.includes('No valid files'));
+  });
+
+  it('provides default informationNeeded when missing', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['src/api/index.ts'],
+      reasoning: 'Main API',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok(!('error' in result));
+    const parsed = result as PlannerResponse;
+    assert.ok(parsed.informationNeeded.includes('General information'));
   });
 });

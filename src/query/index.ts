@@ -651,3 +651,87 @@ Important:
 - Use exact paths from the candidate list
 `;
 }
+
+/**
+ * Planner LLM response structure.
+ */
+export interface PlannerResponse {
+  selectedFiles: string[];
+  reasoning: string;
+  informationNeeded: string;
+}
+
+/**
+ * Parse the LLM response from the planner.
+ * Step 7.1.4: Extract selected files and reasoning from JSON response.
+ *
+ * @param response - Raw LLM response string
+ * @param candidatePaths - Valid candidate paths to validate against
+ * @returns Parsed planner response or error
+ */
+export function parsePlannerResponse(
+  response: string,
+  candidatePaths: Set<string>
+): PlannerResponse | { error: string } {
+  // Try to extract JSON from the response
+  // Handle potential markdown code blocks
+  let jsonString = response.trim();
+
+  // Remove markdown code blocks if present
+  if (jsonString.startsWith('```')) {
+    const lines = jsonString.split('\n');
+    // Skip first line (```json) and last line (```)
+    jsonString = lines.slice(1, -1).join('\n');
+  }
+
+  try {
+    const parsed = JSON.parse(jsonString) as {
+      selectedFiles?: unknown;
+      reasoning?: unknown;
+      informationNeeded?: unknown;
+    };
+
+    // Validate structure
+    if (!parsed.selectedFiles || !Array.isArray(parsed.selectedFiles)) {
+      return { error: 'Missing or invalid selectedFiles array' };
+    }
+
+    if (typeof parsed.reasoning !== 'string') {
+      return { error: 'Missing or invalid reasoning string' };
+    }
+
+    // Validate selected files exist in candidates
+    const validFiles: string[] = [];
+    const invalidFiles: string[] = [];
+
+    for (const file of parsed.selectedFiles) {
+      if (typeof file === 'string' && candidatePaths.has(file)) {
+        validFiles.push(file);
+      } else if (typeof file === 'string') {
+        invalidFiles.push(file);
+      }
+    }
+
+    if (validFiles.length === 0) {
+      return {
+        error: `No valid files selected. Invalid paths: ${invalidFiles.join(', ')}`,
+      };
+    }
+
+    // Warn about invalid files but continue with valid ones
+    return {
+      selectedFiles: validFiles,
+      reasoning:
+        parsed.reasoning +
+        (invalidFiles.length > 0
+          ? ` (Note: ${invalidFiles.length} invalid path(s) were filtered out)`
+          : ''),
+      informationNeeded:
+        typeof parsed.informationNeeded === 'string'
+          ? parsed.informationNeeded
+          : 'General information about the selected files',
+    };
+  } catch {
+    return { error: `Failed to parse JSON: ${response.slice(0, 100)}...` };
+  }
+}
