@@ -8,27 +8,32 @@
 | 6.1-6.5     | ✅ Complete     | On-demand generation, test files, modification impact, patterns, gotcha validation                     |
 | 6.6.1-6.6.8 | ✅ Complete     | Line numbers, code snippets, key statements, change impact, patterns, call graphs, error paths         |
 | 6.7.1-6.7.5 | ✅ Complete     | Enhanced output: consumer locations, modification guides, call flow, debugging hints, pattern evidence |
-| **6.8.0**   | **⬅️ CRITICAL** | **Fix fuzzy matching regression - causing 8+ point benchmark drop**                                    |
-| 6.8.1-6.8.4 | Blocked         | Deterministic Gap Closure - blocked by 6.8.0                                                           |
-| 9           | Planned         | MCP Server integration                                                                                 |
-| 7-8, 10     | Planned         | Advanced relationships, intelligence, scale                                                            |
+| 6.8.0       | ✅ Complete     | Fixed fuzzy matching regression                                                                        |
+| 6.8.1-6.8.4 | ✅ Complete     | Deterministic Gap Closure: symbol tracking, content preservation, config extraction, debugging output  |
+| **6.9**     | **⬅️ CURRENT**  | **Response Optimization: smarter defaults, function-level consumer tracking**                          |
+| 7           | Planned         | Query Planner: LLM-driven file selection with codebase context                                         |
+| 10          | Planned         | MCP Server integration                                                                                 |
+| 8-9, 11     | Planned         | Advanced relationships, intelligence, scale                                                            |
 
-**⚠️ REGRESSION ALERT**: Fuzzy matching (commit 1bb81d9) is causing benchmark regression.
+**Latest benchmark** (2025-12-31 v4, 15 tasks): Pith 17.8/25 (71%) vs Control 24.0/25 (96%). Gap: 6.2 points.
 
-**Latest benchmark** (2025-12-31 v3, 15 tasks): Pith 16.3/25 (65%) vs Control 24.5/25 (98%). Gap: 8.2 points.
+- Win rate: 0 wins, 14 losses, **1 tie** (R1: WikiNode Impact)
+- Improvement from v3: +6% overall, gap narrowed by 2 points
+- See [2025-12-31-self-test-v4.md](benchmark-results/2025-12-31-self-test-v4.md) for full results.
 
-- Pith wins: **0 tasks** (regression from 5 wins in v1)
-- Root cause: Fuzzy matching returns wrong files with high confidence
-- Example: `src/extractor/index.ts` fuzzy-matched to `src/generator/index.ts` (79% confidence)
-- See [HIGH_PRIORITY_ISSUES.md](HIGH_PRIORITY_ISSUES.md) for full analysis.
-- See [2025-12-31-self-test-v3.md](benchmark-results/2025-12-31-self-test-v3.md) for benchmark results.
+**Remaining gaps** (from v4 analysis):
+- **Efficiency**: 2.1/5 (worst criterion) - returns full files instead of targeted sections
+- **Debugging (D1-D3)**: 16.3/25 - prose lacks debugging-specific insights
+- **Modification (M1-M3)**: 16.7/25 - missing step-by-step implementation guides
+- **R3 (extractFile consumers)**: 13/25 - file-level tracking, not function-level
 
 **Benchmark History**:
-| Run | Pith Score | Gap | Wins | Notes |
-|-----|------------|-----|------|-------|
-| v7 (2025-12-30) | 65% | -7.6 | 0 | Baseline |
-| v1 (2025-12-31) | 78% | -3.5 | 5 | Before fuzzy matching |
-| v3 (2025-12-31) | 65% | -8.2 | 0 | After fuzzy matching |
+| Run | Pith Score | Gap | Notes |
+|-----|------------|-----|-------|
+| v7 (2025-12-30) | 65% | -7.6 | Baseline |
+| v1 (2025-12-31) | 78% | -3.5 | Before fuzzy matching bug |
+| v3 (2025-12-31) | 65% | -8.2 | Fuzzy matching regression |
+| **v4 (2025-12-31)** | **71%** | **-6.2** | **Current - post-fixes** |
 
 ---
 
@@ -906,16 +911,131 @@ When querying `src/extractor/index.ts`:
 
 ##### Phase 6.8 Success Criteria
 
-| Metric         | Current (v8)  | Target       |
+| Metric         | Current (v4)  | Target       |
 | -------------- | ------------- | ------------ |
-| Overall        | 19.4/25 (78%) | ≥21/25 (84%) |
-| Gap to Control | 3.5 points    | ≤2 points    |
-| R3 (worst)     | 11/25         | ≥18/25       |
-| D1-D3 avg      | 16/25         | ≥20/25       |
+| Overall        | 17.8/25 (71%) | ≥21/25 (84%) |
+| Gap to Control | 6.2 points    | ≤3 points    |
+| R3 (worst)     | 13/25         | ≥20/25       |
+| D1-D3 avg      | 16.3/25       | ≥20/25       |
 
 ---
 
-### Phase 7: Advanced Relationships
+#### Phase 6.9: Response Optimization ⬅️ CURRENT
+
+**Goal**: Close efficiency and actionability gaps by returning targeted responses instead of full files.
+
+**Context**: v4 benchmark (2025-12-31) shows Efficiency at 2.1/5 (worst criterion). Pith uses 1.2x more tokens than Control on average, with worst case 4.9x (M1).
+
+**Key Issues from v4** (addressed here):
+- Token inefficiency: Returns full files instead of targeted excerpts
+- R3: File-level import tracking misses 46 of 48 call sites
+
+**Deferred to Phase 7** (Query Planner handles better):
+- D1-D3: Debugging-specific insights (planner sees the actual question)
+- M1-M3: Query-type adaptation (planner routes appropriately)
+
+##### 6.9.1 Smarter Default Output
+
+**Problem**: API returns full file context when targeted excerpts would suffice. M1 uses 27,055 tokens vs Control's 5,500.
+
+**Approach**: Make defaults smarter instead of adding parameters. Pith should automatically decide what to include.
+
+| Step    | What                                                          | Test                                                    |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| 6.9.1.1 | Default to compact output (prose + key statements only)       | `/context` returns ~50% fewer tokens than current       |
+| 6.9.1.2 | Auto-expand for small files (<5 functions)                    | Small utility files show full content                   |
+| 6.9.1.3 | Prioritize by relevance (high fan-in → more detail)           | Widely-used types get full signatures, others get summary |
+| 6.9.1.4 | Include full code only for functions with patterns/errors     | `callLLM` shows retry logic, simple getters show signature only |
+
+**Benchmark target**: Efficiency 2.1/5 → 4/5, token usage ≤ Control average
+
+**Rationale**: Shifting complexity to the caller (via parameters) contradicts Pith's goal of providing ready-to-use context. Pith should be smart about what to return.
+
+##### 6.9.2 Function-Level Consumer Tracking
+
+**Problem**: R3 scored 13/25. importedBy edges show 2 files but Control found 48 call sites with line numbers.
+
+| Step    | What                                                          | Test                                                    |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| 6.9.2.1 | Track call sites for exported functions across files          | `extractFile` shows 48 call sites, not 2 files          |
+| 6.9.2.2 | Store function usage with file:line references                | Each call site has file path and line number            |
+| 6.9.2.3 | Add `/consumers/:file/:function` endpoint                     | Returns all consumers of specific function              |
+| 6.9.2.4 | Distinguish production vs test consumers                      | "1 production consumer, 47 test consumers"              |
+
+**Benchmark target**: R3: 13/25 → 20/25
+
+---
+
+##### Phase 6.9 Success Criteria
+
+| Metric         | v4 Baseline   | Target       |
+| -------------- | ------------- | ------------ |
+| Efficiency     | 2.1/5         | ≥4/5         |
+| R3             | 13/25         | ≥20/25       |
+
+**Execution Order**:
+
+1. 6.9.1 Smarter Default Output (Efficiency gap)
+2. 6.9.2 Function-Level Consumer Tracking (R3 gap)
+
+---
+
+### Phase 7: Query Planner
+
+**Goal**: Accept natural language queries and return relevant context automatically.
+
+**Rationale**: Currently, callers guess which files to request. The Query Planner brings file selection INTO Pith, where the codebase index enables informed decisions.
+
+**Flow**:
+```
+POST /query { query: "How does retry work?" }
+         ↓
+   1. Planner LLM: query + codebase index → selects files + reasoning
+         ↓
+   2. Fetch existing prose for selected files
+         ↓
+   3. Final LLM: original query + planner reasoning + prose → answer
+         ↓
+   Return: synthesized answer
+```
+
+**Key design decisions**:
+- Two LLM calls internally: (1) planner selects files, (2) final synthesizes answer
+- Planner reasoning feeds into final LLM - not discarded
+- Caller just asks a question, gets an answer - clean API
+- Uses existing pre-generated prose between the two LLM calls
+
+#### 7.1 Query Endpoint
+
+| Step  | What                                                              | Test                                                    |
+| ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
+| 7.1.1 | New `POST /query` endpoint accepting `{ query: "..." }`           | Endpoint accepts natural language query                 |
+| 7.1.2 | Planner LLM: query + file summaries + relationships → files       | Planner selects relevant files with reasoning           |
+| 7.1.3 | Fetch existing prose for selected files                           | Prose retrieved from database                           |
+| 7.1.4 | Final LLM: query + planner reasoning + prose → answer             | Synthesizes complete answer                             |
+| 7.1.5 | Return synthesized answer to caller                               | Single request, complete response                       |
+
+**Benchmark target**: Match Control's answer quality; overall 71% → 80%+
+
+---
+
+##### Phase 7 Success Criteria
+
+| Metric         | v4 Baseline   | Target       |
+| -------------- | ------------- | ------------ |
+| Overall        | 17.8/25 (71%) | ≥20/25 (80%) |
+| Gap to Control | 6.2 points    | ≤3 points    |
+| Win rate       | 0/15          | ≥3/15        |
+
+**Why this works**: The planner sees both the user's question AND the codebase index. This bridges the information asymmetry - callers have questions but not structure, Pith has structure but not questions.
+
+**Future extensions** (not in MVP):
+- Caching common query patterns
+- Lightweight model for planning (cost optimization)
+
+---
+
+### Phase 8: Advanced Relationships
 
 **Lower priority** - nice to have but not critical for task context.
 
@@ -926,7 +1046,7 @@ When querying `src/extractor/index.ts`:
 | Concept nodes      | LOW      | Cross-cutting patterns - hard to generate accurately |
 | Collection nodes   | LOW      | "All handlers" - rarely needed                       |
 
-### Phase 8: Intelligence (DEPRIORITIZED)
+### Phase 9: Intelligence (DEPRIORITIZED)
 
 These provide interesting metrics but don't directly improve task context.
 
@@ -937,7 +1057,7 @@ These provide interesting metrics but don't directly improve task context.
 | Hotspot detection  | MEDIUM   | Useful for code review, not task context |
 | Coupling analysis  | MEDIUM   | Already have via import edges            |
 
-### Phase 9: Integration
+### Phase 10: Integration
 
 | Feature        | Priority | Notes                          |
 | -------------- | -------- | ------------------------------ |
@@ -946,7 +1066,7 @@ These provide interesting metrics but don't directly improve task context.
 | IDE extensions | LOW      | Delivery mechanism             |
 | GitHub Actions | LOW      | CI integration                 |
 
-### Phase 10: Scale (DEPRIORITIZED)
+### Phase 11: Scale (DEPRIORITIZED)
 
 Only needed for very large codebases.
 
@@ -961,12 +1081,14 @@ Only needed for very large codebases.
 
 ## Priority Summary
 
-Based on testing validation, focus on:
+Based on v4 benchmark (2025-12-31), focus on:
 
-1. **On-demand prose** - Zero upfront cost, instant setup
-2. **Task-oriented context** - Test files, modification impact, patterns
-3. **Accuracy improvements** - Gotcha validation
-4. **MCP server** - LLM tool integration
+1. **Smarter defaults** (Phase 6.9.1) - Reduce token usage via intelligent output sizing
+2. **Function-level consumer tracking** (Phase 6.9.2) - Close R3's 12-point gap
+3. **Query Planner** (Phase 7) - Two LLM calls: planner selects files, final synthesizes answer
+4. **MCP server** (Phase 10) - LLM tool integration after quality gaps closed
+
+**Design principle**: Pith should be a smart context provider that "just works". The Query Planner is the logical evolution - accept questions, not file paths.
 
 Skip for now:
 

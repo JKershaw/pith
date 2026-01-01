@@ -3,28 +3,90 @@
 ## Current Status
 
 **Last completed phase**: Phase 6.8 (Deterministic Gap Closure) - ALL COMPLETE ✅
-**Current step**: Ready for next phase
-**Date**: 2025-12-31
+**Current step**: Phase 6.9 - Response Optimization
+**Date**: 2026-01-01
 
-### Latest Benchmark: 2025-12-31
+### Latest Benchmark: 2025-12-31 (v4)
 
 **Scores**:
 
-- **Pith**: 19.4/25 (78%) - up from 65% in v7
-- **Control**: 22.9/25 (92%)
-- **Gap**: 3.5 points (down from 7.6)
+- **Pith**: 17.8/25 (71%) - up from 65% in v3
+- **Control**: 24.0/25 (96%)
+- **Gap**: 6.2 points (down from 8.2)
 
-**Wins**: Pith now wins 5 tasks (A1, A2, B1, M3, tie on A3)
+**Wins**: 0 wins, 14 losses, 1 tie (R1: WikiNode Impact)
 
-See [2025-12-31 benchmark results](benchmark-results/2025-12-31-self-test.md) for full analysis.
+**Worst Categories** (priority order):
+| Category | Pith Avg | Gap |
+|----------|----------|-----|
+| Debugging (D1-D3) | 16.3/25 | -7.7 |
+| Modification (M1-M3) | 16.7/25 | -7.3 |
+| Relationship (R1-R3) | 17.7/25 | -6.3 |
+
+**Worst Criteria**:
+| Criterion | Pith Avg | Gap |
+|-----------|----------|-----|
+| Efficiency | 2.1/5 | -2.2 |
+| Actionability | 3.5/5 | -1.5 |
+| Completeness | 3.6/5 | -1.4 |
+
+See [2025-12-31 v4 benchmark results](benchmark-results/2025-12-31-self-test-v4.md) for full analysis.
 
 ---
 
-## Previous Benchmark: v7 (2025-12-30)
+## Benchmark History
 
-**Scores**: Pith 16.3/25 (65%) vs Control 23.9/25 (96%). Gap: 7.6 points.
+| Run | Date | Pith Score | Control | Gap | Notes |
+|-----|------|------------|---------|-----|-------|
+| v7 | 2025-12-30 | 65% | 96% | -7.6 | Baseline |
+| v1 | 2025-12-31 | 78% | 92% | -3.5 | Before fuzzy matching bug |
+| v3 | 2025-12-31 | 65% | 98% | -8.2 | Fuzzy matching regression |
+| **v4** | **2025-12-31** | **71%** | **96%** | **-6.2** | **Post-fixes, current** |
 
-This benchmark identified the gaps that Phase 6.7 addressed. See [v7 results](benchmark-results/2025-12-30-self-test-v7.md).
+---
+
+## Phase 6.9: Response Optimization ⬅️ CURRENT
+
+**Goal**: Close efficiency and actionability gaps by returning targeted responses instead of full files.
+
+**Context**: v4 benchmark shows Efficiency at 2.1/5 (worst criterion) and token usage 1.2x higher than Control on average.
+
+### 6.9.1 Smarter Default Output
+
+**Problem**: B2, D1, D2 return full files instead of specific functions. M1 uses 4.9x more tokens than Control.
+
+**Approach**: Make defaults smarter instead of adding parameters. Pith should automatically decide what to include.
+
+| Step    | What                                                          | Status  |
+| ------- | ------------------------------------------------------------- | ------- |
+| 6.9.1.1 | Default to compact output (prose + key statements only)       | Pending |
+| 6.9.1.2 | Auto-expand for small files (<5 functions)                    | Pending |
+| 6.9.1.3 | Prioritize by relevance (high fan-in → more detail)           | Pending |
+| 6.9.1.4 | Include full code only for functions with patterns/errors     | Pending |
+
+**Benchmark target**: Efficiency 2.1/5 → 4/5
+
+### 6.9.2 Function-Level Consumer Tracking
+
+**Problem**: R3 scored 13/25. importedBy shows 2 files but Control found 48 call sites with line numbers.
+
+| Step    | What                                                     | Status  |
+| ------- | -------------------------------------------------------- | ------- |
+| 6.9.2.1 | Track call sites for exported functions across files     | Pending |
+| 6.9.2.2 | Store function usage with file:line references           | Pending |
+| 6.9.2.3 | Add `/consumers/:file/:function` endpoint                | Pending |
+| 6.9.2.4 | Include consumer count in function metadata              | Pending |
+
+**Benchmark target**: R3: 13/25 → 20/25
+
+### Phase 6.9 Success Criteria
+
+| Metric       | v4 Baseline   | Target       |
+| ------------ | ------------- | ------------ |
+| Efficiency   | 2.1/5         | ≥4/5         |
+| R3           | 13/25         | ≥20/25       |
+
+**Note**: 6.9.3 (Debugging Prose) and 6.9.4 (Context Adaptation) removed - Phase 7 Query Planner handles these better by seeing the actual user question.
 
 ---
 
