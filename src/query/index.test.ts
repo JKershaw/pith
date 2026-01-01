@@ -1,0 +1,1239 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import {
+  buildKeywordIndex,
+  tokenizeQuery,
+  preFilter,
+  formatCandidatesForPlanner,
+  buildPlannerPrompt,
+  parsePlannerResponse,
+  buildSynthesisPrompt,
+  parseSynthesisResponse,
+  type KeywordIndex,
+  type PreFilterCandidate,
+  type PlannerResponse,
+} from './index.ts';
+import type { WikiNode } from '../builder/index.ts';
+
+describe('buildKeywordIndex', () => {
+  it('indexes exports from file nodes', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/auth.ts',
+        type: 'file',
+        path: 'src/auth.ts',
+        name: 'auth.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          exports: [
+            { name: 'login', kind: 'function' },
+            { name: 'logout', kind: 'function' },
+          ],
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    assert.deepStrictEqual(index.byExport.get('login'), ['src/auth.ts']);
+    assert.deepStrictEqual(index.byExport.get('logout'), ['src/auth.ts']);
+  });
+
+  it('indexes detected patterns', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/api.ts',
+        type: 'file',
+        path: 'src/api.ts',
+        name: 'api.ts',
+        metadata: { lines: 200, commits: 10, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          patterns: [
+            { name: 'retry', confidence: 'high', evidence: [], location: 'src/api.ts:fetchData' },
+            { name: 'cache', confidence: 'medium', evidence: [], location: 'src/api.ts' },
+          ],
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    assert.deepStrictEqual(index.byPattern.get('retry'), ['src/api.ts']);
+    assert.deepStrictEqual(index.byPattern.get('cache'), ['src/api.ts']);
+  });
+
+  it('indexes key statements by extracting keywords', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/config.ts',
+        type: 'file',
+        path: 'src/config.ts',
+        name: 'config.ts',
+        metadata: { lines: 50, commits: 3, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          functions: [
+            {
+              name: 'configure',
+              signature: 'function configure(): void',
+              startLine: 1,
+              endLine: 20,
+              isAsync: false,
+              isExported: true,
+              isDefaultExport: false,
+              codeSnippet: '',
+              keyStatements: [
+                { line: 5, text: 'timeout = 30000', category: 'config' as const },
+                { line: 10, text: 'maxRetries = 3', category: 'config' as const },
+              ],
+              calls: [],
+              calledBy: [],
+              crossFileCalls: [],
+              crossFileCalledBy: [],
+              errorPaths: [],
+            },
+          ],
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    assert.deepStrictEqual(index.byKeyStatement.get('timeout'), ['src/config.ts']);
+    assert.deepStrictEqual(index.byKeyStatement.get('maxretries'), ['src/config.ts']);
+  });
+
+  it('indexes error types including HTTP status codes', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/api.ts',
+        type: 'file',
+        path: 'src/api.ts',
+        name: 'api.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          functions: [
+            {
+              name: 'handleRequest',
+              signature: 'function handleRequest(): void',
+              startLine: 1,
+              endLine: 50,
+              isAsync: false,
+              isExported: true,
+              isDefaultExport: false,
+              codeSnippet: '',
+              keyStatements: [],
+              calls: [],
+              calledBy: [],
+              crossFileCalls: [],
+              crossFileCalledBy: [],
+              errorPaths: [
+                { type: 'throw', line: 10, action: 'throw 404', httpStatus: 404 },
+                { type: 'throw', line: 20, action: 'throw 500', httpStatus: 500 },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    assert.deepStrictEqual(index.byErrorType.get('404'), ['src/api.ts']);
+    assert.deepStrictEqual(index.byErrorType.get('500'), ['src/api.ts']);
+  });
+
+  it('indexes module names', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/auth/',
+        type: 'module',
+        path: 'src/auth/',
+        name: 'auth',
+        metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+      {
+        id: 'src/generator/',
+        type: 'module',
+        path: 'src/generator/',
+        name: 'generator',
+        metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    assert.deepStrictEqual(index.byModule.get('auth'), ['src/auth/']);
+    assert.deepStrictEqual(index.byModule.get('generator'), ['src/generator/']);
+  });
+
+  it('handles multiple files with same export name', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/auth/login.ts',
+        type: 'file',
+        path: 'src/auth/login.ts',
+        name: 'login.ts',
+        metadata: { lines: 50, commits: 2, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          exports: [{ name: 'validate', kind: 'function' }],
+        },
+      },
+      {
+        id: 'src/utils/validate.ts',
+        type: 'file',
+        path: 'src/utils/validate.ts',
+        name: 'validate.ts',
+        metadata: { lines: 30, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          exports: [{ name: 'validate', kind: 'function' }],
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    const validateFiles = index.byExport.get('validate');
+    assert.ok(validateFiles);
+    assert.strictEqual(validateFiles.length, 2);
+    assert.ok(validateFiles.includes('src/auth/login.ts'));
+    assert.ok(validateFiles.includes('src/utils/validate.ts'));
+  });
+
+  it('indexes function names as exports', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/api.ts',
+        type: 'file',
+        path: 'src/api.ts',
+        name: 'api.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          functions: [
+            {
+              name: 'fetchData',
+              signature: 'function fetchData(): Promise<void>',
+              startLine: 1,
+              endLine: 20,
+              isAsync: true,
+              isExported: true,
+              isDefaultExport: false,
+              codeSnippet: '',
+              keyStatements: [],
+              calls: [],
+              calledBy: [],
+              crossFileCalls: [],
+              crossFileCalledBy: [],
+              errorPaths: [],
+            },
+          ],
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    assert.deepStrictEqual(index.byExport.get('fetchdata'), ['src/api.ts']);
+  });
+
+  it('returns empty index for empty nodes array', () => {
+    const index = buildKeywordIndex([]);
+
+    assert.strictEqual(index.byExport.size, 0);
+    assert.strictEqual(index.byPattern.size, 0);
+    assert.strictEqual(index.byKeyStatement.size, 0);
+    assert.strictEqual(index.byErrorType.size, 0);
+    assert.strictEqual(index.byModule.size, 0);
+  });
+
+  it('skips function nodes (only indexes file and module nodes)', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/api.ts:fetchData',
+        type: 'function',
+        path: 'src/api.ts',
+        name: 'fetchData',
+        metadata: { lines: 20, commits: 2, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    // Should not index function nodes directly
+    assert.strictEqual(index.byExport.size, 0);
+  });
+
+  // Phase 7.0.2: Summary word indexing
+  it('indexes summary words from prose when available', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/generator/index.ts',
+        type: 'file',
+        path: 'src/generator/index.ts',
+        name: 'index.ts',
+        metadata: { lines: 500, commits: 20, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+        prose: {
+          summary: 'LLM prose generation with retry logic and caching',
+          purpose: 'Generates documentation from code',
+          gotchas: [],
+          generatedAt: new Date(),
+          stale: false,
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    // Should index significant words from summary
+    assert.deepStrictEqual(index.bySummaryWord.get('llm'), ['src/generator/index.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('prose'), ['src/generator/index.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('generation'), ['src/generator/index.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('retry'), ['src/generator/index.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('caching'), ['src/generator/index.ts']);
+  });
+
+  it('filters out common stopwords from summary', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/utils.ts',
+        type: 'file',
+        path: 'src/utils.ts',
+        name: 'utils.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+        prose: {
+          summary: 'A utility module that provides helper functions for the application',
+          purpose: 'Utilities',
+          gotchas: [],
+          generatedAt: new Date(),
+          stale: false,
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    // Should filter stopwords like "a", "the", "that", "for"
+    assert.strictEqual(index.bySummaryWord.get('a'), undefined);
+    assert.strictEqual(index.bySummaryWord.get('the'), undefined);
+    assert.strictEqual(index.bySummaryWord.get('that'), undefined);
+    assert.strictEqual(index.bySummaryWord.get('for'), undefined);
+
+    // Should include meaningful words
+    assert.deepStrictEqual(index.bySummaryWord.get('utility'), ['src/utils.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('module'), ['src/utils.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('helper'), ['src/utils.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('functions'), ['src/utils.ts']);
+  });
+
+  it('does not index summary words when prose is missing', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/auth.ts',
+        type: 'file',
+        path: 'src/auth.ts',
+        name: 'auth.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+        // No prose field
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    assert.strictEqual(index.bySummaryWord.size, 0);
+  });
+
+  it('handles empty summary gracefully', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/empty.ts',
+        type: 'file',
+        path: 'src/empty.ts',
+        name: 'empty.ts',
+        metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+        prose: {
+          summary: '',
+          purpose: '',
+          gotchas: [],
+          generatedAt: new Date(),
+          stale: false,
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    assert.strictEqual(index.bySummaryWord.size, 0);
+  });
+});
+
+// Phase 7.0.3: Query tokenizer
+describe('tokenizeQuery', () => {
+  it('extracts meaningful words from query', () => {
+    const tokens = tokenizeQuery('How does retry work?');
+    assert.deepStrictEqual(tokens, ['retry', 'work']);
+  });
+
+  it('filters out stopwords', () => {
+    const tokens = tokenizeQuery('What is the authentication system?');
+    assert.deepStrictEqual(tokens, ['authentication', 'system']);
+  });
+
+  it('handles camelCase by splitting', () => {
+    const tokens = tokenizeQuery('extractFile function');
+    assert.ok(tokens.includes('extract'));
+    assert.ok(tokens.includes('file'));
+    assert.ok(tokens.includes('function'));
+  });
+
+  it('returns empty array for empty query', () => {
+    const tokens = tokenizeQuery('');
+    assert.deepStrictEqual(tokens, []);
+  });
+
+  it('returns empty array for query with only stopwords', () => {
+    const tokens = tokenizeQuery('the and or for');
+    assert.deepStrictEqual(tokens, []);
+  });
+
+  it('handles technical terms', () => {
+    const tokens = tokenizeQuery('LLM API rate limiting');
+    assert.ok(tokens.includes('llm'));
+    assert.ok(tokens.includes('api'));
+    assert.ok(tokens.includes('rate'));
+    assert.ok(tokens.includes('limiting'));
+  });
+
+  it('deduplicates tokens', () => {
+    const tokens = tokenizeQuery('retry retry retry logic');
+    assert.deepStrictEqual(tokens, ['retry', 'logic']);
+  });
+
+  it('normalizes to lowercase', () => {
+    const tokens = tokenizeQuery('API ENDPOINT');
+    assert.deepStrictEqual(tokens, ['api', 'endpoint']);
+  });
+});
+
+// Phase 7.0.4: Pre-filter matching and scoring
+describe('preFilter', () => {
+  const sampleNodes: WikiNode[] = [
+    {
+      id: 'src/generator/index.ts',
+      type: 'file',
+      path: 'src/generator/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 500, commits: 20, lastModified: new Date(), authors: [], fanIn: 8 },
+      edges: [{ type: 'parent', target: 'src/generator/' }],
+      raw: {
+        exports: [{ name: 'generateProse', kind: 'function' }],
+        patterns: [
+          {
+            name: 'retry',
+            confidence: 'high',
+            evidence: [],
+            location: 'src/generator/index.ts:callLLM',
+          },
+        ],
+      },
+      prose: {
+        summary: 'LLM prose generation with retry logic',
+        purpose: 'Generate documentation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+    {
+      id: 'src/api/index.ts',
+      type: 'file',
+      path: 'src/api/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 300, commits: 15, lastModified: new Date(), authors: [], fanIn: 10 },
+      edges: [{ type: 'parent', target: 'src/api/' }],
+      raw: {
+        exports: [{ name: 'createApp', kind: 'function' }],
+        functions: [
+          {
+            name: 'handleRequest',
+            signature: 'function handleRequest(): void',
+            startLine: 1,
+            endLine: 50,
+            isAsync: false,
+            isExported: true,
+            isDefaultExport: false,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            crossFileCalls: [],
+            crossFileCalledBy: [],
+            errorPaths: [{ type: 'throw', line: 10, action: 'throw 404', httpStatus: 404 }],
+          },
+        ],
+      },
+    },
+    {
+      id: 'src/generator/',
+      type: 'module',
+      path: 'src/generator/',
+      name: 'generator',
+      metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    },
+    {
+      id: 'src/api/',
+      type: 'module',
+      path: 'src/api/',
+      name: 'api',
+      metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    },
+  ];
+
+  it('matches export names with highest score', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('generateProse function', index, sampleNodes);
+
+    assert.ok(candidates.length > 0);
+    const match = candidates.find((c) => c.path === 'src/generator/index.ts');
+    assert.ok(match);
+    assert.ok(match.score >= 10); // Export match = 10 points (generate + prose)
+    // Matches on "generate" and "prose" parts of "generateProse"
+    assert.ok(match.matchReasons.some((r) => r.startsWith('export:')));
+  });
+
+  it('matches pattern names', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('retry logic', index, sampleNodes);
+
+    const match = candidates.find((c) => c.path === 'src/generator/index.ts');
+    assert.ok(match);
+    assert.ok(match.matchReasons.includes('pattern: retry'));
+  });
+
+  it('matches error types (HTTP status codes)', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('404 error handling', index, sampleNodes);
+
+    const match = candidates.find((c) => c.path === 'src/api/index.ts');
+    assert.ok(match);
+    assert.ok(match.matchReasons.includes('error: 404'));
+  });
+
+  it('matches module names', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('generator module', index, sampleNodes);
+
+    // Should match both the module and files in it
+    const moduleMatch = candidates.find((c) => c.path === 'src/generator/');
+    assert.ok(moduleMatch);
+    assert.ok(moduleMatch.matchReasons.includes('module: generator'));
+  });
+
+  it('includes parent modules of matched files', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('generateProse', index, sampleNodes);
+
+    // Should include parent module for context
+    const moduleMatch = candidates.find((c) => c.path === 'src/generator/');
+    assert.ok(moduleMatch);
+  });
+
+  it('includes high-fanIn files even without keyword match', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('some random query', index, sampleNodes);
+
+    // High fanIn files should be included for context
+    const highFanIn = candidates.filter((c) => c.isHighFanIn);
+    assert.ok(highFanIn.length > 0);
+  });
+
+  it('caps results at 25 candidates', () => {
+    // Create many nodes
+    const manyNodes: WikiNode[] = [];
+    for (let i = 0; i < 50; i++) {
+      manyNodes.push({
+        id: `src/file${i}.ts`,
+        type: 'file',
+        path: `src/file${i}.ts`,
+        name: `file${i}.ts`,
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          exports: [{ name: 'common', kind: 'function' }],
+        },
+      });
+    }
+
+    const index = buildKeywordIndex(manyNodes);
+    const candidates = preFilter('common function', index, manyNodes);
+
+    assert.ok(candidates.length <= 25);
+  });
+
+  it('sorts candidates by score descending', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('retry logic generator', index, sampleNodes);
+
+    for (let i = 1; i < candidates.length; i++) {
+      assert.ok(candidates[i - 1].score >= candidates[i].score);
+    }
+  });
+
+  it('returns empty array for empty query', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('', index, sampleNodes);
+
+    // Should still include high-fanIn files
+    assert.ok(candidates.length > 0);
+    assert.ok(candidates.every((c) => c.isHighFanIn));
+  });
+
+  it('matches summary words from prose', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('LLM documentation', index, sampleNodes);
+
+    const match = candidates.find((c) => c.path === 'src/generator/index.ts');
+    assert.ok(match);
+    assert.ok(match.matchReasons.some((r) => r.startsWith('summary:')));
+  });
+});
+
+// Phase 7.0.5: Candidate formatter
+describe('formatCandidatesForPlanner', () => {
+  const nodesWithImports: WikiNode[] = [
+    {
+      id: 'src/api/index.ts',
+      type: 'file',
+      path: 'src/api/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 300, commits: 15, lastModified: new Date(), authors: [], fanIn: 5 },
+      edges: [
+        { type: 'parent', target: 'src/api/' },
+        { type: 'imports', target: 'src/generator/index.ts' },
+      ],
+      raw: {
+        exports: [{ name: 'createApp', kind: 'function' }],
+      },
+      prose: {
+        summary: 'Express API server with REST endpoints',
+        purpose: 'Serve API',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+    {
+      id: 'src/generator/index.ts',
+      type: 'file',
+      path: 'src/generator/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 500, commits: 20, lastModified: new Date(), authors: [], fanIn: 8 },
+      edges: [{ type: 'parent', target: 'src/generator/' }],
+      raw: {
+        exports: [{ name: 'generateProse', kind: 'function' }],
+      },
+      prose: {
+        summary: 'LLM prose generation with retry logic',
+        purpose: 'Generate documentation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+    {
+      id: 'src/generator/',
+      type: 'module',
+      path: 'src/generator/',
+      name: 'generator',
+      metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+      prose: {
+        summary: 'Module for generating prose from code',
+        purpose: 'Documentation generation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+    {
+      id: 'src/api/',
+      type: 'module',
+      path: 'src/api/',
+      name: 'api',
+      metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    },
+  ];
+
+  it('formats candidates with summary and match reasons', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/index.ts',
+        score: 18,
+        matchReasons: ['export: generateprose', 'pattern: retry'],
+        isHighFanIn: true,
+        isModule: false,
+      },
+    ];
+
+    const formatted = formatCandidatesForPlanner(candidates, nodesWithImports);
+
+    assert.ok(formatted.includes('src/generator/index.ts'));
+    assert.ok(formatted.includes('LLM prose generation'));
+    assert.ok(formatted.includes('Matched: export:generateprose, pattern:retry'));
+  });
+
+  it('shows import relationships between candidates', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/api/index.ts',
+        score: 10,
+        matchReasons: ['export: createapp'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+      {
+        path: 'src/generator/index.ts',
+        score: 15,
+        matchReasons: ['export: generateprose'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+    ];
+
+    const formatted = formatCandidatesForPlanner(candidates, nodesWithImports);
+
+    // api/index.ts imports generator/index.ts
+    assert.ok(formatted.includes('Uses: src/generator/index.ts'));
+  });
+
+  it('formats modules with summary', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/',
+        score: 5,
+        matchReasons: ['module: generator'],
+        isHighFanIn: false,
+        isModule: true,
+      },
+    ];
+
+    const formatted = formatCandidatesForPlanner(candidates, nodesWithImports);
+
+    assert.ok(formatted.includes('src/generator/'));
+    assert.ok(formatted.includes('Module for generating prose'));
+  });
+
+  it('handles missing prose gracefully', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/api/',
+        score: 3,
+        matchReasons: ['parent of matched file'],
+        isHighFanIn: false,
+        isModule: true,
+      },
+    ];
+
+    const formatted = formatCandidatesForPlanner(candidates, nodesWithImports);
+
+    assert.ok(formatted.includes('src/api/'));
+    // Should show something even without prose
+    assert.ok(formatted.includes('(no summary)'));
+  });
+
+  it('returns empty string for empty candidates', () => {
+    const formatted = formatCandidatesForPlanner([], nodesWithImports);
+    assert.strictEqual(formatted, '');
+  });
+});
+
+// Phase 7.1.3: Planner prompt builder
+describe('buildPlannerPrompt', () => {
+  const sampleNodes: WikiNode[] = [
+    {
+      id: 'src/generator/index.ts',
+      type: 'file',
+      path: 'src/generator/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 500, commits: 20, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+      prose: {
+        summary: 'LLM prose generation with retry logic',
+        purpose: 'Generate documentation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+    {
+      id: 'src/generator/',
+      type: 'module',
+      path: 'src/generator/',
+      name: 'generator',
+      metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+      prose: {
+        summary: 'Module for generating prose from code',
+        purpose: 'Documentation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+  ];
+
+  it('includes user question in prompt', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/index.ts',
+        score: 10,
+        matchReasons: ['export: generateprose'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+    ];
+
+    const prompt = buildPlannerPrompt('How does retry work?', candidates, sampleNodes);
+
+    assert.ok(prompt.includes('How does retry work?'));
+    assert.ok(prompt.includes('User Question'));
+  });
+
+  it('includes formatted candidates', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/index.ts',
+        score: 10,
+        matchReasons: ['export: generateprose'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+    ];
+
+    const prompt = buildPlannerPrompt('test query', candidates, sampleNodes);
+
+    assert.ok(prompt.includes('src/generator/index.ts'));
+    assert.ok(prompt.includes('LLM prose generation'));
+    assert.ok(prompt.includes('Candidate Files'));
+  });
+
+  it('includes modules section when modules present', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/',
+        score: 5,
+        matchReasons: ['module: generator'],
+        isHighFanIn: false,
+        isModule: true,
+      },
+    ];
+
+    const prompt = buildPlannerPrompt('test query', candidates, sampleNodes);
+
+    assert.ok(prompt.includes('Relevant Modules'));
+    assert.ok(prompt.includes('src/generator/'));
+  });
+
+  it('requests JSON output format', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/index.ts',
+        score: 10,
+        matchReasons: ['export: generateprose'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+    ];
+
+    const prompt = buildPlannerPrompt('test query', candidates, sampleNodes);
+
+    assert.ok(prompt.includes('selectedFiles'));
+    assert.ok(prompt.includes('reasoning'));
+    assert.ok(prompt.includes('JSON'));
+    assert.ok(prompt.includes('3-8 files'));
+  });
+
+  it('provides selection guidance', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/index.ts',
+        score: 10,
+        matchReasons: ['export: generateprose'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+    ];
+
+    const prompt = buildPlannerPrompt('test query', candidates, sampleNodes);
+
+    assert.ok(prompt.includes('high relevance scores'));
+    assert.ok(prompt.includes('match the query keywords'));
+    assert.ok(prompt.includes('[Uses: ...]'));
+  });
+});
+
+// Phase 7.1.4: Planner response parser
+describe('parsePlannerResponse', () => {
+  const validPaths = new Set([
+    'src/api/index.ts',
+    'src/generator/index.ts',
+    'src/builder/index.ts',
+  ]);
+
+  it('parses valid JSON response', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['src/api/index.ts', 'src/generator/index.ts'],
+      reasoning: 'API handles requests, generator creates prose',
+      informationNeeded: 'How they interact',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok(!('error' in result));
+    const parsed = result as PlannerResponse;
+    assert.deepStrictEqual(parsed.selectedFiles, ['src/api/index.ts', 'src/generator/index.ts']);
+    assert.strictEqual(parsed.reasoning, 'API handles requests, generator creates prose');
+    assert.strictEqual(parsed.informationNeeded, 'How they interact');
+  });
+
+  it('handles markdown code blocks', () => {
+    const response = `\`\`\`json
+{
+  "selectedFiles": ["src/api/index.ts"],
+  "reasoning": "Main entry point",
+  "informationNeeded": "API structure"
+}
+\`\`\``;
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok(!('error' in result));
+    const parsed = result as PlannerResponse;
+    assert.deepStrictEqual(parsed.selectedFiles, ['src/api/index.ts']);
+  });
+
+  it('returns error for invalid JSON', () => {
+    const response = 'This is not JSON';
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok('error' in result);
+    assert.ok(result.error.includes('Failed to parse JSON'));
+  });
+
+  it('returns error for missing selectedFiles', () => {
+    const response = JSON.stringify({
+      reasoning: 'Some reasoning',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok('error' in result);
+    assert.ok(result.error.includes('selectedFiles'));
+  });
+
+  it('returns error for missing reasoning', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['src/api/index.ts'],
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok('error' in result);
+    assert.ok(result.error.includes('reasoning'));
+  });
+
+  it('filters out invalid paths but continues with valid ones', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['src/api/index.ts', 'invalid/path.ts'],
+      reasoning: 'Mixed paths',
+      informationNeeded: 'Test',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok(!('error' in result));
+    const parsed = result as PlannerResponse;
+    assert.deepStrictEqual(parsed.selectedFiles, ['src/api/index.ts']);
+    assert.ok(parsed.reasoning.includes('filtered out'));
+  });
+
+  it('returns error when all paths are invalid', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['invalid/path1.ts', 'invalid/path2.ts'],
+      reasoning: 'All invalid',
+      informationNeeded: 'Test',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok('error' in result);
+    assert.ok(result.error.includes('No valid files'));
+  });
+
+  it('provides default informationNeeded when missing', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['src/api/index.ts'],
+      reasoning: 'Main API',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    assert.ok(!('error' in result));
+    const parsed = result as PlannerResponse;
+    assert.ok(parsed.informationNeeded.includes('General information'));
+  });
+
+  it('tracks non-string entries in selectedFiles for diagnostics', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['src/api/index.ts', 123, null, { path: 'invalid' }],
+      reasoning: 'Mixed types in array',
+      informationNeeded: 'Test',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    // Should still succeed with the valid file
+    assert.ok(!('error' in result));
+    const parsed = result as PlannerResponse;
+    assert.deepStrictEqual(parsed.selectedFiles, ['src/api/index.ts']);
+    // Reasoning should mention filtered items
+    assert.ok(parsed.reasoning.includes('filtered out'));
+  });
+});
+
+// Phase 7.1.6: Synthesis prompt builder
+describe('buildSynthesisPrompt', () => {
+  const sampleNodes: WikiNode[] = [
+    {
+      id: 'src/generator/index.ts',
+      type: 'file',
+      path: 'src/generator/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 500, commits: 20, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {
+        functions: [
+          {
+            name: 'callLLM',
+            signature: 'async function callLLM(prompt: string, config: Config): Promise<string>',
+            startLine: 100,
+            endLine: 150,
+            isAsync: true,
+            isExported: true,
+            isDefaultExport: false,
+            codeSnippet: 'async function callLLM(prompt, config) {\n  // retry logic\n}',
+            keyStatements: [{ line: 110, text: 'maxRetries = 3', category: 'config' as const }],
+            calls: [],
+            calledBy: [],
+            crossFileCalls: [],
+            crossFileCalledBy: [],
+            errorPaths: [],
+          },
+        ],
+        patterns: [
+          { name: 'retry', confidence: 'high', evidence: ['maxRetries = 3'], location: 'callLLM' },
+        ],
+      },
+      prose: {
+        summary: 'LLM prose generation with retry logic',
+        purpose: 'Generates documentation from code using LLM API calls with retry handling',
+        gotchas: ['Retries 3 times with exponential backoff'],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+  ];
+
+  it('includes user question in prompt', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Contains retry logic',
+      informationNeeded: 'How retry works',
+    };
+
+    const prompt = buildSynthesisPrompt('How does retry work?', sampleNodes, plannerInfo);
+
+    assert.ok(prompt.includes('How does retry work?'));
+    assert.ok(prompt.includes('Question'));
+  });
+
+  it('includes file prose and context', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Contains retry logic',
+      informationNeeded: 'How retry works',
+    };
+
+    const prompt = buildSynthesisPrompt('How does retry work?', sampleNodes, plannerInfo);
+
+    assert.ok(prompt.includes('src/generator/index.ts'));
+    assert.ok(prompt.includes('LLM prose generation'));
+    assert.ok(prompt.includes('Retries 3 times'));
+  });
+
+  it('includes function details when available', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Contains retry logic',
+      informationNeeded: 'How retry works',
+    };
+
+    const prompt = buildSynthesisPrompt('How does retry work?', sampleNodes, plannerInfo);
+
+    assert.ok(prompt.includes('callLLM'));
+    assert.ok(prompt.includes('maxRetries = 3'));
+  });
+
+  it('includes detected patterns', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Contains retry logic',
+      informationNeeded: 'How retry works',
+    };
+
+    const prompt = buildSynthesisPrompt('How does retry work?', sampleNodes, plannerInfo);
+
+    assert.ok(prompt.includes('retry'));
+    assert.ok(prompt.includes('pattern') || prompt.includes('Pattern'));
+  });
+
+  it('includes planner reasoning for context', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Contains retry logic implementation',
+      informationNeeded: 'Specific retry mechanism details',
+    };
+
+    const prompt = buildSynthesisPrompt('How does retry work?', sampleNodes, plannerInfo);
+
+    assert.ok(prompt.includes('Contains retry logic implementation'));
+  });
+
+  it('requests specific answer format', () => {
+    const plannerInfo = {
+      selectedFiles: ['src/generator/index.ts'],
+      reasoning: 'Test',
+      informationNeeded: 'Test',
+    };
+
+    const prompt = buildSynthesisPrompt('test query', sampleNodes, plannerInfo);
+
+    // Should request developer-focused answer
+    assert.ok(prompt.includes('developer') || prompt.includes('technical'));
+    assert.ok(prompt.includes('answer') || prompt.includes('response'));
+  });
+});
+
+// Phase 7.1.7: Synthesis response parser
+describe('parseSynthesisResponse', () => {
+  it('extracts answer from plain text response', () => {
+    const response =
+      'The retry logic works by attempting the operation up to 3 times with exponential backoff.';
+
+    const result = parseSynthesisResponse(response);
+
+    assert.strictEqual(result.answer, response);
+    assert.ok(!result.error);
+  });
+
+  it('extracts answer from JSON response', () => {
+    const response = JSON.stringify({
+      answer: 'The retry logic uses maxRetries = 3',
+      confidence: 'high',
+    });
+
+    const result = parseSynthesisResponse(response);
+
+    assert.strictEqual(result.answer, 'The retry logic uses maxRetries = 3');
+  });
+
+  it('handles markdown code blocks in response', () => {
+    const response = `Here's how it works:
+
+\`\`\`
+The retry logic retries 3 times
+\`\`\`
+
+This ensures reliability.`;
+
+    const result = parseSynthesisResponse(response);
+
+    assert.ok(result.answer.includes('retry logic'));
+  });
+
+  it('strips markdown fences from JSON response', () => {
+    const response = `\`\`\`json
+{"answer": "The retry uses 3 attempts with exponential backoff"}
+\`\`\``;
+
+    const result = parseSynthesisResponse(response);
+
+    assert.strictEqual(result.answer, 'The retry uses 3 attempts with exponential backoff');
+  });
+
+  it('strips markdown fences from plain text response', () => {
+    const response = `\`\`\`
+The function is located at line 42.
+\`\`\``;
+
+    const result = parseSynthesisResponse(response);
+
+    assert.strictEqual(result.answer, 'The function is located at line 42.');
+  });
+
+  it('handles content after closing markdown fence', () => {
+    // Edge case: LLM adds explanation after the code block
+    const response = `\`\`\`json
+{"answer": "The function uses retry logic"}
+\`\`\`
+
+Note: This is extracted from the generator module.`;
+
+    const result = parseSynthesisResponse(response);
+
+    // Should extract the JSON content, ignoring text after the fence
+    assert.strictEqual(result.answer, 'The function uses retry logic');
+  });
+
+  it('returns error indicator for empty response', () => {
+    const result = parseSynthesisResponse('');
+
+    assert.ok(result.error);
+    assert.ok(result.answer.includes('Unable') || result.answer.includes('failed'));
+  });
+
+  it('returns error indicator for whitespace-only response', () => {
+    const result = parseSynthesisResponse('   \n\t  ');
+
+    assert.ok(result.error);
+  });
+});

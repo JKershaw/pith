@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 6.9 (Response Optimization) - ALL COMPLETE ✅
-**Current step**: Phase 7 - Query Planner (Planning)
+**Last completed phase**: Phase 7 (Query Planner) - ALL COMPLETE ✅
+**Current step**: N/A - Phase 7 complete
 **Date**: 2026-01-01
 
 ### Latest Benchmark: 2025-12-31 (v4)
@@ -45,40 +45,74 @@ See [2025-12-31 v4 benchmark results](benchmark-results/2025-12-31-self-test-v4.
 
 ---
 
-## Phase 7: Query Planner - IN PROGRESS
+## Phase 7: Query Planner - COMPLETE ✅
 
 **Goal**: Accept natural language queries and return relevant context automatically.
 
 **Architecture**: Two-stage approach for token efficiency:
+
 1. **Pre-filter** (deterministic): Keyword matching reduces 100+ files to ~25 candidates
 2. **Planner LLM**: Selects 3-8 most relevant files from candidates
 3. **Synthesizer LLM**: Generates complete answer from selected file prose
 
-### 7.0 Prep Work
+### 7.0 Prep Work - COMPLETE ✅
 
-| Step  | What                                                | Status  |
-| ----- | --------------------------------------------------- | ------- |
-| 7.0.1 | Keyword index from deterministic data               | Pending |
-| 7.0.2 | Extend index with summary words (when prose exists) | Pending |
-| 7.0.3 | Query tokenizer with stopword filtering             | Pending |
-| 7.0.4 | Pre-filter: match tokens, score, add modules        | Pending |
-| 7.0.5 | Candidate formatter with relationships              | Pending |
+| Step  | What                                                | Status       |
+| ----- | --------------------------------------------------- | ------------ |
+| 7.0.1 | Keyword index from deterministic data               | **Complete** |
+| 7.0.2 | Extend index with summary words (when prose exists) | **Complete** |
+| 7.0.3 | Query tokenizer with stopword filtering             | **Complete** |
+| 7.0.4 | Pre-filter: match tokens, score, add modules        | **Complete** |
+| 7.0.5 | Candidate formatter with relationships              | **Complete** |
 
-### 7.1 Query Endpoint
+### 7.1 Query Endpoint - COMPLETE ✅
 
-| Step  | What                                           | Status  |
-| ----- | ---------------------------------------------- | ------- |
-| 7.1.1 | `POST /query` endpoint                         | Pending |
-| 7.1.2 | Integrate pre-filter: query → candidates       | Pending |
-| 7.1.3 | Build planner prompt from candidates           | Pending |
-| 7.1.4 | Call LLM, parse file selection                 | Pending |
-| 7.1.5 | Fetch prose for selected files                 | Pending |
-| 7.1.6 | Build synthesis prompt                         | Pending |
-| 7.1.7 | Call LLM, return synthesized answer            | Pending |
+| Step  | What                                     | Status       |
+| ----- | ---------------------------------------- | ------------ |
+| 7.1.1 | `POST /query` endpoint                   | **Complete** |
+| 7.1.2 | Integrate pre-filter: query → candidates | **Complete** |
+| 7.1.3 | Build planner prompt from candidates     | **Complete** |
+| 7.1.4 | Call LLM, parse file selection           | **Complete** |
+| 7.1.5 | Fetch prose for selected files           | **Complete** |
+| 7.1.6 | Build synthesis prompt                   | **Complete** |
+| 7.1.7 | Call LLM, return synthesized answer      | **Complete** |
+
+### Phase 7 Implementation Summary (2026-01-01)
+
+**New files**:
+
+- `src/query/index.ts` - Query planner module with all functions
+- `src/query/index.test.ts` - 50+ tests for query planner
+
+**Key functions**:
+
+- `buildKeywordIndex()`: Indexes exports, patterns, key statements, summary words, error types, modules
+- `tokenizeQuery()`: Tokenizes queries with stopword filtering and camelCase splitting
+- `preFilter()`: Matches tokens, scores candidates (Export: 10, Pattern: 8, Error: 7, etc.)
+- `formatCandidatesForPlanner()`: Formats candidates for LLM with relationships
+- `buildPlannerPrompt()`: Builds prompt for file selection
+- `parsePlannerResponse()`: Parses LLM response for selected files
+- `buildSynthesisPrompt()`: Builds prompt for answer generation
+- `parseSynthesisResponse()`: Parses LLM answer response
+
+**API endpoint** (`POST /query`):
+
+- Validates query input
+- Builds keyword index from all nodes
+- Pre-filters candidates (max 25)
+- Calls planner LLM to select 3-8 files
+- Fetches/generates prose for selected files
+- Calls synthesis LLM to generate answer
+- Returns: answer, filesUsed, reasoning
+
+**Graceful degradation**: Without LLM config, returns pre-filter results only
+
+**Tests**: 538 total (11 new for Phase 7.1.5-7.1.7)
 
 ### Phase 7 Design Analysis (2026-01-01)
 
 **Prompt Review - Key Questions**:
+
 1. What is the goal of each LLM call?
 2. What would be perfect starting context?
 3. How close can we get with our current plan?
@@ -1368,17 +1402,17 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2025-12-30 (Phase 6.6 Complete):
+As of 2026-01-01 (Phase 7 Complete):
 
-- **Total tests**: 352
+- **Total tests**: 538
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 94
+- **Test suites**: 141
 
 Commands:
 
 ```bash
-npm test      # 352 tests pass
+npm test      # 538 tests pass
 npm run lint  # No errors
 ```
 
@@ -1400,6 +1434,8 @@ pith serve [--port <port>]
 - `GET /node/:path` - Fetch single node
 - `GET /context?files=a,b,c` - Bundled context for LLM injection
 - `GET /impact/:path` - Change impact analysis (Phase 6.6.5)
+- `GET /consumers/:file/:function` - Function consumer tracking (Phase 6.9.2)
+- `POST /query` - Natural language query endpoint (Phase 7)
 - `POST /refresh` - Re-extract and rebuild
 
 ### Key Features
