@@ -266,3 +266,54 @@ export function buildKeywordIndex(nodes: WikiNode[]): KeywordIndex {
 
   return index;
 }
+
+/**
+ * Split a word on camelCase boundaries.
+ * "extractFile" → ["extract", "File"]
+ * "API" → ["API"] (all caps stays together)
+ * "parseAPIResponse" → ["parse", "API", "Response"]
+ */
+function splitCamelCase(word: string): string[] {
+  // Handle all-caps words (acronyms)
+  if (word === word.toUpperCase()) {
+    return [word];
+  }
+
+  // Split on lowercase→uppercase transitions, keeping uppercase sequences together
+  // parseAPIResponse → parse, API, Response
+  return word.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/).filter(Boolean);
+}
+
+/**
+ * Tokenize a natural language query into searchable keywords.
+ * Step 7.0.3: Query tokenizer with stopword filtering.
+ *
+ * @param query - The natural language query (e.g., "How does retry work?")
+ * @returns Array of normalized, deduplicated keyword tokens
+ */
+export function tokenizeQuery(query: string): string[] {
+  if (!query) return [];
+
+  const tokens: string[] = [];
+  const seen = new Set<string>();
+
+  // Extract words (alphabetic only)
+  const words = query.match(/[a-zA-Z]+/g) || [];
+
+  for (const word of words) {
+    // Split camelCase: extractFile → extract, File
+    const parts = splitCamelCase(word);
+
+    for (const part of parts) {
+      const normalized = part.toLowerCase();
+
+      // Skip stopwords and short words, avoid duplicates
+      if (normalized.length > 2 && !STOPWORDS.has(normalized) && !seen.has(normalized)) {
+        tokens.push(normalized);
+        seen.add(normalized);
+      }
+    }
+  }
+
+  return tokens;
+}

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { buildKeywordIndex, type KeywordIndex } from './index.ts';
+import { buildKeywordIndex, tokenizeQuery, type KeywordIndex } from './index.ts';
 import type { WikiNode } from '../builder/index.ts';
 
 describe('buildKeywordIndex', () => {
@@ -371,5 +371,53 @@ describe('buildKeywordIndex', () => {
     const index = buildKeywordIndex(nodes);
 
     assert.strictEqual(index.bySummaryWord.size, 0);
+  });
+});
+
+// Phase 7.0.3: Query tokenizer
+describe('tokenizeQuery', () => {
+  it('extracts meaningful words from query', () => {
+    const tokens = tokenizeQuery('How does retry work?');
+    assert.deepStrictEqual(tokens, ['retry', 'work']);
+  });
+
+  it('filters out stopwords', () => {
+    const tokens = tokenizeQuery('What is the authentication system?');
+    assert.deepStrictEqual(tokens, ['authentication', 'system']);
+  });
+
+  it('handles camelCase by splitting', () => {
+    const tokens = tokenizeQuery('extractFile function');
+    assert.ok(tokens.includes('extract'));
+    assert.ok(tokens.includes('file'));
+    assert.ok(tokens.includes('function'));
+  });
+
+  it('returns empty array for empty query', () => {
+    const tokens = tokenizeQuery('');
+    assert.deepStrictEqual(tokens, []);
+  });
+
+  it('returns empty array for query with only stopwords', () => {
+    const tokens = tokenizeQuery('the and or for');
+    assert.deepStrictEqual(tokens, []);
+  });
+
+  it('handles technical terms', () => {
+    const tokens = tokenizeQuery('LLM API rate limiting');
+    assert.ok(tokens.includes('llm'));
+    assert.ok(tokens.includes('api'));
+    assert.ok(tokens.includes('rate'));
+    assert.ok(tokens.includes('limiting'));
+  });
+
+  it('deduplicates tokens', () => {
+    const tokens = tokenizeQuery('retry retry retry logic');
+    assert.deepStrictEqual(tokens, ['retry', 'logic']);
+  });
+
+  it('normalizes to lowercase', () => {
+    const tokens = tokenizeQuery('API ENDPOINT');
+    assert.deepStrictEqual(tokens, ['api', 'endpoint']);
   });
 });
