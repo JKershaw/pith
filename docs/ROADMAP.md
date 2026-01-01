@@ -986,34 +986,171 @@ When querying `src/extractor/index.ts`:
 
 **Rationale**: Currently, callers guess which files to request. The Query Planner brings file selection INTO Pith, where the codebase index enables informed decisions.
 
-**Flow**:
+**Architecture**: Two-stage approach for token efficiency:
+
 ```
 POST /query { query: "How does retry work?" }
          ↓
-   1. Planner LLM: query + codebase index → selects files + reasoning
+   STAGE 1: Pre-filter (deterministic, no LLM)
+   - Extract keywords from query
+   - Match against keyword index (exports, patterns, summaries, errors)
+   - Include high-fanIn files and module summaries
+   - Result: ~20-25 candidate files (not 100+)
          ↓
-   2. Fetch existing prose for selected files
+   STAGE 2: Planner LLM
+   - Sees only candidates with compact info (~40 tokens each)
+   - Selects 3-8 most relevant files
+   - Provides reasoning for selection
          ↓
-   3. Final LLM: original query + planner reasoning + prose → answer
+   STAGE 3: Fetch & Synthesize
+   - Get full prose for selected files (generate if missing)
+   - Build synthesis prompt with full context
+   - LLM generates complete answer
          ↓
-   Return: synthesized answer
+   Return: { answer, filesUsed, reasoning }
 ```
 
 **Key design decisions**:
-- Two LLM calls internally: (1) planner selects files, (2) final synthesizes answer
-- Planner reasoning feeds into final LLM - not discarded
-- Caller just asks a question, gets an answer - clean API
-- Uses existing pre-generated prose between the two LLM calls
+- **Pre-filter first**: Deterministic keyword matching reduces candidates from 100+ to ~25
+- **Two LLM calls**: (1) planner selects from candidates, (2) synthesizer answers
+- **Planner reasoning preserved**: Feeds into synthesis prompt for context
+- **On-demand prose**: Generate if missing (existing capability)
+- **Same model everywhere**: Already using cheap model, no need for model profiles
+
+**Data used for matching**:
+
+| Data Type | Matches Query Type | Example |
+|-----------|-------------------|---------|
+| Export names | Feature questions | "retry" → `callLLM` |
+| Function names | Direct references | "extractFile" → `ast.ts` |
+| Detected patterns | Behavior questions | "caching" → files with cache pattern |
+| Key statements | Config questions | "timeout" → files with timeout values |
+| Error paths | Debugging questions | "404" → files that return 404 |
+| Summaries | General questions | "LLM" → generator module |
+
+#### 7.0 Prep Work
+
+Foundational components that simplify Phase 7 implementation.
+
+| Step  | What                                                              | Test                                                    |
+| ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
+| 7.0.1 | Keyword index from deterministic data                             | Index contains exports, patterns, key statements, errors, modules |
+| 7.0.2 | Extend index with summary words (when prose exists)               | Index contains summary words; logs warning for missing prose |
+| 7.0.3 | Query tokenizer with stopword filtering                           | "How does retry work?" → ["retry", "work"] |
+| 7.0.4 | Pre-filter: match tokens, score, add modules                      | Returns ~20-25 candidates with match reasons + parent modules |
+| 7.0.5 | Candidate formatter with relationships                            | Shows path, summary, exports, `Uses:` imports (~40 tokens) |
+
+**Keyword index structure**:
+```typescript
+interface KeywordIndex {
+  byExport: Map<string, string[]>;      // "callLLM" → ["src/generator/index.ts"]
+  byPattern: Map<string, string[]>;     // "retry" → ["src/generator/index.ts"]
+  byKeyStatement: Map<string, string[]>; // "timeout" → ["src/generator/index.ts"]
+  bySummaryWord: Map<string, string[]>; // "llm" → ["src/generator/index.ts"] (when prose exists)
+  byErrorType: Map<string, string[]>;   // "404" → ["src/api/index.ts"]
+  byModule: Map<string, string[]>;      // "generator" → ["src/generator/"]
+}
+```
+
+**Index lifecycle**:
+- Built on server start from all nodes in database
+- 7.0.1: Index deterministic data (exports, patterns, key statements, error types, module names)
+- 7.0.2: Add summary words when `node.prose?.summary` exists; log warning for nodes without prose
+- Index held in memory for fast lookup during queries
+
+**Pre-filter logic** (7.0.4):
+1. Tokenize query using 7.0.3
+2. Look up each token in all index maps
+3. Score by match type: export (10) > pattern (8) > keyStatement (5) > summary (3) > module (2)
+4. Always include: top 5 high-fanIn files, parent modules of matched files
+5. Track which candidates import from each other (for `Uses:` display)
+6. Cap at 25 candidates, sorted by score
 
 #### 7.1 Query Endpoint
 
 | Step  | What                                                              | Test                                                    |
 | ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.1.1 | New `POST /query` endpoint accepting `{ query: "..." }`           | Endpoint accepts natural language query                 |
-| 7.1.2 | Planner LLM: query + file summaries + relationships → files       | Planner selects relevant files with reasoning           |
-| 7.1.3 | Fetch existing prose for selected files                           | Prose retrieved from database                           |
-| 7.1.4 | Final LLM: query + planner reasoning + prose → answer             | Synthesizes complete answer                             |
-| 7.1.5 | Return synthesized answer to caller                               | Single request, complete response                       |
+| 7.1.1 | `POST /query` endpoint accepting `{ query: string }`              | Endpoint accepts natural language query                 |
+| 7.1.2 | Integrate pre-filter: query → candidates + modules                | Returns candidates with match reasons and relationships |
+| 7.1.3 | Build planner prompt (two-level: modules then files)              | Compact prompt with ~500-1000 tokens                    |
+| 7.1.4 | Call LLM, parse file selection as JSON                            | Returns `{ informationNeeded, files, reasoning }`       |
+| 7.1.5 | Fetch prose for selected files (generate if missing)              | All selected files have prose available                 |
+| 7.1.6 | Build synthesis prompt with module context + guidelines           | Includes informationNeeded, module summaries, guidelines |
+| 7.1.7 | Call LLM, return synthesized answer                               | Specific answer with file:line references               |
+
+**Planner prompt structure**:
+```
+You are helping answer a question about a codebase.
+
+QUESTION: {query}
+
+Your task:
+1. Identify what information is needed to answer this question
+2. Select 3-8 files that together provide that information
+3. Explain your reasoning
+
+CANDIDATE FILES:
+
+## Modules
+
+src/generator/
+  Module: LLM prose generation system
+  Contains: index.ts, prompts.ts
+
+## Files
+
+src/generator/index.ts [fanIn:5, patterns: retry]
+  LLM prose generation with OpenRouter API
+  Exports: generateProse, callLLM, buildPrompt
+  Uses: src/config/index.ts (LLMConfig)
+  Matched: keyword "retry", pattern "retry"
+
+Return JSON:
+{
+  "informationNeeded": "What info answers this question",
+  "files": ["path1", "path2"],
+  "reasoning": "Why these files together answer the question"
+}
+```
+
+**Synthesizer prompt structure**:
+```
+Answer this question about a codebase.
+
+QUESTION: {query}
+
+INFORMATION NEEDED: {planner.informationNeeded}
+
+FILES SELECTED BECAUSE: {planner.reasoning}
+
+CONTEXT:
+
+## src/generator/ (module)
+{module summary - high-level context}
+
+## src/generator/index.ts
+{full prose with functions, key statements, error paths}
+
+---
+
+Guidelines:
+- Answer the question directly and specifically
+- Include file paths and line numbers where relevant
+- If the question asks "how", provide concrete steps
+- Quote specific values, function names, or code when helpful
+- Be concise - don't repeat all the context, just relevant parts
+```
+
+**Response structure**:
+```typescript
+interface QueryResponse {
+  answer: string;                    // The synthesized answer
+  filesUsed: string[];               // Which files informed the answer
+  reasoning: string;                 // Why those files were selected
+  informationNeeded: string;         // What info was needed (from planner)
+  candidatesConsidered: number;      // How many files pre-filter found
+}
+```
 
 **Benchmark target**: Match Control's answer quality; overall 71% → 80%+
 
@@ -1027,11 +1164,23 @@ POST /query { query: "How does retry work?" }
 | Gap to Control | 6.2 points    | ≤3 points    |
 | Win rate       | 0/15          | ≥3/15        |
 
-**Why this works**: The planner sees both the user's question AND the codebase index. This bridges the information asymmetry - callers have questions but not structure, Pith has structure but not questions.
+**Why this works**:
+- Pre-filter uses rich deterministic data (patterns, exports, errors) to narrow candidates
+- Module context gives planner high-level understanding
+- Relationships between candidates (`Uses:`) prevent redundant selection
+- `informationNeeded` focuses the synthesizer on what matters
+- Explicit guidelines produce specific, actionable answers
+- Bridges information asymmetry: callers have questions, Pith has structure
+
+**Token efficiency**:
+- Pre-filter: 0 tokens (deterministic)
+- Planner: ~500-1000 tokens (25 candidates × 40 tokens)
+- Synthesis: ~2000-4000 tokens (5-8 files × prose + module context)
+- Total: ~3000-5000 tokens vs 10000+ if showing all files
 
 **Future extensions** (not in MVP):
 - Caching common query patterns
-- Lightweight model for planning (cost optimization)
+- Query type classification for specialized context emphasis
 
 ---
 
