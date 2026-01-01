@@ -4,6 +4,7 @@ import {
   buildKeywordIndex,
   tokenizeQuery,
   preFilter,
+  formatCandidatesForPlanner,
   type KeywordIndex,
   type PreFilterCandidate,
 } from './index.ts';
@@ -612,5 +613,157 @@ describe('preFilter', () => {
     const match = candidates.find((c) => c.path === 'src/generator/index.ts');
     assert.ok(match);
     assert.ok(match.matchReasons.some((r) => r.startsWith('summary:')));
+  });
+});
+
+// Phase 7.0.5: Candidate formatter
+describe('formatCandidatesForPlanner', () => {
+  const nodesWithImports: WikiNode[] = [
+    {
+      id: 'src/api/index.ts',
+      type: 'file',
+      path: 'src/api/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 300, commits: 15, lastModified: new Date(), authors: [], fanIn: 5 },
+      edges: [
+        { type: 'parent', target: 'src/api/' },
+        { type: 'imports', target: 'src/generator/index.ts' },
+      ],
+      raw: {
+        exports: [{ name: 'createApp', kind: 'function' }],
+      },
+      prose: {
+        summary: 'Express API server with REST endpoints',
+        purpose: 'Serve API',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+    {
+      id: 'src/generator/index.ts',
+      type: 'file',
+      path: 'src/generator/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 500, commits: 20, lastModified: new Date(), authors: [], fanIn: 8 },
+      edges: [{ type: 'parent', target: 'src/generator/' }],
+      raw: {
+        exports: [{ name: 'generateProse', kind: 'function' }],
+      },
+      prose: {
+        summary: 'LLM prose generation with retry logic',
+        purpose: 'Generate documentation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+    {
+      id: 'src/generator/',
+      type: 'module',
+      path: 'src/generator/',
+      name: 'generator',
+      metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+      prose: {
+        summary: 'Module for generating prose from code',
+        purpose: 'Documentation generation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+    {
+      id: 'src/api/',
+      type: 'module',
+      path: 'src/api/',
+      name: 'api',
+      metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    },
+  ];
+
+  it('formats candidates with summary and match reasons', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/index.ts',
+        score: 18,
+        matchReasons: ['export: generateprose', 'pattern: retry'],
+        isHighFanIn: true,
+        isModule: false,
+      },
+    ];
+
+    const formatted = formatCandidatesForPlanner(candidates, nodesWithImports);
+
+    assert.ok(formatted.includes('src/generator/index.ts'));
+    assert.ok(formatted.includes('LLM prose generation'));
+    assert.ok(formatted.includes('Matched: export:generateprose, pattern:retry'));
+  });
+
+  it('shows import relationships between candidates', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/api/index.ts',
+        score: 10,
+        matchReasons: ['export: createapp'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+      {
+        path: 'src/generator/index.ts',
+        score: 15,
+        matchReasons: ['export: generateprose'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+    ];
+
+    const formatted = formatCandidatesForPlanner(candidates, nodesWithImports);
+
+    // api/index.ts imports generator/index.ts
+    assert.ok(formatted.includes('Uses: src/generator/index.ts'));
+  });
+
+  it('formats modules with summary', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/',
+        score: 5,
+        matchReasons: ['module: generator'],
+        isHighFanIn: false,
+        isModule: true,
+      },
+    ];
+
+    const formatted = formatCandidatesForPlanner(candidates, nodesWithImports);
+
+    assert.ok(formatted.includes('src/generator/'));
+    assert.ok(formatted.includes('Module for generating prose'));
+  });
+
+  it('handles missing prose gracefully', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/api/',
+        score: 3,
+        matchReasons: ['parent of matched file'],
+        isHighFanIn: false,
+        isModule: true,
+      },
+    ];
+
+    const formatted = formatCandidatesForPlanner(candidates, nodesWithImports);
+
+    assert.ok(formatted.includes('src/api/'));
+    // Should show something even without prose
+    assert.ok(formatted.includes('(no summary)'));
+  });
+
+  it('returns empty string for empty candidates', () => {
+    const formatted = formatCandidatesForPlanner([], nodesWithImports);
+    assert.strictEqual(formatted, '');
   });
 });

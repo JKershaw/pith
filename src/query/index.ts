@@ -517,3 +517,63 @@ export function preFilter(
 
   return candidates;
 }
+
+/**
+ * Format candidates for the planner LLM prompt.
+ * Step 7.0.5: Compact format with relationships.
+ *
+ * Output format (~40 tokens each):
+ * {path}: {one-line summary} [Uses: a, b] [Matched: export:foo, pattern:retry]
+ *
+ * @param candidates - Pre-filtered candidates with scores
+ * @param nodes - All WikiNodes for node lookup
+ * @returns Formatted string for planner prompt
+ */
+export function formatCandidatesForPlanner(
+  candidates: PreFilterCandidate[],
+  nodes: WikiNode[]
+): string {
+  if (candidates.length === 0) return '';
+
+  // Build node lookup
+  const nodeMap = new Map<string, WikiNode>();
+  for (const node of nodes) {
+    nodeMap.set(node.path, node);
+  }
+
+  // Build set of candidate paths for relationship filtering
+  const candidatePaths = new Set(candidates.map((c) => c.path));
+
+  const lines: string[] = [];
+
+  for (const candidate of candidates) {
+    const node = nodeMap.get(candidate.path);
+    if (!node) continue;
+
+    // Get summary (or placeholder)
+    const summary = node.prose?.summary || '(no summary)';
+
+    // Find imports that are also candidates
+    const uses = node.edges
+      .filter((e) => e.type === 'imports' && candidatePaths.has(e.target))
+      .map((e) => e.target);
+
+    // Format match reasons (strip the category prefix for brevity)
+    const matchedParts = candidate.matchReasons.map((r) => r.replace(': ', ':'));
+
+    // Build the line
+    let line = `${candidate.path}: ${summary}`;
+
+    if (uses.length > 0) {
+      line += ` [Uses: ${uses.join(', ')}]`;
+    }
+
+    if (matchedParts.length > 0) {
+      line += ` [Matched: ${matchedParts.join(', ')}]`;
+    }
+
+    lines.push(line);
+  }
+
+  return lines.join('\n');
+}
