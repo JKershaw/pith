@@ -1066,7 +1066,6 @@ POST /query { query: "How does retry work?" }
 **Future extensions** (not in MVP):
 - Caching common query patterns
 - Lightweight model for planning (cost optimization)
-- Streaming response for lower latency
 
 ---
 
@@ -1122,7 +1121,7 @@ Based on v4 benchmark (2025-12-31), focus on:
 2. **Function-level consumer tracking** (Phase 6.9.2) - Close R3's 12-point gap
 3. **Debugging-specific prose** (Phase 6.9.3) - Improve D1-D3 scores by 4+ points
 4. **Automatic context adaptation** (Phase 6.9.4) - Detect file type and adjust output automatically
-5. **Query Planner** (Phase 7) - One LLM call to select files, then assemble existing prose
+5. **Query Planner** (Phase 7) - Two LLM calls: planner selects files, final synthesizes answer
 6. **MCP server** (Phase 10) - LLM tool integration after quality gaps closed
 
 **Design principle**: Pith should be a smart context provider that "just works". The Query Planner is the logical evolution - accept questions, not file paths.
