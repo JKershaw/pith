@@ -1024,36 +1024,32 @@ When querying `src/extractor/index.ts`:
 ```
 POST /query { query: "How does retry work?" }
          ↓
-   Planner LLM sees: query + codebase index (summaries, relationships)
+   1. Planner LLM: query + codebase index → selects files + reasoning
          ↓
-   Planner outputs: { files, reasoning }
+   2. Fetch existing prose for selected files
          ↓
-   Fetch existing prose for selected files
+   3. Final LLM: original query + planner reasoning + prose → answer
          ↓
-   Return: { prose, planner_reasoning }
-         ↓
-   Caller (e.g., Claude Code) sees: original query + prose + planner insights
-         ↓
-   Really good final output
+   Return: synthesized answer
 ```
 
 **Key design decisions**:
-- One LLM call (planning), then deterministic assembly
-- Uses existing pre-generated prose - no query-specific generation
-- **Planner reasoning is returned alongside prose** - explains WHY files were selected and HOW they answer the query
-- Caller combines: original query + planner reasoning + prose → high-quality response
+- Two LLM calls internally: (1) planner selects files, (2) final synthesizes answer
+- Planner reasoning feeds into final LLM - not discarded
+- Caller just asks a question, gets an answer - clean API
+- Uses existing pre-generated prose between the two LLM calls
 
 #### 7.1 Query Endpoint
 
 | Step  | What                                                              | Test                                                    |
 | ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
 | 7.1.1 | New `POST /query` endpoint accepting `{ query: "..." }`           | Endpoint accepts natural language query                 |
-| 7.1.2 | Build planner prompt: query + file summaries + relationship graph | Prompt includes codebase structure                      |
-| 7.1.3 | Planner returns files + reasoning about relevance                 | Response includes WHY each file answers the query       |
-| 7.1.4 | Fetch and assemble context from selected files' existing prose    | Returns bundled markdown context                        |
-| 7.1.5 | Return both prose AND planner reasoning                           | Caller gets context + explanation of relevance          |
+| 7.1.2 | Planner LLM: query + file summaries + relationships → files       | Planner selects relevant files with reasoning           |
+| 7.1.3 | Fetch existing prose for selected files                           | Prose retrieved from database                           |
+| 7.1.4 | Final LLM: query + planner reasoning + prose → answer             | Synthesizes complete answer                             |
+| 7.1.5 | Return synthesized answer to caller                               | Single request, complete response                       |
 
-**Benchmark target**: File selection matches Control's accuracy; overall 71% → 80%+
+**Benchmark target**: Match Control's answer quality; overall 71% → 80%+
 
 ---
 
@@ -1068,9 +1064,9 @@ POST /query { query: "How does retry work?" }
 **Why this works**: The planner sees both the user's question AND the codebase index. This bridges the information asymmetry - callers have questions but not structure, Pith has structure but not questions.
 
 **Future extensions** (not in MVP):
-- Query-specific prose synthesis (additional LLM call per request)
 - Caching common query patterns
-- Lightweight planning model for cost optimization
+- Lightweight model for planning (cost optimization)
+- Streaming response for lower latency
 
 ---
 
