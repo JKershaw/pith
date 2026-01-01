@@ -1,6 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { buildKeywordIndex, tokenizeQuery, type KeywordIndex } from './index.ts';
+import {
+  buildKeywordIndex,
+  tokenizeQuery,
+  preFilter,
+  type KeywordIndex,
+  type PreFilterCandidate,
+} from './index.ts';
 import type { WikiNode } from '../builder/index.ts';
 
 describe('buildKeywordIndex', () => {
@@ -419,5 +425,192 @@ describe('tokenizeQuery', () => {
   it('normalizes to lowercase', () => {
     const tokens = tokenizeQuery('API ENDPOINT');
     assert.deepStrictEqual(tokens, ['api', 'endpoint']);
+  });
+});
+
+// Phase 7.0.4: Pre-filter matching and scoring
+describe('preFilter', () => {
+  const sampleNodes: WikiNode[] = [
+    {
+      id: 'src/generator/index.ts',
+      type: 'file',
+      path: 'src/generator/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 500, commits: 20, lastModified: new Date(), authors: [], fanIn: 8 },
+      edges: [{ type: 'parent', target: 'src/generator/' }],
+      raw: {
+        exports: [{ name: 'generateProse', kind: 'function' }],
+        patterns: [
+          {
+            name: 'retry',
+            confidence: 'high',
+            evidence: [],
+            location: 'src/generator/index.ts:callLLM',
+          },
+        ],
+      },
+      prose: {
+        summary: 'LLM prose generation with retry logic',
+        purpose: 'Generate documentation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+    {
+      id: 'src/api/index.ts',
+      type: 'file',
+      path: 'src/api/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 300, commits: 15, lastModified: new Date(), authors: [], fanIn: 10 },
+      edges: [{ type: 'parent', target: 'src/api/' }],
+      raw: {
+        exports: [{ name: 'createApp', kind: 'function' }],
+        functions: [
+          {
+            name: 'handleRequest',
+            signature: 'function handleRequest(): void',
+            startLine: 1,
+            endLine: 50,
+            isAsync: false,
+            isExported: true,
+            isDefaultExport: false,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            crossFileCalls: [],
+            crossFileCalledBy: [],
+            errorPaths: [{ type: 'throw', line: 10, action: 'throw 404', httpStatus: 404 }],
+          },
+        ],
+      },
+    },
+    {
+      id: 'src/generator/',
+      type: 'module',
+      path: 'src/generator/',
+      name: 'generator',
+      metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    },
+    {
+      id: 'src/api/',
+      type: 'module',
+      path: 'src/api/',
+      name: 'api',
+      metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    },
+  ];
+
+  it('matches export names with highest score', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('generateProse function', index, sampleNodes);
+
+    assert.ok(candidates.length > 0);
+    const match = candidates.find((c) => c.path === 'src/generator/index.ts');
+    assert.ok(match);
+    assert.ok(match.score >= 10); // Export match = 10 points (generate + prose)
+    // Matches on "generate" and "prose" parts of "generateProse"
+    assert.ok(match.matchReasons.some((r) => r.startsWith('export:')));
+  });
+
+  it('matches pattern names', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('retry logic', index, sampleNodes);
+
+    const match = candidates.find((c) => c.path === 'src/generator/index.ts');
+    assert.ok(match);
+    assert.ok(match.matchReasons.includes('pattern: retry'));
+  });
+
+  it('matches error types (HTTP status codes)', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('404 error handling', index, sampleNodes);
+
+    const match = candidates.find((c) => c.path === 'src/api/index.ts');
+    assert.ok(match);
+    assert.ok(match.matchReasons.includes('error: 404'));
+  });
+
+  it('matches module names', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('generator module', index, sampleNodes);
+
+    // Should match both the module and files in it
+    const moduleMatch = candidates.find((c) => c.path === 'src/generator/');
+    assert.ok(moduleMatch);
+    assert.ok(moduleMatch.matchReasons.includes('module: generator'));
+  });
+
+  it('includes parent modules of matched files', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('generateProse', index, sampleNodes);
+
+    // Should include parent module for context
+    const moduleMatch = candidates.find((c) => c.path === 'src/generator/');
+    assert.ok(moduleMatch);
+  });
+
+  it('includes high-fanIn files even without keyword match', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('some random query', index, sampleNodes);
+
+    // High fanIn files should be included for context
+    const highFanIn = candidates.filter((c) => c.isHighFanIn);
+    assert.ok(highFanIn.length > 0);
+  });
+
+  it('caps results at 25 candidates', () => {
+    // Create many nodes
+    const manyNodes: WikiNode[] = [];
+    for (let i = 0; i < 50; i++) {
+      manyNodes.push({
+        id: `src/file${i}.ts`,
+        type: 'file',
+        path: `src/file${i}.ts`,
+        name: `file${i}.ts`,
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {
+          exports: [{ name: 'common', kind: 'function' }],
+        },
+      });
+    }
+
+    const index = buildKeywordIndex(manyNodes);
+    const candidates = preFilter('common function', index, manyNodes);
+
+    assert.ok(candidates.length <= 25);
+  });
+
+  it('sorts candidates by score descending', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('retry logic generator', index, sampleNodes);
+
+    for (let i = 1; i < candidates.length; i++) {
+      assert.ok(candidates[i - 1].score >= candidates[i].score);
+    }
+  });
+
+  it('returns empty array for empty query', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('', index, sampleNodes);
+
+    // Should still include high-fanIn files
+    assert.ok(candidates.length > 0);
+    assert.ok(candidates.every((c) => c.isHighFanIn));
+  });
+
+  it('matches summary words from prose', () => {
+    const index = buildKeywordIndex(sampleNodes);
+    const candidates = preFilter('LLM documentation', index, sampleNodes);
+
+    const match = candidates.find((c) => c.path === 'src/generator/index.ts');
+    assert.ok(match);
+    assert.ok(match.matchReasons.some((r) => r.startsWith('summary:')));
   });
 });

@@ -213,18 +213,32 @@ export function buildKeywordIndex(nodes: WikiNode[]): KeywordIndex {
 
     // For file nodes, index various data:
 
-    // 1. Index exports
+    // 1. Index exports (both full name and camelCase parts)
     if (node.raw.exports) {
       for (const exp of node.raw.exports) {
         addToIndex(index.byExport, exp.name, filePath);
+        // Also index camelCase parts
+        const parts = splitCamelCase(exp.name);
+        for (const part of parts) {
+          if (part.length > 2) {
+            addToIndex(index.byExport, part, filePath);
+          }
+        }
       }
     }
 
-    // 2. Index function names (as exports)
+    // 2. Index function names (as exports, both full name and parts)
     if (node.raw.functions) {
       for (const func of node.raw.functions) {
         if (func.isExported) {
           addToIndex(index.byExport, func.name, filePath);
+          // Also index camelCase parts
+          const parts = splitCamelCase(func.name);
+          for (const part of parts) {
+            if (part.length > 2) {
+              addToIndex(index.byExport, part, filePath);
+            }
+          }
         }
 
         // 3. Index key statements
@@ -297,10 +311,19 @@ export function tokenizeQuery(query: string): string[] {
   const tokens: string[] = [];
   const seen = new Set<string>();
 
-  // Extract words (alphabetic only)
-  const words = query.match(/[a-zA-Z]+/g) || [];
+  // Extract words (alphabetic and numeric for matching things like "404")
+  const words = query.match(/[a-zA-Z0-9]+/g) || [];
 
   for (const word of words) {
+    // Numbers stay as-is (for matching error codes like 404)
+    if (/^\d+$/.test(word)) {
+      if (!seen.has(word)) {
+        tokens.push(word);
+        seen.add(word);
+      }
+      continue;
+    }
+
     // Split camelCase: extractFile → extract, File
     const parts = splitCamelCase(word);
 
@@ -316,4 +339,181 @@ export function tokenizeQuery(query: string): string[] {
   }
 
   return tokens;
+}
+
+/**
+ * Match scores by type.
+ * Higher scores indicate more relevant matches.
+ */
+const MATCH_SCORES = {
+  export: 10,
+  pattern: 8,
+  error: 7,
+  keyStatement: 5,
+  summary: 3,
+  module: 2,
+  highFanIn: 1, // Bonus for high-fanIn files
+} as const;
+
+/** Maximum number of candidates to return */
+const MAX_CANDIDATES = 25;
+
+/** FanIn threshold for "high" fanIn files */
+const HIGH_FAN_IN_THRESHOLD = 5;
+
+/**
+ * Pre-filter candidate with scoring information.
+ */
+export interface PreFilterCandidate {
+  path: string;
+  score: number;
+  matchReasons: string[];
+  isHighFanIn: boolean;
+  isModule: boolean;
+}
+
+/**
+ * Pre-filter files based on query keywords.
+ * Step 7.0.4: Match tokens, score, add modules.
+ *
+ * @param query - Natural language query
+ * @param index - Keyword index built from nodes
+ * @param nodes - All WikiNodes for additional lookups
+ * @returns Scored candidates, sorted by score descending, capped at 25
+ */
+export function preFilter(
+  query: string,
+  index: KeywordIndex,
+  nodes: WikiNode[]
+): PreFilterCandidate[] {
+  const candidateMap = new Map<string, PreFilterCandidate>();
+
+  // Helper to add or update a candidate
+  const addCandidate = (path: string, score: number, reason: string, isModule = false) => {
+    const existing = candidateMap.get(path);
+    if (existing) {
+      existing.score += score;
+      if (!existing.matchReasons.includes(reason)) {
+        existing.matchReasons.push(reason);
+      }
+    } else {
+      candidateMap.set(path, {
+        path,
+        score,
+        matchReasons: [reason],
+        isHighFanIn: false,
+        isModule,
+      });
+    }
+  };
+
+  // Build node lookup for parent module resolution
+  const nodeMap = new Map<string, WikiNode>();
+  for (const node of nodes) {
+    nodeMap.set(node.path, node);
+  }
+
+  // Tokenize the query
+  const tokens = tokenizeQuery(query);
+
+  // Match each token against all index maps
+  for (const token of tokens) {
+    // 1. Export matches (highest priority)
+    const exportMatches = index.byExport.get(token);
+    if (exportMatches) {
+      for (const path of exportMatches) {
+        addCandidate(path, MATCH_SCORES.export, `export: ${token}`);
+      }
+    }
+
+    // 2. Pattern matches
+    const patternMatches = index.byPattern.get(token);
+    if (patternMatches) {
+      for (const path of patternMatches) {
+        addCandidate(path, MATCH_SCORES.pattern, `pattern: ${token}`);
+      }
+    }
+
+    // 3. Error type matches
+    const errorMatches = index.byErrorType.get(token);
+    if (errorMatches) {
+      for (const path of errorMatches) {
+        addCandidate(path, MATCH_SCORES.error, `error: ${token}`);
+      }
+    }
+
+    // 4. Key statement matches
+    const keyStatementMatches = index.byKeyStatement.get(token);
+    if (keyStatementMatches) {
+      for (const path of keyStatementMatches) {
+        addCandidate(path, MATCH_SCORES.keyStatement, `keyStatement: ${token}`);
+      }
+    }
+
+    // 5. Summary word matches
+    const summaryMatches = index.bySummaryWord.get(token);
+    if (summaryMatches) {
+      for (const path of summaryMatches) {
+        addCandidate(path, MATCH_SCORES.summary, `summary: ${token}`);
+      }
+    }
+
+    // 6. Module name matches
+    const moduleMatches = index.byModule.get(token);
+    if (moduleMatches) {
+      for (const path of moduleMatches) {
+        addCandidate(path, MATCH_SCORES.module, `module: ${token}`, true);
+      }
+    }
+  }
+
+  // Add parent modules for matched files
+  for (const [path, candidate] of candidateMap) {
+    if (!candidate.isModule) {
+      const node = nodeMap.get(path);
+      if (node) {
+        const parentEdge = node.edges.find((e) => e.type === 'parent');
+        if (parentEdge && !candidateMap.has(parentEdge.target)) {
+          addCandidate(parentEdge.target, 1, 'parent of matched file', true);
+        }
+      }
+    }
+  }
+
+  // Add high-fanIn files (always included for context)
+  const highFanInFiles = nodes
+    .filter((n) => n.type === 'file' && (n.metadata.fanIn ?? 0) >= HIGH_FAN_IN_THRESHOLD)
+    .sort((a, b) => (b.metadata.fanIn ?? 0) - (a.metadata.fanIn ?? 0))
+    .slice(0, 5);
+
+  for (const node of highFanInFiles) {
+    const existing = candidateMap.get(node.path);
+    if (existing) {
+      existing.isHighFanIn = true;
+      existing.score += MATCH_SCORES.highFanIn;
+    } else {
+      candidateMap.set(node.path, {
+        path: node.path,
+        score: MATCH_SCORES.highFanIn,
+        matchReasons: ['high fanIn'],
+        isHighFanIn: true,
+        isModule: false,
+      });
+    }
+  }
+
+  // Mark module candidates
+  for (const candidate of candidateMap.values()) {
+    const node = nodeMap.get(candidate.path);
+    if (node?.type === 'module') {
+      candidate.isModule = true;
+    }
+  }
+
+  // Sort by score descending and cap at MAX_CANDIDATES
+  const candidates = Array.from(candidateMap.values())
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_CANDIDATES);
+
+  return candidates;
 }
