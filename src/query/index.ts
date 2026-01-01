@@ -35,6 +35,124 @@ function addToIndex(map: Map<string, string[]>, key: string, value: string): voi
 }
 
 /**
+ * Common English stopwords to filter from summary text.
+ * These provide little value for keyword matching.
+ */
+const STOPWORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'by',
+  'for',
+  'from',
+  'has',
+  'have',
+  'in',
+  'is',
+  'it',
+  'its',
+  'of',
+  'on',
+  'or',
+  'that',
+  'the',
+  'this',
+  'to',
+  'was',
+  'were',
+  'will',
+  'with',
+  'which',
+  'can',
+  'all',
+  'also',
+  'but',
+  'been',
+  'into',
+  'only',
+  'some',
+  'such',
+  'than',
+  'then',
+  'them',
+  'they',
+  'their',
+  'there',
+  'these',
+  'when',
+  'where',
+  'while',
+  'who',
+  'why',
+  'would',
+  'each',
+  'more',
+  'most',
+  'other',
+  'should',
+  'through',
+  'very',
+  'about',
+  'after',
+  'any',
+  'before',
+  'being',
+  'between',
+  'both',
+  'could',
+  'does',
+  'during',
+  'either',
+  'every',
+  'had',
+  'here',
+  'how',
+  'just',
+  'like',
+  'made',
+  'make',
+  'many',
+  'may',
+  'must',
+  'our',
+  'over',
+  'own',
+  'same',
+  'so',
+  'still',
+  'take',
+  'too',
+  'under',
+  'up',
+  'used',
+  'using',
+  'way',
+  'well',
+  'what',
+  'you',
+  'your',
+  'provides',
+]);
+
+/**
+ * Extract significant words from summary text.
+ * Filters stopwords and short words.
+ */
+function extractSummaryWords(summary: string): string[] {
+  if (!summary) return [];
+
+  // Extract words (alphabetic only)
+  const words = summary.toLowerCase().match(/[a-z]+/g) || [];
+
+  // Filter stopwords and short words
+  return words.filter((word) => word.length > 2 && !STOPWORDS.has(word));
+}
+
+/**
  * Extract keywords from key statement text.
  * Finds variable names and significant values.
  */
@@ -134,6 +252,14 @@ export function buildKeywordIndex(nodes: WikiNode[]): KeywordIndex {
     if (node.raw.patterns) {
       for (const pattern of node.raw.patterns) {
         addToIndex(index.byPattern, pattern.name, filePath);
+      }
+    }
+
+    // 6. Index summary words from prose (Phase 7.0.2)
+    if (node.prose?.summary) {
+      const summaryWords = extractSummaryWords(node.prose.summary);
+      for (const word of summaryWords) {
+        addToIndex(index.bySummaryWord, word, filePath);
       }
     }
   }

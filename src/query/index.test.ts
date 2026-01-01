@@ -262,4 +262,114 @@ describe('buildKeywordIndex', () => {
     // Should not index function nodes directly
     assert.strictEqual(index.byExport.size, 0);
   });
+
+  // Phase 7.0.2: Summary word indexing
+  it('indexes summary words from prose when available', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/generator/index.ts',
+        type: 'file',
+        path: 'src/generator/index.ts',
+        name: 'index.ts',
+        metadata: { lines: 500, commits: 20, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+        prose: {
+          summary: 'LLM prose generation with retry logic and caching',
+          purpose: 'Generates documentation from code',
+          gotchas: [],
+          generatedAt: new Date(),
+          stale: false,
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    // Should index significant words from summary
+    assert.deepStrictEqual(index.bySummaryWord.get('llm'), ['src/generator/index.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('prose'), ['src/generator/index.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('generation'), ['src/generator/index.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('retry'), ['src/generator/index.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('caching'), ['src/generator/index.ts']);
+  });
+
+  it('filters out common stopwords from summary', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/utils.ts',
+        type: 'file',
+        path: 'src/utils.ts',
+        name: 'utils.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+        prose: {
+          summary: 'A utility module that provides helper functions for the application',
+          purpose: 'Utilities',
+          gotchas: [],
+          generatedAt: new Date(),
+          stale: false,
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    // Should filter stopwords like "a", "the", "that", "for"
+    assert.strictEqual(index.bySummaryWord.get('a'), undefined);
+    assert.strictEqual(index.bySummaryWord.get('the'), undefined);
+    assert.strictEqual(index.bySummaryWord.get('that'), undefined);
+    assert.strictEqual(index.bySummaryWord.get('for'), undefined);
+
+    // Should include meaningful words
+    assert.deepStrictEqual(index.bySummaryWord.get('utility'), ['src/utils.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('module'), ['src/utils.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('helper'), ['src/utils.ts']);
+    assert.deepStrictEqual(index.bySummaryWord.get('functions'), ['src/utils.ts']);
+  });
+
+  it('does not index summary words when prose is missing', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/auth.ts',
+        type: 'file',
+        path: 'src/auth.ts',
+        name: 'auth.ts',
+        metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+        // No prose field
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    assert.strictEqual(index.bySummaryWord.size, 0);
+  });
+
+  it('handles empty summary gracefully', () => {
+    const nodes: WikiNode[] = [
+      {
+        id: 'src/empty.ts',
+        type: 'file',
+        path: 'src/empty.ts',
+        name: 'empty.ts',
+        metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+        edges: [],
+        raw: {},
+        prose: {
+          summary: '',
+          purpose: '',
+          gotchas: [],
+          generatedAt: new Date(),
+          stale: false,
+        },
+      },
+    ];
+
+    const index = buildKeywordIndex(nodes);
+
+    assert.strictEqual(index.bySummaryWord.size, 0);
+  });
 });
