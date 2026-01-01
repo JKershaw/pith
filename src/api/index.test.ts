@@ -2101,6 +2101,126 @@ return app;`,
           'Simple function should show compact format with inline signature'
         );
       });
+
+      it('handles multi-line signatures in compact mode by showing only first line', async () => {
+        // Bug fix test: real extraction produces multi-line signatures (full function body)
+        // Compact mode should extract and show only the first line (actual signature)
+        const db = client.db('pith');
+        const nodes = db.collection<WikiNode>('nodes');
+
+        // Simulate real extraction data where signature = full function body
+        const fileWithMultiLineSig: WikiNode = {
+          id: 'src/utils/multiline.ts',
+          type: 'file',
+          path: 'src/utils/multiline.ts',
+          name: 'multiline.ts',
+          metadata: {
+            lines: 200,
+            commits: 5,
+            lastModified: new Date('2024-12-01'),
+            authors: ['alice'],
+            createdAt: new Date('2024-01-01'),
+            fanIn: 2, // Low fan-in
+          },
+          edges: [],
+          raw: {
+            functions: [
+              // 6 functions to exceed small file threshold
+              {
+                name: 'func1',
+                // Multi-line signature like real extraction produces
+                signature: `export function func1(a: string, b: number): string {
+  const result = a + b;
+  return result.toString();
+}`,
+                startLine: 10,
+                endLine: 15,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: `export function func1(a: string, b: number): string {
+  const result = a + b;
+  return result.toString();
+}`,
+                keyStatements: [],
+              },
+              {
+                name: 'func2',
+                signature: 'function func2(): void',
+                startLine: 20,
+                endLine: 22,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function func2(): void { }',
+                keyStatements: [],
+              },
+              {
+                name: 'func3',
+                signature: 'function func3(): void',
+                startLine: 25,
+                endLine: 27,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function func3(): void { }',
+                keyStatements: [],
+              },
+              {
+                name: 'func4',
+                signature: 'function func4(): void',
+                startLine: 30,
+                endLine: 32,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function func4(): void { }',
+                keyStatements: [],
+              },
+              {
+                name: 'func5',
+                signature: 'function func5(): void',
+                startLine: 35,
+                endLine: 37,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function func5(): void { }',
+                keyStatements: [],
+              },
+              {
+                name: 'func6',
+                signature: 'function func6(): void',
+                startLine: 40,
+                endLine: 42,
+                isAsync: false,
+                isExported: true,
+                codeSnippet: 'function func6(): void { }',
+                keyStatements: [],
+              },
+            ],
+          },
+        };
+
+        await nodes.insertOne(fileWithMultiLineSig);
+
+        const context = await bundleContext(db, ['src/utils/multiline.ts']);
+        const markdown = formatContextAsMarkdown(context);
+
+        // Should show only the first line of signature in compact mode
+        // NOT the full multi-line body
+        assert.ok(
+          markdown.includes('`export function func1(a: string, b: number): string {`'),
+          'Compact mode should show only first line of multi-line signature'
+        );
+        assert.ok(
+          !markdown.includes('`export function func1(a: string, b: number): string {\n'),
+          'Compact mode should NOT include newlines in inline signature'
+        );
+
+        // Verify we're not showing full code as a code block for this function
+        const fullCodeBlock =
+          /```typescript\nexport function func1\(a: string, b: number\): string \{[\s\S]*?```/;
+        assert.ok(
+          !fullCodeBlock.test(markdown),
+          'Compact mode should NOT show full code block for simple large-file function'
+        );
+      });
     });
   });
 

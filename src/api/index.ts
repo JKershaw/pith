@@ -540,8 +540,11 @@ export function formatContextAsMarkdown(context: BundledContext): string {
           lines.push(func.codeSnippet);
           lines.push('```');
         } else {
-          // Compact format: show signature as inline code
-          lines.push(`\`${func.signature}\``);
+          // Compact format: show signature as inline code (first line only)
+          // Note: func.signature may contain the full function body due to extraction,
+          // so we extract only the first line (the actual signature)
+          const signatureLine = func.signature.split('\n')[0];
+          lines.push(`\`${signatureLine}\``);
           lines.push('');
         }
 
