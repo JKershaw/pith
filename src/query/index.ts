@@ -709,6 +709,9 @@ export function parsePlannerResponse(
         validFiles.push(file);
       } else if (typeof file === 'string') {
         invalidFiles.push(file);
+      } else {
+        // Track non-string entries for diagnostics
+        invalidFiles.push(`[non-string: ${typeof file}]`);
       }
     }
 
@@ -870,20 +873,30 @@ export interface SynthesisResult {
  * @returns Parsed synthesis result
  */
 export function parseSynthesisResponse(response: string): SynthesisResult {
-  const trimmed = response.trim();
+  let content = response.trim();
 
   // Handle empty response
-  if (!trimmed) {
+  if (!content) {
     return {
       answer: 'Unable to generate an answer. Please try rephrasing your question.',
       error: true,
     };
   }
 
+  // Strip markdown code blocks if present
+  if (content.startsWith('```')) {
+    const lines = content.split('\n');
+    // Skip first line (```json or ```) and last line (```)
+    content = lines
+      .slice(1, lines.length - 1)
+      .join('\n')
+      .trim();
+  }
+
   // Try to extract JSON answer if response is JSON
-  if (trimmed.startsWith('{')) {
+  if (content.startsWith('{')) {
     try {
-      const parsed = JSON.parse(trimmed) as { answer?: string };
+      const parsed = JSON.parse(content) as { answer?: string };
       if (typeof parsed.answer === 'string') {
         return { answer: parsed.answer };
       }
@@ -893,5 +906,5 @@ export function parseSynthesisResponse(response: string): SynthesisResult {
   }
 
   // Return plain text response as-is
-  return { answer: trimmed };
+  return { answer: content };
 }

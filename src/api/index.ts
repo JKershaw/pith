@@ -1221,6 +1221,19 @@ export function createApp(
       const keywordIndex = buildKeywordIndex(allNodes);
       const candidates = preFilter(query, keywordIndex, allNodes);
 
+      // Short-circuit if no candidates matched
+      if (candidates.length === 0) {
+        res.json({
+          query,
+          candidatesConsidered: 0,
+          candidates: [],
+          answer: null,
+          filesUsed: [],
+          reasoning: 'No relevant files found for this query. Try using different keywords.',
+        });
+        return;
+      }
+
       // If no generator config, return pre-filter results only (graceful degradation)
       if (!generatorConfig) {
         const candidatesFormatted = formatCandidatesForPlanner(candidates, allNodes);
@@ -1303,6 +1316,13 @@ export function createApp(
       res.json({
         query,
         candidatesConsidered: candidates.length,
+        candidates: candidates.map((c) => ({
+          path: c.path,
+          score: c.score,
+          matchReasons: c.matchReasons,
+          isHighFanIn: c.isHighFanIn,
+          isModule: c.isModule,
+        })),
         filesUsed: plannerResult.selectedFiles,
         reasoning: plannerResult.reasoning,
         answer: synthesisResult.answer,

@@ -102,7 +102,7 @@ Tasks are organized into 5 categories with 3 tasks each:
 
 Choose your evaluation mode:
 
-**Option A: Query Mode (Recommended for Phase 7+)**
+#### Option A: Query Mode (Recommended for Phase 7+)
 
 ```bash
 # Ask the question directly - Pith selects files and generates answer
@@ -119,7 +119,7 @@ Record:
 - `reasoning` - why those files were selected
 - Time to respond
 
-**Option B: Context Mode (For context-only comparison)**
+#### Option B: Context Mode (For context-only comparison)
 
 ```bash
 # Manually identify relevant files for the task

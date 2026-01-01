@@ -1009,6 +1009,23 @@ describe('parsePlannerResponse', () => {
     const parsed = result as PlannerResponse;
     assert.ok(parsed.informationNeeded.includes('General information'));
   });
+
+  it('tracks non-string entries in selectedFiles for diagnostics', () => {
+    const response = JSON.stringify({
+      selectedFiles: ['src/api/index.ts', 123, null, { path: 'invalid' }],
+      reasoning: 'Mixed types in array',
+      informationNeeded: 'Test',
+    });
+
+    const result = parsePlannerResponse(response, validPaths);
+
+    // Should still succeed with the valid file
+    assert.ok(!('error' in result));
+    const parsed = result as PlannerResponse;
+    assert.deepStrictEqual(parsed.selectedFiles, ['src/api/index.ts']);
+    // Reasoning should mention filtered items
+    assert.ok(parsed.reasoning.includes('filtered out'));
+  });
 });
 
 // Phase 7.1.6: Synthesis prompt builder
@@ -1171,6 +1188,26 @@ This ensures reliability.`;
     const result = parseSynthesisResponse(response);
 
     assert.ok(result.answer.includes('retry logic'));
+  });
+
+  it('strips markdown fences from JSON response', () => {
+    const response = `\`\`\`json
+{"answer": "The retry uses 3 attempts with exponential backoff"}
+\`\`\``;
+
+    const result = parseSynthesisResponse(response);
+
+    assert.strictEqual(result.answer, 'The retry uses 3 attempts with exponential backoff');
+  });
+
+  it('strips markdown fences from plain text response', () => {
+    const response = `\`\`\`
+The function is located at line 42.
+\`\`\``;
+
+    const result = parseSynthesisResponse(response);
+
+    assert.strictEqual(result.answer, 'The function is located at line 42.');
   });
 
   it('returns error indicator for empty response', () => {
