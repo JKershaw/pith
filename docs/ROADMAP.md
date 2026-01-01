@@ -1026,17 +1026,22 @@ POST /query { query: "How does retry work?" }
          ↓
    Planner LLM sees: query + codebase index (summaries, relationships)
          ↓
-   Planner outputs: prioritized file list
+   Planner outputs: { files, reasoning }
          ↓
-   Fetch existing prose for selected files (no additional LLM call)
+   Fetch existing prose for selected files
          ↓
-   Return assembled context
+   Return: { prose, planner_reasoning }
+         ↓
+   Caller (e.g., Claude Code) sees: original query + prose + planner insights
+         ↓
+   Really good final output
 ```
 
 **Key design decisions**:
 - One LLM call (planning), then deterministic assembly
 - Uses existing pre-generated prose - no query-specific generation
-- Intent detection is implicit in planner reasoning, not a separate step
+- **Planner reasoning is returned alongside prose** - explains WHY files were selected and HOW they answer the query
+- Caller combines: original query + planner reasoning + prose → high-quality response
 
 #### 7.1 Query Endpoint
 
@@ -1044,9 +1049,9 @@ POST /query { query: "How does retry work?" }
 | ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
 | 7.1.1 | New `POST /query` endpoint accepting `{ query: "..." }`           | Endpoint accepts natural language query                 |
 | 7.1.2 | Build planner prompt: query + file summaries + relationship graph | Prompt includes codebase structure                      |
-| 7.1.3 | Planner returns file list with relevance scores                   | Response is `{ files: [path, ...], reasoning: "..." }`  |
+| 7.1.3 | Planner returns files + reasoning about relevance                 | Response includes WHY each file answers the query       |
 | 7.1.4 | Fetch and assemble context from selected files' existing prose    | Returns bundled markdown context                        |
-| 7.1.5 | End-to-end response: query in → context out                       | Single request returns complete answer context          |
+| 7.1.5 | Return both prose AND planner reasoning                           | Caller gets context + explanation of relevance          |
 
 **Benchmark target**: File selection matches Control's accuracy; overall 71% → 80%+
 
