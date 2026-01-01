@@ -577,3 +577,77 @@ export function formatCandidatesForPlanner(
 
   return lines.join('\n');
 }
+
+/**
+ * Build the planner prompt for the LLM.
+ * Step 7.1.3: Construct a prompt that presents candidates and asks LLM to select files.
+ *
+ * The planner LLM selects which 3-8 files to include for synthesis.
+ * Output format: JSON with selected file paths and reasoning.
+ *
+ * @param query - The user's natural language query
+ * @param candidates - Pre-filtered candidates with scores
+ * @param nodes - All WikiNodes for additional context
+ * @returns The prompt string for the planner LLM
+ */
+export function buildPlannerPrompt(
+  query: string,
+  candidates: PreFilterCandidate[],
+  nodes: WikiNode[]
+): string {
+  const candidatesFormatted = formatCandidatesForPlanner(candidates, nodes);
+
+  // Separate modules and files for two-level presentation
+  const modules = candidates.filter((c) => c.isModule);
+  const files = candidates.filter((c) => !c.isModule);
+
+  let moduleSection = '';
+  if (modules.length > 0) {
+    const nodeMap = new Map<string, WikiNode>();
+    for (const node of nodes) {
+      nodeMap.set(node.path, node);
+    }
+
+    const moduleLines = modules.map((m) => {
+      const node = nodeMap.get(m.path);
+      const summary = node?.prose?.summary || '(no summary)';
+      return `- ${m.path}: ${summary}`;
+    });
+    moduleSection = `
+## Relevant Modules
+${moduleLines.join('\n')}
+`;
+  }
+
+  return `You are a codebase navigation assistant. Given a user question and a list of candidate files, select the 3-8 most relevant files that would help answer the question.
+
+## User Question
+${query}
+
+${moduleSection}
+## Candidate Files (${files.length} files, sorted by relevance score)
+${candidatesFormatted}
+
+## Your Task
+1. Analyze the question to understand what information is needed
+2. Select 3-8 files that are most likely to contain the answer
+3. Prefer files that:
+   - Directly match the query keywords (exports, patterns)
+   - Have high relevance scores
+   - Are related to each other (check the [Uses: ...] relationships)
+4. Include at least one module-level file if the question is about architecture
+
+## Output Format
+Respond with ONLY valid JSON in this exact format:
+{
+  "selectedFiles": ["path/to/file1.ts", "path/to/file2.ts"],
+  "reasoning": "Brief explanation of why these files were selected",
+  "informationNeeded": "What specific information should be extracted from these files"
+}
+
+Important:
+- Return ONLY the JSON, no markdown code blocks or other text
+- Select between 3 and 8 files
+- Use exact paths from the candidate list
+`;
+}

@@ -5,6 +5,7 @@ import {
   tokenizeQuery,
   preFilter,
   formatCandidatesForPlanner,
+  buildPlannerPrompt,
   type KeywordIndex,
   type PreFilterCandidate,
 } from './index.ts';
@@ -765,5 +766,132 @@ describe('formatCandidatesForPlanner', () => {
   it('returns empty string for empty candidates', () => {
     const formatted = formatCandidatesForPlanner([], nodesWithImports);
     assert.strictEqual(formatted, '');
+  });
+});
+
+// Phase 7.1.3: Planner prompt builder
+describe('buildPlannerPrompt', () => {
+  const sampleNodes: WikiNode[] = [
+    {
+      id: 'src/generator/index.ts',
+      type: 'file',
+      path: 'src/generator/index.ts',
+      name: 'index.ts',
+      metadata: { lines: 500, commits: 20, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+      prose: {
+        summary: 'LLM prose generation with retry logic',
+        purpose: 'Generate documentation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+    {
+      id: 'src/generator/',
+      type: 'module',
+      path: 'src/generator/',
+      name: 'generator',
+      metadata: { lines: 0, commits: 0, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+      prose: {
+        summary: 'Module for generating prose from code',
+        purpose: 'Documentation',
+        gotchas: [],
+        generatedAt: new Date(),
+        stale: false,
+      },
+    },
+  ];
+
+  it('includes user question in prompt', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/index.ts',
+        score: 10,
+        matchReasons: ['export: generateprose'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+    ];
+
+    const prompt = buildPlannerPrompt('How does retry work?', candidates, sampleNodes);
+
+    assert.ok(prompt.includes('How does retry work?'));
+    assert.ok(prompt.includes('User Question'));
+  });
+
+  it('includes formatted candidates', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/index.ts',
+        score: 10,
+        matchReasons: ['export: generateprose'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+    ];
+
+    const prompt = buildPlannerPrompt('test query', candidates, sampleNodes);
+
+    assert.ok(prompt.includes('src/generator/index.ts'));
+    assert.ok(prompt.includes('LLM prose generation'));
+    assert.ok(prompt.includes('Candidate Files'));
+  });
+
+  it('includes modules section when modules present', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/',
+        score: 5,
+        matchReasons: ['module: generator'],
+        isHighFanIn: false,
+        isModule: true,
+      },
+    ];
+
+    const prompt = buildPlannerPrompt('test query', candidates, sampleNodes);
+
+    assert.ok(prompt.includes('Relevant Modules'));
+    assert.ok(prompt.includes('src/generator/'));
+  });
+
+  it('requests JSON output format', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/index.ts',
+        score: 10,
+        matchReasons: ['export: generateprose'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+    ];
+
+    const prompt = buildPlannerPrompt('test query', candidates, sampleNodes);
+
+    assert.ok(prompt.includes('selectedFiles'));
+    assert.ok(prompt.includes('reasoning'));
+    assert.ok(prompt.includes('JSON'));
+    assert.ok(prompt.includes('3-8 files'));
+  });
+
+  it('provides selection guidance', () => {
+    const candidates: PreFilterCandidate[] = [
+      {
+        path: 'src/generator/index.ts',
+        score: 10,
+        matchReasons: ['export: generateprose'],
+        isHighFanIn: false,
+        isModule: false,
+      },
+    ];
+
+    const prompt = buildPlannerPrompt('test query', candidates, sampleNodes);
+
+    assert.ok(prompt.includes('high relevance scores'));
+    assert.ok(prompt.includes('match the query keywords'));
+    assert.ok(prompt.includes('[Uses: ...]'));
   });
 });
