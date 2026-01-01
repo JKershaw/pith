@@ -2875,3 +2875,259 @@ describe('Change Impact API - Phase 6.6.5', () => {
     });
   });
 });
+
+describe('Function Consumers API - Phase 6.9.2', () => {
+  let client: MangoClient;
+
+  beforeEach(async () => {
+    client = new MangoClient('./data/consumers-test');
+    await client.connect();
+    const db = client.db('pith');
+    const extracted = db.collection<import('../extractor/ast.ts').ExtractedFile>('extracted');
+
+    // Set up test data with extracted files containing symbol usages
+    const testFiles: import('../extractor/ast.ts').ExtractedFile[] = [
+      // auth.ts with exported functions
+      {
+        path: 'src/auth.ts',
+        lines: 39,
+        imports: [{ from: './types.ts', names: ['User', 'Session'], isTypeOnly: true }],
+        exports: [
+          { name: 'createSession', kind: 'function', isReExport: false },
+          { name: 'validateToken', kind: 'function', isReExport: false },
+        ],
+        functions: [
+          {
+            name: 'createSession',
+            signature: 'async function createSession(user: User): Promise<Session>',
+            params: [],
+            returnType: 'Promise<Session>',
+            isAsync: true,
+            isExported: true,
+            isDefaultExport: false,
+            startLine: 9,
+            endLine: 19,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            errorPaths: [],
+          },
+          {
+            name: 'validateToken',
+            signature: 'function validateToken(token: string): boolean',
+            params: [],
+            returnType: 'boolean',
+            isAsync: false,
+            isExported: true,
+            isDefaultExport: false,
+            startLine: 26,
+            endLine: 29,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            errorPaths: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      },
+      // controller.ts that uses auth functions
+      {
+        path: 'src/controller.ts',
+        lines: 54,
+        imports: [
+          { from: './auth.ts', names: ['createSession', 'validateToken'], isTypeOnly: false },
+        ],
+        exports: [],
+        functions: [],
+        classes: [],
+        interfaces: [],
+        symbolUsages: [
+          {
+            symbol: 'createSession',
+            sourceFile: './auth.ts',
+            usageLines: [23],
+            usageType: 'call',
+          },
+          {
+            symbol: 'validateToken',
+            sourceFile: './auth.ts',
+            usageLines: [39],
+            usageType: 'call',
+          },
+        ],
+      },
+      // auth.test.ts that uses auth functions
+      {
+        path: 'src/auth.test.ts',
+        lines: 100,
+        imports: [{ from: './auth.ts', names: ['validateToken'], isTypeOnly: false }],
+        exports: [],
+        functions: [],
+        classes: [],
+        interfaces: [],
+        symbolUsages: [
+          {
+            symbol: 'validateToken',
+            sourceFile: './auth.ts',
+            usageLines: [10, 15, 20],
+            usageType: 'call',
+          },
+        ],
+      },
+    ];
+
+    for (const file of testFiles) {
+      await extracted.insertOne(file);
+    }
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await rm('./data/consumers-test', { recursive: true, force: true });
+  });
+
+  describe('GET /consumers/:file/:function', () => {
+    it('returns consumers for exported function', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(
+          `http://localhost:${port}/consumers/src/auth.ts/createSession`
+        );
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.functionName, 'createSession');
+        assert.strictEqual(data.sourceFile, 'src/auth.ts');
+        assert.strictEqual(data.totalConsumers, 1);
+        assert.strictEqual(data.productionConsumers.length, 1);
+        assert.strictEqual(data.testConsumers.length, 0);
+
+        const consumer = data.productionConsumers[0];
+        assert.strictEqual(consumer.file, 'src/controller.ts');
+        assert.strictEqual(consumer.line, 23);
+        assert.strictEqual(consumer.isTest, false);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('distinguishes production vs test consumers', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(
+          `http://localhost:${port}/consumers/src/auth.ts/validateToken`
+        );
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.functionName, 'validateToken');
+        assert.strictEqual(data.totalConsumers, 4); // 1 production + 3 test
+        assert.strictEqual(data.productionConsumers.length, 1);
+        assert.strictEqual(data.testConsumers.length, 3);
+
+        // Check production consumer
+        const prodConsumer = data.productionConsumers[0];
+        assert.strictEqual(prodConsumer.file, 'src/controller.ts');
+        assert.strictEqual(prodConsumer.line, 39);
+        assert.strictEqual(prodConsumer.isTest, false);
+
+        // Check test consumers
+        const testConsumers = data.testConsumers;
+        assert.strictEqual(testConsumers[0].file, 'src/auth.test.ts');
+        assert.strictEqual(testConsumers[0].line, 10);
+        assert.strictEqual(testConsumers[0].isTest, true);
+        assert.strictEqual(testConsumers[1].line, 15);
+        assert.strictEqual(testConsumers[2].line, 20);
+      } finally {
+        server.close();
+      }
+    });
+
+    it('returns 404 for non-existent function', async () => {
+      const db = client.db('pith');
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(
+          `http://localhost:${port}/consumers/src/auth.ts/nonExistentFunction`
+        );
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 404);
+        assert.strictEqual(data.error, 'NOT_FOUND');
+        assert.ok(data.message.includes('Function not found'));
+      } finally {
+        server.close();
+      }
+    });
+
+    it('returns empty consumers for function with no usages', async () => {
+      const db = client.db('pith');
+      const extracted = db.collection<import('../extractor/ast.ts').ExtractedFile>('extracted');
+
+      // Add a function that's exported but never called
+      await extracted.insertOne({
+        path: 'src/unused.ts',
+        lines: 20,
+        imports: [],
+        exports: [{ name: 'unusedFunction', kind: 'function', isReExport: false }],
+        functions: [
+          {
+            name: 'unusedFunction',
+            signature: 'function unusedFunction(): void',
+            params: [],
+            returnType: 'void',
+            isAsync: false,
+            isExported: true,
+            isDefaultExport: false,
+            startLine: 5,
+            endLine: 10,
+            codeSnippet: '',
+            keyStatements: [],
+            calls: [],
+            calledBy: [],
+            errorPaths: [],
+          },
+        ],
+        classes: [],
+        interfaces: [],
+      });
+
+      const app = createApp(db);
+      const server = app.listen(0);
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        const response = await fetch(
+          `http://localhost:${port}/consumers/src/unused.ts/unusedFunction`
+        );
+        const data = await response.json();
+
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(data.functionName, 'unusedFunction');
+        assert.strictEqual(data.totalConsumers, 0);
+        assert.strictEqual(data.productionConsumers.length, 0);
+        assert.strictEqual(data.testConsumers.length, 0);
+      } finally {
+        server.close();
+      }
+    });
+  });
+});

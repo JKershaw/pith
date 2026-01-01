@@ -5,10 +5,12 @@ import {
   findAffectedFunctions,
   getTestFilesForImpact,
   getUsedSymbolsFromFile,
+  buildFunctionConsumers,
   type ImpactTree,
   type AffectedFunction,
   type TestFileImpact,
 } from '../builder/index.ts';
+import type { ExtractedFile } from '../extractor/ast.ts';
 import type { GeneratorConfig } from '../generator/index.ts';
 import { generateProseForNode } from '../generator/index.ts';
 import type { ErrorPath } from '../extractor/errors.ts';
@@ -1118,6 +1120,45 @@ export function createApp(
         message: `Refresh triggered for ${projectPath}`,
         projectPath,
       });
+    } catch (error) {
+      res.status(500).json({
+        error: 'INTERNAL_ERROR',
+        message: (error as Error).message,
+      });
+    }
+  });
+
+  // GET /consumers/:file/:function - Get all consumers of a specific function
+  // Phase 6.9.2: Function-level consumer tracking
+  app.get('/consumers/*file/:function', async (req: Request, res: Response) => {
+    try {
+      // Parse file path from wildcard
+      const pathParts = req.params.file as unknown as string[];
+      const filePath = pathParts.join('/');
+      const functionName = req.params.function as string;
+
+      // Build the function ID
+      const functionId = `${filePath}:${functionName}`;
+
+      // Get all extracted files from the database
+      const extractedCollection = db.collection<ExtractedFile>('extracted');
+      const allExtractedFiles = await extractedCollection.find({}).toArray();
+
+      // Build function consumers map
+      const consumersMap = buildFunctionConsumers(allExtractedFiles);
+
+      // Get consumers for this function
+      const consumers = consumersMap.get(functionId);
+
+      if (!consumers) {
+        res.status(404).json({
+          error: 'NOT_FOUND',
+          message: `Function not found or not exported: ${functionId}`,
+        });
+        return;
+      }
+
+      res.json(consumers);
     } catch (error) {
       res.status(500).json({
         error: 'INTERNAL_ERROR',

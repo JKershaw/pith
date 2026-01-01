@@ -15,6 +15,7 @@ import { buildCrossFileCallGraph, getCrossFileCallsForFunction } from './cross-f
 
 // Re-export types for testing
 export type { FunctionData };
+export type { FunctionConsumer, FunctionConsumers };
 
 /**
  * Edge between wiki nodes.
@@ -64,6 +65,29 @@ export interface SymbolUsageInfo {
 export interface TestFileImpact {
   path: string;
   testCommand?: string;
+}
+
+/**
+ * A single call site for a function.
+ * Phase 6.9.2: Function-level consumer tracking
+ */
+export interface FunctionConsumer {
+  file: string; // File path where the call occurs
+  line: number; // Line number of the call
+  caller?: string; // Calling function name (if in a function)
+  isTest: boolean; // Whether the file is a test file
+}
+
+/**
+ * All consumers of a specific exported function.
+ * Phase 6.9.2: Function-level consumer tracking
+ */
+export interface FunctionConsumers {
+  functionName: string;
+  sourceFile: string;
+  totalConsumers: number;
+  productionConsumers: FunctionConsumer[];
+  testConsumers: FunctionConsumer[];
 }
 
 /**
@@ -1030,4 +1054,129 @@ export function updateCrossFileCalls(fileNodes: WikiNode[]): void {
       func.crossFileCalledBy = calledBy;
     }
   }
+}
+
+/**
+ * Build function consumers map from extracted files.
+ * Phase 6.9.2: Track call sites for exported functions across files.
+ *
+ * For each exported function, finds all files that call it with specific line numbers.
+ * Distinguishes between production and test consumers.
+ *
+ * @param extractedFiles - Array of all extracted files
+ * @returns Map of functionId (file:function) to FunctionConsumers
+ */
+export function buildFunctionConsumers(
+  extractedFiles: ExtractedFile[]
+): Map<string, FunctionConsumers> {
+  const consumersMap = new Map<string, FunctionConsumers>();
+
+  // Step 1: Initialize entries for all exported functions
+  for (const file of extractedFiles) {
+    for (const func of file.functions) {
+      // Only track exported functions
+      if (!func.isExported) {
+        continue;
+      }
+
+      const functionId = `${file.path}:${func.name}`;
+      consumersMap.set(functionId, {
+        functionName: func.name,
+        sourceFile: file.path,
+        totalConsumers: 0,
+        productionConsumers: [],
+        testConsumers: [],
+      });
+    }
+  }
+
+  // Step 2: Find all consumers by examining symbol usages
+  for (const file of extractedFiles) {
+    // Skip files without symbol usages
+    if (!file.symbolUsages || file.symbolUsages.length === 0) {
+      continue;
+    }
+
+    const isTestFileFlag = isTestFile(file.path);
+
+    for (const usage of file.symbolUsages) {
+      // Only track function calls, not type references
+      if (usage.usageType !== 'call') {
+        continue;
+      }
+
+      // Resolve the source file path
+      // symbolUsages store relative paths like './auth.ts'
+      // We need to resolve them to absolute paths like 'src/auth.ts'
+      const sourceFilePath = resolveSymbolUsageSourcePath(file.path, usage.sourceFile);
+
+      // Build the function ID to look up
+      const functionId = `${sourceFilePath}:${usage.symbol}`;
+
+      // Check if this function is tracked (exported)
+      const consumers = consumersMap.get(functionId);
+      if (!consumers) {
+        continue;
+      }
+
+      // Add each usage line as a separate consumer
+      for (const line of usage.usageLines) {
+        const consumer: FunctionConsumer = {
+          file: file.path,
+          line,
+          isTest: isTestFileFlag,
+        };
+
+        if (isTestFileFlag) {
+          consumers.testConsumers.push(consumer);
+        } else {
+          consumers.productionConsumers.push(consumer);
+        }
+
+        consumers.totalConsumers++;
+      }
+    }
+  }
+
+  return consumersMap;
+}
+
+/**
+ * Resolve a symbol usage source path from relative to absolute.
+ * Helper for buildFunctionConsumers.
+ *
+ * @param consumerFile - The file containing the usage (e.g., 'src/controller.ts')
+ * @param relativeSourcePath - The relative import path (e.g., './auth.ts')
+ * @returns Absolute path (e.g., 'src/auth.ts')
+ */
+function resolveSymbolUsageSourcePath(consumerFile: string, relativeSourcePath: string): string {
+  // If it starts with './', it's in the same directory
+  if (relativeSourcePath.startsWith('./')) {
+    const dir = consumerFile.substring(0, consumerFile.lastIndexOf('/'));
+    const resolved = `${dir}/${relativeSourcePath.substring(2)}`;
+    return resolved;
+  }
+
+  // If it starts with '../', go up one directory
+  if (relativeSourcePath.startsWith('../')) {
+    const parts = consumerFile.split('/');
+    const relativeParts = relativeSourcePath.split('/');
+
+    let upLevels = 0;
+    for (const part of relativeParts) {
+      if (part === '..') {
+        upLevels++;
+      } else {
+        break;
+      }
+    }
+
+    const baseParts = parts.slice(0, -1 - upLevels);
+    const remainingParts = relativeParts.slice(upLevels);
+    const resolved = [...baseParts, ...remainingParts].join('/');
+    return resolved;
+  }
+
+  // Otherwise, assume it's already an absolute or project-relative path
+  return relativeSourcePath;
 }
