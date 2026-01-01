@@ -1034,9 +1034,9 @@ Foundational components that simplify Phase 7 implementation.
 
 | Step  | What                                                              | Test                                                    |
 | ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.0.1 | Keyword index builder: map keywords → files                       | Index contains exports, patterns, summary words         |
-| 7.0.2 | Query pre-filter: extract keywords, match against index           | Returns ~20-25 candidates with match reasons            |
-| 7.0.3 | Compact file formatter for planner prompt                         | ~40 tokens per file with path, summary, exports         |
+| 7.0.1 | Keyword index builder: map keywords → files                       | Index contains exports, patterns, summary words, modules |
+| 7.0.2 | Query pre-filter: extract keywords, match, include modules        | Returns ~20-25 candidates with match reasons + parent modules |
+| 7.0.3 | Compact file formatter with relationships                         | Shows path, summary, exports, `Uses:` imports           |
 
 **Keyword index structure**:
 ```typescript
@@ -1046,27 +1046,92 @@ interface KeywordIndex {
   byKeyStatement: Map<string, string[]>; // "timeout" → ["src/generator/index.ts"]
   bySummaryWord: Map<string, string[]>; // "llm" → ["src/generator/index.ts"]
   byErrorType: Map<string, string[]>;   // "404" → ["src/api/index.ts"]
+  byModule: Map<string, string[]>;      // "generator" → ["src/generator/"]
 }
 ```
 
 **Pre-filter logic**:
 1. Tokenize query, extract meaningful words (skip stopwords)
 2. Look up each word in all index maps
-3. Score files by number of keyword matches
-4. Always include: high-fanIn files (top 5), module nodes
-5. Cap at 25 candidates
+3. Score files by relevance (direct function match > pattern > summary word)
+4. Always include: high-fanIn files (top 5), parent modules of matched files
+5. Track import relationships between candidates
+6. Cap at 25 candidates
 
 #### 7.1 Query Endpoint
 
 | Step  | What                                                              | Test                                                    |
 | ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
 | 7.1.1 | `POST /query` endpoint accepting `{ query: string }`              | Endpoint accepts natural language query                 |
-| 7.1.2 | Integrate pre-filter: query → candidates                          | Returns relevant candidates with match reasons          |
-| 7.1.3 | Build planner prompt from candidates                              | Compact prompt with ~500-1000 tokens of candidates      |
-| 7.1.4 | Call LLM, parse file selection as JSON                            | Returns `{ files: [...], reasoning: "..." }`            |
+| 7.1.2 | Integrate pre-filter: query → candidates + modules                | Returns candidates with match reasons and relationships |
+| 7.1.3 | Build planner prompt (two-level: modules then files)              | Compact prompt with ~500-1000 tokens                    |
+| 7.1.4 | Call LLM, parse file selection as JSON                            | Returns `{ informationNeeded, files, reasoning }`       |
 | 7.1.5 | Fetch prose for selected files (generate if missing)              | All selected files have prose available                 |
-| 7.1.6 | Build synthesis prompt: query + reasoning + prose                 | Full context for answer generation                      |
-| 7.1.7 | Call LLM, return synthesized answer                               | Complete answer with file references                    |
+| 7.1.6 | Build synthesis prompt with module context + guidelines           | Includes informationNeeded, module summaries, guidelines |
+| 7.1.7 | Call LLM, return synthesized answer                               | Specific answer with file:line references               |
+
+**Planner prompt structure**:
+```
+You are helping answer a question about a codebase.
+
+QUESTION: {query}
+
+Your task:
+1. Identify what information is needed to answer this question
+2. Select 3-8 files that together provide that information
+3. Explain your reasoning
+
+CANDIDATE FILES:
+
+## Modules
+
+src/generator/
+  Module: LLM prose generation system
+  Contains: index.ts, prompts.ts
+
+## Files
+
+src/generator/index.ts [fanIn:5, patterns: retry]
+  LLM prose generation with OpenRouter API
+  Exports: generateProse, callLLM, buildPrompt
+  Uses: src/config/index.ts (LLMConfig)
+  Matched: keyword "retry", pattern "retry"
+
+Return JSON:
+{
+  "informationNeeded": "What info answers this question",
+  "files": ["path1", "path2"],
+  "reasoning": "Why these files together answer the question"
+}
+```
+
+**Synthesizer prompt structure**:
+```
+Answer this question about a codebase.
+
+QUESTION: {query}
+
+INFORMATION NEEDED: {planner.informationNeeded}
+
+FILES SELECTED BECAUSE: {planner.reasoning}
+
+CONTEXT:
+
+## src/generator/ (module)
+{module summary - high-level context}
+
+## src/generator/index.ts
+{full prose with functions, key statements, error paths}
+
+---
+
+Guidelines:
+- Answer the question directly and specifically
+- Include file paths and line numbers where relevant
+- If the question asks "how", provide concrete steps
+- Quote specific values, function names, or code when helpful
+- Be concise - don't repeat all the context, just relevant parts
+```
 
 **Response structure**:
 ```typescript
@@ -1074,6 +1139,7 @@ interface QueryResponse {
   answer: string;                    // The synthesized answer
   filesUsed: string[];               // Which files informed the answer
   reasoning: string;                 // Why those files were selected
+  informationNeeded: string;         // What info was needed (from planner)
   candidatesConsidered: number;      // How many files pre-filter found
 }
 ```
@@ -1091,20 +1157,22 @@ interface QueryResponse {
 | Win rate       | 0/15          | ≥3/15        |
 
 **Why this works**:
-- Pre-filter uses our rich deterministic data (patterns, exports, errors) to narrow candidates
-- Planner sees compact, relevant context instead of everything
-- Synthesizer gets full prose for selected files
+- Pre-filter uses rich deterministic data (patterns, exports, errors) to narrow candidates
+- Module context gives planner high-level understanding
+- Relationships between candidates (`Uses:`) prevent redundant selection
+- `informationNeeded` focuses the synthesizer on what matters
+- Explicit guidelines produce specific, actionable answers
 - Bridges information asymmetry: callers have questions, Pith has structure
 
 **Token efficiency**:
 - Pre-filter: 0 tokens (deterministic)
 - Planner: ~500-1000 tokens (25 candidates × 40 tokens)
-- Synthesis: ~2000-4000 tokens (5-8 files × prose)
+- Synthesis: ~2000-4000 tokens (5-8 files × prose + module context)
 - Total: ~3000-5000 tokens vs 10000+ if showing all files
 
 **Future extensions** (not in MVP):
 - Caching common query patterns
-- Query type classification for specialized handling
+- Query type classification for specialized context emphasis
 
 ---
 
