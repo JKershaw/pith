@@ -662,6 +662,34 @@ export interface PlannerResponse {
 }
 
 /**
+ * Strip markdown code block fences from a string.
+ * Handles cases where content appears after the closing fence.
+ *
+ * @param text - Text that may be wrapped in markdown fences
+ * @returns Content with fences removed, or original text if no fences
+ */
+function stripMarkdownFences(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('```')) {
+    return trimmed;
+  }
+
+  const lines = trimmed.split('\n');
+
+  // Find the closing fence (line that is exactly ``` or starts with ```)
+  let closingIndex = lines.length;
+  for (let i = lines.length - 1; i > 0; i--) {
+    if (lines[i]?.trim() === '```') {
+      closingIndex = i;
+      break;
+    }
+  }
+
+  // Extract content between opening and closing fence
+  return lines.slice(1, closingIndex).join('\n').trim();
+}
+
+/**
  * Parse the LLM response from the planner.
  * Step 7.1.4: Extract selected files and reasoning from JSON response.
  *
@@ -675,14 +703,7 @@ export function parsePlannerResponse(
 ): PlannerResponse | { error: string } {
   // Try to extract JSON from the response
   // Handle potential markdown code blocks
-  let jsonString = response.trim();
-
-  // Remove markdown code blocks if present
-  if (jsonString.startsWith('```')) {
-    const lines = jsonString.split('\n');
-    // Skip first line (```json) and last line (```)
-    jsonString = lines.slice(1, -1).join('\n');
-  }
+  const jsonString = stripMarkdownFences(response);
 
   try {
     const parsed = JSON.parse(jsonString) as {
@@ -873,10 +894,10 @@ export interface SynthesisResult {
  * @returns Parsed synthesis result
  */
 export function parseSynthesisResponse(response: string): SynthesisResult {
-  let content = response.trim();
+  const trimmed = response.trim();
 
   // Handle empty response
-  if (!content) {
+  if (!trimmed) {
     return {
       answer: 'Unable to generate an answer. Please try rephrasing your question.',
       error: true,
@@ -884,14 +905,7 @@ export function parseSynthesisResponse(response: string): SynthesisResult {
   }
 
   // Strip markdown code blocks if present
-  if (content.startsWith('```')) {
-    const lines = content.split('\n');
-    // Skip first line (```json or ```) and last line (```)
-    content = lines
-      .slice(1, lines.length - 1)
-      .join('\n')
-      .trim();
-  }
+  const content = stripMarkdownFences(trimmed);
 
   // Try to extract JSON answer if response is JSON
   if (content.startsWith('{')) {

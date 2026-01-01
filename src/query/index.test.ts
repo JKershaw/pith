@@ -7,6 +7,8 @@ import {
   formatCandidatesForPlanner,
   buildPlannerPrompt,
   parsePlannerResponse,
+  buildSynthesisPrompt,
+  parseSynthesisResponse,
   type KeywordIndex,
   type PreFilterCandidate,
   type PlannerResponse,
@@ -1029,8 +1031,6 @@ describe('parsePlannerResponse', () => {
 });
 
 // Phase 7.1.6: Synthesis prompt builder
-import { buildSynthesisPrompt, parseSynthesisResponse } from './index.ts';
-
 describe('buildSynthesisPrompt', () => {
   const sampleNodes: WikiNode[] = [
     {
@@ -1208,6 +1208,20 @@ The function is located at line 42.
     const result = parseSynthesisResponse(response);
 
     assert.strictEqual(result.answer, 'The function is located at line 42.');
+  });
+
+  it('handles content after closing markdown fence', () => {
+    // Edge case: LLM adds explanation after the code block
+    const response = `\`\`\`json
+{"answer": "The function uses retry logic"}
+\`\`\`
+
+Note: This is extracted from the generator module.`;
+
+    const result = parseSynthesisResponse(response);
+
+    // Should extract the JSON content, ignoring text after the fence
+    assert.strictEqual(result.answer, 'The function uses retry logic');
   });
 
   it('returns error indicator for empty response', () => {

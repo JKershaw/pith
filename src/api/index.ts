@@ -1296,8 +1296,9 @@ export function createApp(
             if (updatedNode) {
               node = updatedNode;
             }
-          } catch {
-            // Continue without prose if generation fails
+          } catch (error) {
+            // Continue without prose if generation fails - log for debugging
+            console.debug(`Prose generation failed for ${filePath}:`, (error as Error).message);
           }
         }
 
