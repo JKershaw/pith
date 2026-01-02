@@ -26,9 +26,6 @@ import {
   buildKeywordIndex,
   preFilter,
   formatCandidatesForPlanner,
-  buildPlannerPrompt,
-  parsePlannerResponse,
-  buildSynthesisPrompt,
   parseSynthesisResponse,
 } from '../query/index.ts';
 import { callLLM } from '../generator/index.ts';
@@ -1193,7 +1190,7 @@ export function createApp(
   // Phase 7.3: Overview-Based Navigation
   app.post('/query', async (req: Request, res: Response) => {
     try {
-      const { query, mode } = req.body as { query?: string; mode?: 'navigator' | 'planner' };
+      const { query } = req.body as { query?: string };
 
       // Validate request
       if (!query || typeof query !== 'string') {
@@ -1225,14 +1222,13 @@ export function createApp(
       }
 
       // If no generator config, fall back to pre-filter results only
-      // (LLM is required for both planner and navigator modes)
       if (!generatorConfig) {
         const keywordIndex = buildKeywordIndex(allNodes);
         const candidates = preFilter(query, keywordIndex, allNodes);
         const candidatesFormatted = formatCandidatesForPlanner(candidates, allNodes);
         res.json({
           query,
-          mode: mode === 'planner' ? 'planner' : 'fallback',
+          mode: 'fallback',
           candidatesConsidered: candidates.length,
           candidates: candidates.map((c) => ({
             path: c.path,
@@ -1249,84 +1245,7 @@ export function createApp(
         return;
       }
 
-      // Use legacy planner mode if explicitly requested
-      if (mode === 'planner') {
-        // Legacy 7.1 flow: keyword pre-filter → planner LLM → synthesis
-        const keywordIndex = buildKeywordIndex(allNodes);
-        const candidates = preFilter(query, keywordIndex, allNodes);
-
-        if (candidates.length === 0) {
-          res.json({
-            query,
-            mode: 'planner',
-            candidatesConsidered: 0,
-            candidates: [],
-            answer: null,
-            filesUsed: [],
-            reasoning: 'No relevant files found for this query. Try using different keywords.',
-          });
-          return;
-        }
-
-        const plannerPrompt = buildPlannerPrompt(query, candidates, allNodes);
-        const plannerRawResponse = await callLLM(plannerPrompt, generatorConfig, fetchFn);
-        const candidatePaths = new Set(candidates.map((c) => c.path));
-        const plannerResult = parsePlannerResponse(plannerRawResponse, candidatePaths);
-
-        if ('error' in plannerResult) {
-          res.json({
-            query,
-            mode: 'planner',
-            candidatesConsidered: candidates.length,
-            candidates: candidates.map((c) => ({
-              path: c.path,
-              score: c.score,
-              matchReasons: c.matchReasons,
-            })),
-            answer: null,
-            filesUsed: [],
-            reasoning: `Planner error: ${plannerResult.error}`,
-          });
-          return;
-        }
-
-        // Fetch prose for selected files
-        const selectedNodes: WikiNode[] = [];
-        for (const filePath of plannerResult.selectedFiles) {
-          let node = allNodes.find((n) => n.id === filePath);
-          if (node && !node.prose) {
-            try {
-              const updatedNode = await generateProseForNode(
-                filePath,
-                db,
-                generatorConfig,
-                fetchFn
-              );
-              if (updatedNode) node = updatedNode;
-            } catch {
-              // Continue without prose
-            }
-          }
-          if (node) selectedNodes.push(node);
-        }
-
-        const synthesisPrompt = buildSynthesisPrompt(query, selectedNodes, plannerResult);
-        const synthesisRawResponse = await callLLM(synthesisPrompt, generatorConfig, fetchFn);
-        const synthesisResult = parseSynthesisResponse(synthesisRawResponse);
-
-        res.json({
-          query,
-          mode: 'planner',
-          candidatesConsidered: candidates.length,
-          filesUsed: plannerResult.selectedFiles,
-          reasoning: plannerResult.reasoning,
-          answer: synthesisResult.answer,
-          answerError: synthesisResult.error || undefined,
-        });
-        return;
-      }
-
-      // Default: Phase 7.3 Navigator flow
+      // Phase 7.3 Navigator flow
       console.log(
         `[query] Navigator flow starting for: "${query.slice(0, 50)}${query.length > 50 ? '...' : ''}"`
       );
