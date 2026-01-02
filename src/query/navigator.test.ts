@@ -248,7 +248,11 @@ function createTestNode(
       startLine: number;
       endLine: number;
       codeSnippet?: string;
-      keyStatements?: Array<{ type: string; content: string; line: number }>;
+      keyStatements?: Array<{
+        category: 'config' | 'url' | 'math' | 'condition' | 'error';
+        text: string;
+        line: number;
+      }>;
     }>;
     summary?: string;
   } = {}
@@ -277,11 +281,7 @@ function createTestNode(
         isExported: true,
         isDefaultExport: false,
         codeSnippet: f.codeSnippet || '',
-        keyStatements: (f.keyStatements || []).map((s) => ({
-          type: s.type as 'return' | 'throw' | 'await' | 'if' | 'loop' | 'assignment',
-          content: s.content,
-          line: s.line,
-        })),
+        keyStatements: f.keyStatements || [],
         calls: [],
         calledBy: [],
         crossFileCalls: [],
@@ -424,6 +424,24 @@ describe('resolveImportersTarget - Phase 7.3.6.4', () => {
     assert.strictEqual(result.success, true);
     assert.deepStrictEqual(result.importers, []);
   });
+
+  it('deduplicates importers when same file imports multiple exports', () => {
+    // Two files exporting the same symbol, both imported by the same consumer
+    const typeNode1 = createTestNode('src/types.ts', { exports: ['Config'] });
+    typeNode1.edges = [{ type: 'importedBy', target: 'src/app.ts' }];
+    const typeNode2 = createTestNode('src/utils.ts', { exports: ['Config'] });
+    typeNode2.edges = [{ type: 'importedBy', target: 'src/app.ts' }];
+    const nodes: WikiNode[] = [typeNode1, typeNode2, createTestNode('src/app.ts')];
+    const target: ImportersTarget = { type: 'importers', of: 'Config' };
+
+    const result = resolveImportersTarget(target, nodes);
+
+    assert.strictEqual(result.success, true);
+    assert.ok(result.importers);
+    // Should only have src/app.ts once despite appearing in multiple source nodes
+    const appCount = result.importers.filter((p) => p === 'src/app.ts').length;
+    assert.strictEqual(appCount, 1, 'src/app.ts should appear only once (deduplicated)');
+  });
 });
 
 describe('executeGrepTarget - Phase 7.3.6.2', () => {
@@ -490,7 +508,7 @@ describe('executeGrepTarget - Phase 7.3.6.2', () => {
             startLine: 1,
             endLine: 30,
             keyStatements: [
-              { type: 'throw', content: 'throw new Error("Rate limit exceeded")', line: 15 },
+              { category: 'error', text: 'throw new Error("Rate limit exceeded")', line: 15 },
             ],
           },
         ],
@@ -591,6 +609,30 @@ describe('executeGrepTarget - Phase 7.3.6.2', () => {
 
     assert.strictEqual(result.success, false);
     assert.ok(result.error);
+  });
+
+  it('returns error for pattern exceeding max length', () => {
+    const nodes: WikiNode[] = [createTestNode('src/utils.ts')];
+    const longPattern = 'a'.repeat(250);
+    const target: GrepTarget = { type: 'grep', pattern: longPattern };
+
+    const result = executeGrepTarget(target, nodes);
+
+    assert.strictEqual(result.success, false);
+    assert.ok(result.error?.includes('too long'));
+  });
+
+  it('returns error for dangerous nested quantifier patterns', () => {
+    const nodes: WikiNode[] = [createTestNode('src/utils.ts')];
+    const dangerousPatterns = ['a*+', 'b++', 'c**'];
+
+    for (const pattern of dangerousPatterns) {
+      const target: GrepTarget = { type: 'grep', pattern };
+      const result = executeGrepTarget(target, nodes);
+
+      assert.strictEqual(result.success, false, `Expected failure for pattern: ${pattern}`);
+      assert.ok(result.error?.includes('dangerous'), `Expected danger message for: ${pattern}`);
+    }
   });
 });
 

@@ -325,8 +325,8 @@ describe('isEntryPoint', () => {
     assert.strictEqual(isEntryPoint(node), true);
   });
 
-  it('allows files with 1-2 exports as potential entry points', () => {
-    // Some entry points might export a few things for testing
+  it('allows files with 0-1 exports as potential entry points', () => {
+    // Entry points may export a single item (e.g., for testing purposes)
     const node = createFileNode('src/cli/index.ts', { fanIn: 0, exports: ['run'] });
     // Should still be considered entry point with just 1 export
     assert.strictEqual(isEntryPoint(node), true);

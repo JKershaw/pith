@@ -506,6 +506,39 @@ export interface GrepResult {
   matches?: GrepMatch[];
 }
 
+/** Maximum allowed pattern length to prevent ReDoS attacks */
+const MAX_PATTERN_LENGTH = 200;
+
+/** Dangerous regex patterns that could cause catastrophic backtracking */
+const DANGEROUS_PATTERNS = [
+  /\*\+/, // Nested quantifiers like *+
+  /\+\+/, // Nested quantifiers like ++
+  /\*\*/, // Nested quantifiers like **
+  /\?\+/, // Nested quantifiers like ?+
+  /\+\*/, // Nested quantifiers like +*
+  /\(\?:.*\)\*.*\(\?:.*\)\*/, // Multiple optional groups
+];
+
+/**
+ * Validate a regex pattern for potential ReDoS vulnerabilities.
+ * Returns an error message if the pattern is dangerous, undefined if safe.
+ */
+function validateRegexPattern(pattern: string): string | undefined {
+  // Check length
+  if (pattern.length > MAX_PATTERN_LENGTH) {
+    return `Pattern too long (max ${MAX_PATTERN_LENGTH} characters)`;
+  }
+
+  // Check for dangerous patterns
+  for (const dangerous of DANGEROUS_PATTERNS) {
+    if (dangerous.test(pattern)) {
+      return 'Pattern contains potentially dangerous constructs';
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Execute a grep target by searching WikiNode metadata.
  * Searches function names, signatures, code snippets, key statements, and exports.
@@ -518,6 +551,12 @@ export function executeGrepTarget(target: GrepTarget, nodes: WikiNode[]): GrepRe
   // Validate input
   if (!target.pattern || target.pattern.trim() === '') {
     return { success: false, error: 'Grep pattern is empty' };
+  }
+
+  // Validate pattern for ReDoS vulnerabilities
+  const validationError = validateRegexPattern(target.pattern);
+  if (validationError) {
+    return { success: false, error: validationError };
   }
 
   // Validate regex
@@ -590,13 +629,13 @@ export function executeGrepTarget(target: GrepTarget, nodes: WikiNode[]): GrepRe
       // Search key statements
       const keyStatements = func.keyStatements || [];
       for (const stmt of keyStatements) {
-        if (regex.test(stmt.content)) {
+        if (regex.test(stmt.text)) {
           matches.push({
             path: node.path,
             matchType: 'keyStatement',
             name: func.name,
             line: stmt.line,
-            content: stmt.content,
+            content: stmt.text,
           });
         }
       }
@@ -716,6 +755,12 @@ export function resolveAllTargets(targets: NavigationTarget[], nodes: WikiNode[]
         }
         break;
       }
+
+      default: {
+        // Exhaustive type check - ensures all target types are handled
+        const _exhaustiveCheck: never = target;
+        errors.push(`Unknown target type: ${(_exhaustiveCheck as NavigationTarget).type}`);
+      }
     }
   }
 
@@ -824,10 +869,7 @@ export function buildNavigatorSynthesisPrompt(
         // Show key statements (config values, important logic)
         if (func.keyStatements && func.keyStatements.length > 0) {
           for (const stmt of func.keyStatements) {
-            const category =
-              'category' in stmt ? (stmt as { category: string }).category : stmt.type;
-            const text = 'text' in stmt ? (stmt as { text: string }).text : stmt.content;
-            lines.push(`  - [${category}] line ${stmt.line}: \`${text}\``);
+            lines.push(`  - [${stmt.category}] line ${stmt.line}: \`${stmt.text}\``);
           }
         }
       }
