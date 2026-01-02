@@ -1337,8 +1337,71 @@ export function createApp(
       const navigatorRawResponse = await callLLM(navigatorPrompt, generatorConfig, fetchFn);
       const navigatorResult = parseNavigatorResponse(navigatorRawResponse);
 
-      // Handle navigator parsing errors
-      if (navigatorResult.error || !navigatorResult.targets) {
+      // Handle navigator parsing errors or empty targets
+      if (
+        navigatorResult.error ||
+        !navigatorResult.targets ||
+        navigatorResult.targets.length === 0
+      ) {
+        // Fall back to keyword pre-filter if navigator returned no targets
+        if (!navigatorResult.error && navigatorResult.targets?.length === 0) {
+          const keywordIndex = buildKeywordIndex(allNodes);
+          const candidates = preFilter(query, keywordIndex, allNodes);
+
+          if (candidates.length > 0) {
+            // Use top candidates as fallback
+            const fallbackFiles = candidates.slice(0, 5).map((c) => c.path);
+            const fallbackNodes = allNodes.filter((n) => fallbackFiles.includes(n.path));
+
+            // Generate prose for fallback nodes if missing
+            for (const node of fallbackNodes) {
+              if (!node.prose) {
+                try {
+                  const updatedNode = await generateProseForNode(
+                    node.id,
+                    db,
+                    generatorConfig,
+                    fetchFn
+                  );
+                  if (updatedNode) {
+                    Object.assign(node, updatedNode);
+                  }
+                } catch {
+                  // Continue without prose
+                }
+              }
+            }
+
+            const fallbackContext = {
+              nodes: fallbackNodes,
+              grepMatches: [],
+              functionDetails: [],
+              errors: ['Navigator returned no targets, using keyword fallback'],
+            };
+
+            const synthesisPrompt = buildNavigatorSynthesisPrompt(
+              query,
+              fallbackContext,
+              'Fallback to keyword-based file selection'
+            );
+
+            const synthesisRawResponse = await callLLM(synthesisPrompt, generatorConfig, fetchFn);
+            const synthesisResult = parseSynthesisResponse(synthesisRawResponse);
+
+            res.json({
+              query,
+              mode: 'navigator',
+              filesUsed: fallbackFiles,
+              reasoning: 'Navigator returned no targets, used keyword fallback',
+              targets: [],
+              fallback: true,
+              answer: synthesisResult.answer,
+              answerError: synthesisResult.error || undefined,
+            });
+            return;
+          }
+        }
+
         res.json({
           query,
           mode: 'navigator',
@@ -1352,6 +1415,65 @@ export function createApp(
 
       // Step 4: Resolve all targets (files, greps, functions, importers)
       const resolvedContext = resolveAllTargets(navigatorResult.targets, allNodes);
+
+      // If no files resolved successfully, fall back to keyword pre-filter
+      if (resolvedContext.nodes.length === 0 && resolvedContext.grepMatches.length === 0) {
+        const keywordIndex = buildKeywordIndex(allNodes);
+        const candidates = preFilter(query, keywordIndex, allNodes);
+
+        if (candidates.length > 0) {
+          const fallbackFiles = candidates.slice(0, 5).map((c) => c.path);
+          const fallbackNodes = allNodes.filter((n) => fallbackFiles.includes(n.path));
+
+          for (const node of fallbackNodes) {
+            if (!node.prose) {
+              try {
+                const updatedNode = await generateProseForNode(
+                  node.id,
+                  db,
+                  generatorConfig,
+                  fetchFn
+                );
+                if (updatedNode) Object.assign(node, updatedNode);
+              } catch {
+                // Continue without prose
+              }
+            }
+          }
+
+          const fallbackContext = {
+            nodes: fallbackNodes,
+            grepMatches: [],
+            functionDetails: [],
+            errors: [
+              ...resolvedContext.errors,
+              'All navigator targets failed, using keyword fallback',
+            ],
+          };
+
+          const synthesisPrompt = buildNavigatorSynthesisPrompt(
+            query,
+            fallbackContext,
+            'Fallback: navigator targets failed to resolve'
+          );
+
+          const synthesisRawResponse = await callLLM(synthesisPrompt, generatorConfig, fetchFn);
+          const synthesisResult = parseSynthesisResponse(synthesisRawResponse);
+
+          res.json({
+            query,
+            mode: 'navigator',
+            filesUsed: fallbackFiles,
+            reasoning: 'Navigator targets failed to resolve, used keyword fallback',
+            targets: navigatorResult.targets,
+            fallback: true,
+            resolutionErrors: resolvedContext.errors,
+            answer: synthesisResult.answer,
+            answerError: synthesisResult.error || undefined,
+          });
+          return;
+        }
+      }
 
       // Generate prose for resolved nodes if missing
       for (const node of resolvedContext.nodes) {
