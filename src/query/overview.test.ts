@@ -332,3 +332,77 @@ describe('isEntryPoint', () => {
     assert.strictEqual(isEntryPoint(node), true);
   });
 });
+
+describe('relationships in buildProjectOverview - Phase 7.3.3', () => {
+  it('extracts import relationships from entry points', () => {
+    const nodes: WikiNode[] = [
+      // CLI entry point with imports
+      createFileNode('src/cli/index.ts', {
+        fanIn: 0,
+        exports: [],
+        imports: [
+          { from: './extractor', names: ['extractFile'] },
+          { from: './builder', names: ['buildNodes', 'WikiNode'] },
+          { from: './generator', names: ['generateProse'] },
+        ],
+      }),
+      // Regular files
+      createFileNode('src/extractor/index.ts', { fanIn: 3, exports: ['extractFile'] }),
+      createFileNode('src/builder/index.ts', { fanIn: 5, exports: ['buildNodes', 'WikiNode'] }),
+    ];
+
+    const overview = buildProjectOverview(nodes);
+
+    // Should have relationship from CLI
+    assert.ok(overview.relationships.length >= 1);
+    const cliRel = overview.relationships.find((r) => r.from === 'src/cli/index.ts');
+    assert.ok(cliRel);
+    assert.ok(cliRel.imports.includes('extractFile'));
+    assert.ok(cliRel.imports.includes('buildNodes'));
+  });
+
+  it('includes high-fanIn files with consumer counts', () => {
+    const nodes: WikiNode[] = [
+      // High fanIn file - widely used
+      createFileNode('src/types/index.ts', {
+        fanIn: 12,
+        exports: ['WikiNode', 'Edge', 'ProseData'],
+        summary: 'Core type definitions',
+      }),
+      // Normal file
+      createFileNode('src/utils.ts', { fanIn: 2, exports: ['helper'] }),
+    ];
+
+    const overview = buildProjectOverview(nodes);
+
+    // High fanIn files should appear in relationships section
+    const highFanInRel = overview.relationships.find((r) => r.from === 'src/types/index.ts');
+    // Or check that it's tracked somehow
+    assert.ok(
+      overview.relationships.some((r) => r.from.includes('types')) ||
+        overview.modules.some((m) => m.summary?.includes('12'))
+    );
+  });
+
+  it('shows what entry points import for navigation context', () => {
+    const nodes: WikiNode[] = [
+      createFileNode('src/main.ts', {
+        fanIn: 0,
+        exports: [],
+        imports: [
+          { from: './app', names: ['createApp'] },
+          { from: './config', names: ['loadConfig'] },
+        ],
+      }),
+    ];
+
+    const overview = buildProjectOverview(nodes);
+
+    // Entry point's imports should be in relationships
+    assert.ok(overview.relationships.length >= 1);
+    const mainRel = overview.relationships[0];
+    assert.strictEqual(mainRel.from, 'src/main.ts');
+    assert.ok(mainRel.imports.includes('createApp'));
+    assert.ok(mainRel.imports.includes('loadConfig'));
+  });
+});

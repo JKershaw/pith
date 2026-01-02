@@ -100,8 +100,8 @@ export function buildProjectOverview(nodes: WikiNode[]): ProjectOverview {
   // 7.3.2 - Entry points (fanIn=0 files that orchestrate)
   const entryPoints = extractEntryPoints(nodes);
 
-  // TODO: 7.3.3 - Relationships
-  const relationships: Relationship[] = [];
+  // 7.3.3 - Key relationships (who imports what)
+  const relationships = extractRelationships(nodes);
 
   return {
     readme,
@@ -261,4 +261,66 @@ function buildEntryPointDescription(node: WikiNode): string {
 
   // Fallback
   return 'Application entry point';
+}
+
+/**
+ * Extract key relationships for the overview.
+ * Focuses on:
+ * 1. What entry points import (for navigation context)
+ * 2. High-fanIn files (widely used, important to know about)
+ */
+function extractRelationships(nodes: WikiNode[]): Relationship[] {
+  const relationships: Relationship[] = [];
+
+  // 1. Get imports from entry points (they orchestrate the app)
+  const entryPointNodes = nodes.filter(isEntryPoint);
+  for (const node of entryPointNodes) {
+    const imports = extractImportNames(node);
+    if (imports.length > 0) {
+      relationships.push({
+        from: node.path,
+        imports,
+      });
+    }
+  }
+
+  // 2. Add high-fanIn files (widely used, threshold = 5)
+  const HIGH_FAN_IN_THRESHOLD = 5;
+  const highFanInNodes = nodes.filter(
+    (n) => n.type === 'file' && (n.metadata.fanIn ?? 0) >= HIGH_FAN_IN_THRESHOLD
+  );
+
+  for (const node of highFanInNodes) {
+    // Skip if already added as entry point
+    if (relationships.some((r) => r.from === node.path)) {
+      continue;
+    }
+
+    // For high-fanIn files, show their exports (what they provide)
+    const exports = node.raw?.exports?.map((e) => e.name) || [];
+    if (exports.length > 0) {
+      relationships.push({
+        from: node.path,
+        imports: exports, // Note: "imports" field used to show what this file provides
+      });
+    }
+  }
+
+  return relationships;
+}
+
+/**
+ * Extract all imported symbol names from a node.
+ */
+function extractImportNames(node: WikiNode): string[] {
+  const imports = node.raw?.imports || [];
+  const names: string[] = [];
+
+  for (const imp of imports) {
+    if (imp.names && imp.names.length > 0) {
+      names.push(...imp.names);
+    }
+  }
+
+  return names;
 }
