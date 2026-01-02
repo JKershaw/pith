@@ -11,6 +11,8 @@
 
 import type { ProjectOverview } from './overview.ts';
 import type { WikiNode } from '../builder/index.ts';
+import type { ExtractedFile } from '../extractor/ast.ts';
+import { buildFunctionConsumers } from '../builder/index.ts';
 
 // ============================================================================
 // Target Types
@@ -42,8 +44,19 @@ export interface ImportersTarget {
   of: string; // Symbol name to find importers of
 }
 
+/** Target all callers of a specific function (Phase 7.7.1) */
+export interface CallersTarget {
+  type: 'callers';
+  of: string; // Function identifier like "src/file.ts:functionName"
+}
+
 /** Union of all target types */
-export type NavigationTarget = FileTarget | GrepTarget | FunctionTarget | ImportersTarget;
+export type NavigationTarget =
+  | FileTarget
+  | GrepTarget
+  | FunctionTarget
+  | ImportersTarget
+  | CallersTarget;
 
 /** Response from the navigator LLM */
 export interface NavigationResponse {
@@ -131,12 +144,14 @@ Target types:
 2. \`{ "type": "grep", "pattern": "regex_pattern", "scope": "src/dir/" }\` - Search for pattern (scope optional)
 3. \`{ "type": "function", "name": "functionName", "in": "src/file.ts" }\` - Get specific function details
 4. \`{ "type": "importers", "of": "SymbolName" }\` - Find all files that import this symbol
+5. \`{ "type": "callers", "of": "src/file.ts:functionName" }\` - Find all call sites of a specific function
 
 ## Guidelines
 
 - Prefer specific file targets when you know the exact file
 - Use grep for patterns or keywords you're unsure about
-- Use importers to find consumers/callers of a function or type
+- Use importers to find file-level consumers of a symbol
+- Use **callers** to find function-level call sites with line numbers (for "who calls X?" questions)
 - Limit to 3-8 targets for efficiency
 - Focus on files that directly answer the question
 
@@ -271,6 +286,13 @@ function validateTarget(target: unknown): { target?: NavigationTarget; error?: s
         return { error: 'Importers target missing of' };
       }
       return { target: { type: 'importers', of: obj.of } };
+    }
+
+    case 'callers': {
+      if (typeof obj.of !== 'string') {
+        return { error: 'Callers target missing of (expected "file:function" format)' };
+      }
+      return { target: { type: 'callers', of: obj.of } };
     }
 
     default:
@@ -659,6 +681,32 @@ export interface FunctionDetail {
   endLine: number;
 }
 
+/** A single caller of a function (Phase 7.7.1) */
+export interface CallerInfo {
+  /** File path where the call occurs */
+  file: string;
+  /** Line number of the call */
+  line: number;
+  /** Whether this is in a test file */
+  isTest: boolean;
+}
+
+/** Result of resolving a callers target (Phase 7.7.1) */
+export interface CallerResult {
+  /** Function identifier (file:functionName) */
+  functionId: string;
+  /** The function name */
+  functionName: string;
+  /** The source file exporting the function */
+  sourceFile: string;
+  /** Callers from production code */
+  productionCallers: CallerInfo[];
+  /** Callers from test files */
+  testCallers: CallerInfo[];
+  /** Total number of callers */
+  totalCallers: number;
+}
+
 /** Result of resolving all navigation targets */
 export interface ResolvedContext {
   /** WikiNodes collected from file and importer targets */
@@ -667,8 +715,82 @@ export interface ResolvedContext {
   grepMatches: GrepMatch[];
   /** Function details from function targets */
   functionDetails: FunctionDetail[];
+  /** Caller results from callers targets (Phase 7.7.1) */
+  callerResults: CallerResult[];
   /** Errors encountered during resolution */
   errors: string[];
+}
+
+/**
+ * Resolve a callers target by finding all call sites for a function.
+ * Uses buildFunctionConsumers from builder to find production and test callers.
+ * Phase 7.7.1: Navigator Function Consumer Target
+ *
+ * @param target - The callers target with function identifier (file:functionName)
+ * @param extractedFiles - All extracted files from the database
+ * @returns CallerResult with production and test callers, or undefined if not found
+ */
+export function resolveCallersTarget(
+  target: CallersTarget,
+  extractedFiles: ExtractedFile[]
+): { success: boolean; result?: CallerResult; error?: string } {
+  // Validate input
+  if (!target.of || target.of.trim() === '') {
+    return { success: false, error: 'Callers target missing function identifier' };
+  }
+
+  // Parse the function identifier (expected format: "file:functionName")
+  const colonIndex = target.of.lastIndexOf(':');
+  if (colonIndex === -1) {
+    return {
+      success: false,
+      error: `Invalid callers target format: "${target.of}". Expected "file:functionName"`,
+    };
+  }
+
+  const sourceFile = target.of.slice(0, colonIndex);
+  const functionName = target.of.slice(colonIndex + 1);
+
+  if (!sourceFile || !functionName) {
+    return {
+      success: false,
+      error: `Invalid callers target format: "${target.of}". Expected "file:functionName"`,
+    };
+  }
+
+  // Build the function consumers map from extracted files
+  const consumersMap = buildFunctionConsumers(extractedFiles);
+
+  // Look up the function
+  const consumers = consumersMap.get(target.of);
+
+  if (!consumers) {
+    // Function not found - could be non-exported or doesn't exist
+    return {
+      success: false,
+      error: `Function not found or not exported: ${target.of}`,
+    };
+  }
+
+  // Convert to CallerResult format
+  const result: CallerResult = {
+    functionId: target.of,
+    functionName: consumers.functionName,
+    sourceFile: consumers.sourceFile,
+    productionCallers: consumers.productionConsumers.map((c) => ({
+      file: c.file,
+      line: c.line,
+      isTest: false,
+    })),
+    testCallers: consumers.testConsumers.map((c) => ({
+      file: c.file,
+      line: c.line,
+      isTest: true,
+    })),
+    totalCallers: consumers.totalConsumers,
+  };
+
+  return { success: true, result };
 }
 
 /**
@@ -677,12 +799,18 @@ export interface ResolvedContext {
  *
  * @param targets - Array of navigation targets from LLM
  * @param nodes - All WikiNodes in the project
+ * @param extractedFiles - Optional extracted files for callers targets (Phase 7.7.1)
  * @returns ResolvedContext with collected nodes, matches, and errors
  */
-export function resolveAllTargets(targets: NavigationTarget[], nodes: WikiNode[]): ResolvedContext {
+export function resolveAllTargets(
+  targets: NavigationTarget[],
+  nodes: WikiNode[],
+  extractedFiles?: ExtractedFile[]
+): ResolvedContext {
   const nodeMap = new Map<string, WikiNode>();
   const grepMatches: GrepMatch[] = [];
   const functionDetails: FunctionDetail[] = [];
+  const callerResults: CallerResult[] = [];
   const errors: string[] = [];
 
   // Build lookup map for nodes
@@ -757,6 +885,33 @@ export function resolveAllTargets(targets: NavigationTarget[], nodes: WikiNode[]
         break;
       }
 
+      case 'callers': {
+        // Phase 7.7.1: Resolve function callers
+        if (!extractedFiles || extractedFiles.length === 0) {
+          errors.push('Callers target requires extracted files data');
+          break;
+        }
+        const result = resolveCallersTarget(target, extractedFiles);
+        if (result.success && result.result) {
+          callerResults.push(result.result);
+          // Also add the source file node for context
+          const sourceNode = nodeLookup.get(result.result.sourceFile);
+          if (sourceNode && !nodeMap.has(result.result.sourceFile)) {
+            nodeMap.set(result.result.sourceFile, sourceNode);
+          }
+          // Add caller file nodes as well for richer context
+          for (const caller of result.result.productionCallers) {
+            const callerNode = nodeLookup.get(caller.file);
+            if (callerNode && !nodeMap.has(caller.file)) {
+              nodeMap.set(caller.file, callerNode);
+            }
+          }
+        } else if (result.error) {
+          errors.push(result.error);
+        }
+        break;
+      }
+
       default: {
         // Exhaustive type check - ensures all target types are handled
         const _exhaustiveCheck: never = target;
@@ -769,6 +924,7 @@ export function resolveAllTargets(targets: NavigationTarget[], nodes: WikiNode[]
     nodes: Array.from(nodeMap.values()),
     grepMatches,
     functionDetails,
+    callerResults,
     errors,
   };
 }
@@ -910,6 +1066,47 @@ export function buildNavigatorSynthesisPrompt(
         lines.push(`- [${location}] ${match.name || ''}: \`${match.content}\``);
       }
       lines.push('');
+    }
+  }
+
+  // Include caller results for function consumer analysis (Phase 7.7.1)
+  if (context.callerResults.length > 0) {
+    lines.push('## Function Consumers');
+    lines.push('');
+    lines.push('*Call sites for requested functions:*');
+    lines.push('');
+
+    for (const result of context.callerResults) {
+      lines.push(`### ${result.functionName} (from ${result.sourceFile})`);
+      lines.push('');
+      lines.push(`**Total callers:** ${result.totalCallers}`);
+      lines.push('');
+
+      // Production callers
+      if (result.productionCallers.length > 0) {
+        lines.push(`**Production callers (${result.productionCallers.length}):**`);
+        for (const caller of result.productionCallers) {
+          lines.push(`- ${caller.file}:${caller.line}`);
+        }
+        lines.push('');
+      } else {
+        lines.push('**Production callers:** None');
+        lines.push('');
+      }
+
+      // Test callers
+      if (result.testCallers.length > 0) {
+        lines.push(`**Test callers (${result.testCallers.length}):**`);
+        // Show first 10 test callers to avoid overwhelming context
+        const testCallersToShow = result.testCallers.slice(0, 10);
+        for (const caller of testCallersToShow) {
+          lines.push(`- ${caller.file}:${caller.line}`);
+        }
+        if (result.testCallers.length > 10) {
+          lines.push(`- ... and ${result.testCallers.length - 10} more test callers`);
+        }
+        lines.push('');
+      }
     }
   }
 
