@@ -477,3 +477,131 @@ export function resolveImportersTarget(target: ImportersTarget, nodes: WikiNode[
     importers: Array.from(importerSet),
   };
 }
+
+// ============================================================================
+// Grep Target Execution - Phase 7.3.6.2
+// ============================================================================
+
+/** A single match from grep search */
+export interface GrepMatch {
+  /** File path where match was found */
+  path: string;
+  /** Type of match (function name, code snippet, key statement, etc.) */
+  matchType: 'functionName' | 'signature' | 'codeSnippet' | 'keyStatement' | 'export';
+  /** Name of the matched element (function name, export name) */
+  name?: string;
+  /** Line number if available */
+  line?: number;
+  /** Content that matched */
+  content?: string;
+}
+
+/** Result of executing a grep target */
+export interface GrepResult {
+  /** Whether execution succeeded */
+  success: boolean;
+  /** Error message if execution failed */
+  error?: string;
+  /** Array of matches found */
+  matches?: GrepMatch[];
+}
+
+/**
+ * Execute a grep target by searching WikiNode metadata.
+ * Searches function names, signatures, code snippets, key statements, and exports.
+ *
+ * @param target - The grep target with pattern and optional scope
+ * @param nodes - All WikiNodes in the project
+ * @returns GrepResult with matches or error
+ */
+export function executeGrepTarget(target: GrepTarget, nodes: WikiNode[]): GrepResult {
+  // Validate input
+  if (!target.pattern || target.pattern.trim() === '') {
+    return { success: false, error: 'Grep pattern is empty' };
+  }
+
+  // Validate regex
+  let regex: RegExp;
+  try {
+    regex = new RegExp(target.pattern, 'i'); // Case-insensitive by default
+  } catch {
+    return { success: false, error: `Invalid regex pattern: ${target.pattern}` };
+  }
+
+  const matches: GrepMatch[] = [];
+
+  // Filter nodes by scope if provided
+  const fileNodes = nodes.filter((n) => {
+    if (n.type !== 'file') return false;
+    if (target.scope && !n.path.startsWith(target.scope)) return false;
+    return true;
+  });
+
+  for (const node of fileNodes) {
+    // Search exports
+    const exports = node.raw?.exports || [];
+    for (const exp of exports) {
+      if (regex.test(exp.name)) {
+        matches.push({
+          path: node.path,
+          matchType: 'export',
+          name: exp.name,
+          content: exp.name,
+        });
+      }
+    }
+
+    // Search functions
+    const functions = node.raw?.functions || [];
+    for (const func of functions) {
+      // Search function name
+      if (regex.test(func.name)) {
+        matches.push({
+          path: node.path,
+          matchType: 'functionName',
+          name: func.name,
+          line: func.startLine,
+          content: func.name,
+        });
+      }
+
+      // Search signature
+      if (regex.test(func.signature)) {
+        matches.push({
+          path: node.path,
+          matchType: 'signature',
+          name: func.name,
+          line: func.startLine,
+          content: func.signature,
+        });
+      }
+
+      // Search code snippet
+      if (func.codeSnippet && regex.test(func.codeSnippet)) {
+        matches.push({
+          path: node.path,
+          matchType: 'codeSnippet',
+          name: func.name,
+          line: func.startLine,
+          content: func.codeSnippet,
+        });
+      }
+
+      // Search key statements
+      const keyStatements = func.keyStatements || [];
+      for (const stmt of keyStatements) {
+        if (regex.test(stmt.content)) {
+          matches.push({
+            path: node.path,
+            matchType: 'keyStatement',
+            name: func.name,
+            line: stmt.line,
+            content: stmt.content,
+          });
+        }
+      }
+    }
+  }
+
+  return { success: true, matches };
+}

@@ -13,12 +13,14 @@ import {
   type FunctionTarget,
   type ImportersTarget,
   type ResolvedTarget,
+  type GrepResult,
   buildNavigatorPrompt,
   parseNavigatorResponse,
   formatOverviewForPrompt,
   resolveFileTarget,
   resolveFunctionTarget,
   resolveImportersTarget,
+  executeGrepTarget,
 } from './navigator.ts';
 import type { WikiNode } from '../builder/index.ts';
 import { type ProjectOverview } from './overview.ts';
@@ -237,7 +239,14 @@ function createTestNode(
     type?: 'file' | 'module' | 'function';
     fanIn?: number;
     exports?: string[];
-    functions?: Array<{ name: string; signature: string; startLine: number; endLine: number }>;
+    functions?: Array<{
+      name: string;
+      signature: string;
+      startLine: number;
+      endLine: number;
+      codeSnippet?: string;
+      keyStatements?: Array<{ type: string; content: string; line: number }>;
+    }>;
     summary?: string;
   } = {}
 ): WikiNode {
@@ -264,8 +273,12 @@ function createTestNode(
         isAsync: false,
         isExported: true,
         isDefaultExport: false,
-        codeSnippet: '',
-        keyStatements: [],
+        codeSnippet: f.codeSnippet || '',
+        keyStatements: (f.keyStatements || []).map((s) => ({
+          type: s.type as 'return' | 'throw' | 'await' | 'if' | 'loop' | 'assignment',
+          content: s.content,
+          line: s.line,
+        })),
         calls: [],
         calledBy: [],
         crossFileCalls: [],
@@ -407,5 +420,173 @@ describe('resolveImportersTarget - Phase 7.3.6.4', () => {
 
     assert.strictEqual(result.success, true);
     assert.deepStrictEqual(result.importers, []);
+  });
+});
+
+describe('executeGrepTarget - Phase 7.3.6.2', () => {
+  it('finds matches in function names', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/retry.ts', {
+        functions: [
+          {
+            name: 'retryWithBackoff',
+            signature: 'function retryWithBackoff(): void',
+            startLine: 10,
+            endLine: 20,
+          },
+          { name: 'helper', signature: 'function helper(): void', startLine: 25, endLine: 35 },
+        ],
+      }),
+      createTestNode('src/utils.ts', {
+        functions: [
+          { name: 'format', signature: 'function format(): void', startLine: 1, endLine: 10 },
+        ],
+      }),
+    ];
+    const target: GrepTarget = { type: 'grep', pattern: 'retry' };
+
+    const result = executeGrepTarget(target, nodes);
+
+    assert.strictEqual(result.success, true);
+    assert.ok(result.matches);
+    assert.ok(result.matches.length >= 1);
+    assert.ok(result.matches.some((m) => m.path === 'src/retry.ts'));
+  });
+
+  it('finds matches in code snippets', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/api.ts', {
+        functions: [
+          {
+            name: 'callAPI',
+            signature: 'function callAPI(): Promise<void>',
+            startLine: 1,
+            endLine: 20,
+            codeSnippet: 'const maxRetries = 3;',
+          },
+        ],
+      }),
+    ];
+    const target: GrepTarget = { type: 'grep', pattern: 'maxRetries' };
+
+    const result = executeGrepTarget(target, nodes);
+
+    assert.strictEqual(result.success, true);
+    assert.ok(result.matches);
+    assert.ok(result.matches.length >= 1);
+    assert.strictEqual(result.matches[0].path, 'src/api.ts');
+  });
+
+  it('finds matches in key statements', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/generator.ts', {
+        functions: [
+          {
+            name: 'generate',
+            signature: 'function generate(): void',
+            startLine: 1,
+            endLine: 30,
+            keyStatements: [
+              { type: 'throw', content: 'throw new Error("Rate limit exceeded")', line: 15 },
+            ],
+          },
+        ],
+      }),
+    ];
+    const target: GrepTarget = { type: 'grep', pattern: 'Rate limit' };
+
+    const result = executeGrepTarget(target, nodes);
+
+    assert.strictEqual(result.success, true);
+    assert.ok(result.matches);
+    assert.ok(result.matches.some((m) => m.content?.includes('Rate limit')));
+  });
+
+  it('respects scope parameter', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/api/retry.ts', {
+        functions: [
+          { name: 'retry', signature: 'function retry(): void', startLine: 1, endLine: 10 },
+        ],
+      }),
+      createTestNode('src/utils/retry.ts', {
+        functions: [
+          { name: 'retry', signature: 'function retry(): void', startLine: 1, endLine: 10 },
+        ],
+      }),
+    ];
+    const target: GrepTarget = { type: 'grep', pattern: 'retry', scope: 'src/api/' };
+
+    const result = executeGrepTarget(target, nodes);
+
+    assert.strictEqual(result.success, true);
+    assert.ok(result.matches);
+    // Should only match the src/api/retry.ts file
+    assert.ok(result.matches.every((m) => m.path.startsWith('src/api/')));
+    assert.ok(result.matches.some((m) => m.path === 'src/api/retry.ts'));
+  });
+
+  it('uses regex patterns', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/config.ts', {
+        functions: [
+          {
+            name: 'getAPIKey',
+            signature: 'function getAPIKey(): string',
+            startLine: 1,
+            endLine: 5,
+          },
+          {
+            name: 'getDBUrl',
+            signature: 'function getDBUrl(): string',
+            startLine: 10,
+            endLine: 15,
+          },
+        ],
+      }),
+    ];
+    const target: GrepTarget = { type: 'grep', pattern: 'get(API|DB)' };
+
+    const result = executeGrepTarget(target, nodes);
+
+    assert.strictEqual(result.success, true);
+    assert.ok(result.matches);
+    assert.ok(result.matches.length >= 2);
+  });
+
+  it('returns empty matches for no results', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/utils.ts', {
+        functions: [
+          { name: 'format', signature: 'function format(): void', startLine: 1, endLine: 10 },
+        ],
+      }),
+    ];
+    const target: GrepTarget = { type: 'grep', pattern: 'nonexistent' };
+
+    const result = executeGrepTarget(target, nodes);
+
+    assert.strictEqual(result.success, true);
+    assert.deepStrictEqual(result.matches, []);
+  });
+
+  it('returns error for invalid regex', () => {
+    const nodes: WikiNode[] = [createTestNode('src/utils.ts')];
+    const target: GrepTarget = { type: 'grep', pattern: '[invalid(' };
+
+    const result = executeGrepTarget(target, nodes);
+
+    assert.strictEqual(result.success, false);
+    assert.ok(result.error?.includes('Invalid regex'));
+  });
+
+  it('returns error for empty pattern', () => {
+    const nodes: WikiNode[] = [createTestNode('src/utils.ts')];
+    const target: GrepTarget = { type: 'grep', pattern: '' };
+
+    const result = executeGrepTarget(target, nodes);
+
+    assert.strictEqual(result.success, false);
+    assert.ok(result.error);
   });
 });
