@@ -726,3 +726,164 @@ export function resolveAllTargets(targets: NavigationTarget[], nodes: WikiNode[]
     errors,
   };
 }
+
+// ============================================================================
+// Synthesis Prompt Building - Phase 7.3.7.2
+// ============================================================================
+
+/**
+ * Build the synthesis prompt from navigator context.
+ * Phase 7.3.7.2: Format resolved context for LLM synthesis.
+ *
+ * @param query - The user's natural language query
+ * @param context - Resolved context from navigation targets
+ * @param navigatorReasoning - The navigator's reasoning about file selection
+ * @returns The prompt string for the synthesis LLM
+ */
+export function buildNavigatorSynthesisPrompt(
+  query: string,
+  context: ResolvedContext,
+  navigatorReasoning: string
+): string {
+  const lines: string[] = [];
+
+  lines.push(
+    "You are a codebase documentation assistant. Answer the developer's question based on the provided file context."
+  );
+  lines.push('');
+  lines.push('## Question');
+  lines.push(query);
+  lines.push('');
+
+  // Include navigator's reasoning for context
+  lines.push('## Analysis Context');
+  lines.push(`*Why these files were selected:* ${navigatorReasoning}`);
+  lines.push('');
+
+  // Include any resolution errors as warnings
+  if (context.errors.length > 0) {
+    lines.push('## Warnings');
+    for (const error of context.errors) {
+      lines.push(`- ${error}`);
+    }
+    lines.push('');
+  }
+
+  // Build detailed context for each selected file
+  lines.push('## Relevant Files');
+  lines.push('');
+
+  for (const node of context.nodes) {
+    lines.push(`### ${node.path}`);
+    lines.push('');
+
+    // Summary and purpose
+    if (node.prose) {
+      lines.push(`**Summary:** ${node.prose.summary}`);
+      lines.push('');
+      lines.push(`**Purpose:** ${node.prose.purpose}`);
+      lines.push('');
+
+      // Gotchas (important warnings)
+      if (node.prose.gotchas && node.prose.gotchas.length > 0) {
+        lines.push('**Gotchas:**');
+        for (const gotcha of node.prose.gotchas) {
+          lines.push(`- ${gotcha}`);
+        }
+        lines.push('');
+      }
+
+      // Patterns
+      if (node.prose.patterns && node.prose.patterns.length > 0) {
+        lines.push('**Patterns:**');
+        for (const pattern of node.prose.patterns) {
+          lines.push(`- ${pattern}`);
+        }
+        lines.push('');
+      }
+    }
+
+    // Detected patterns from raw data
+    if (node.raw.patterns && node.raw.patterns.length > 0) {
+      lines.push('**Detected Patterns:**');
+      for (const pattern of node.raw.patterns) {
+        lines.push(`- ${pattern.name} (${pattern.confidence}): ${pattern.evidence.join(', ')}`);
+      }
+      lines.push('');
+    }
+
+    // Functions with key statements (show highlighted functions first)
+    const highlightedFunctions = context.functionDetails.filter((f) => f.path === node.path);
+    if (node.raw.functions && node.raw.functions.length > 0) {
+      lines.push('**Key Functions:**');
+      for (const func of node.raw.functions) {
+        const isHighlighted = highlightedFunctions.some((hf) => hf.name === func.name);
+        const highlight = isHighlighted ? ' ⭐' : '';
+        lines.push(`- \`${func.name}\` (lines ${func.startLine}-${func.endLine})${highlight}`);
+
+        // Show key statements (config values, important logic)
+        if (func.keyStatements && func.keyStatements.length > 0) {
+          for (const stmt of func.keyStatements) {
+            const category =
+              'category' in stmt ? (stmt as { category: string }).category : stmt.type;
+            const text = 'text' in stmt ? (stmt as { text: string }).text : stmt.content;
+            lines.push(`  - [${category}] line ${stmt.line}: \`${text}\``);
+          }
+        }
+      }
+      lines.push('');
+    }
+
+    // Exports for reference
+    if (node.raw.exports && node.raw.exports.length > 0) {
+      const exportNames = node.raw.exports.map((e) => e.name).join(', ');
+      lines.push(`**Exports:** ${exportNames}`);
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+  }
+
+  // Include grep matches as additional context
+  if (context.grepMatches.length > 0) {
+    lines.push('## Pattern Matches');
+    lines.push('');
+    lines.push('*Additional code locations matching search patterns:*');
+    lines.push('');
+
+    // Group matches by file
+    const matchesByFile = new Map<string, GrepMatch[]>();
+    for (const match of context.grepMatches) {
+      const existing = matchesByFile.get(match.path) || [];
+      existing.push(match);
+      matchesByFile.set(match.path, existing);
+    }
+
+    for (const [path, matches] of matchesByFile) {
+      lines.push(`**${path}:**`);
+      for (const match of matches) {
+        const location = match.line ? `line ${match.line}` : match.matchType;
+        lines.push(`- [${location}] ${match.name || ''}: \`${match.content}\``);
+      }
+      lines.push('');
+    }
+  }
+
+  // Instructions for the answer
+  lines.push('## Instructions');
+  lines.push('');
+  lines.push(
+    "Based on the file context above, provide a clear, technical answer to the developer's question."
+  );
+  lines.push('');
+  lines.push('Guidelines:');
+  lines.push('- Be specific: reference function names, line numbers, and configuration values');
+  lines.push('- Be concise: focus on directly answering the question');
+  lines.push('- Include code references when relevant (e.g., "see `callLLM` at line 100")');
+  lines.push('- Mention gotchas or edge cases if they relate to the question');
+  lines.push('');
+  lines.push('Provide your answer as plain text (no JSON or special formatting needed).');
+
+  return lines.join('\n');
+}

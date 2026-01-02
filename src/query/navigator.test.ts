@@ -23,6 +23,7 @@ import {
   resolveImportersTarget,
   executeGrepTarget,
   resolveAllTargets,
+  buildNavigatorSynthesisPrompt,
 } from './navigator.ts';
 import type { WikiNode } from '../builder/index.ts';
 import { type ProjectOverview } from './overview.ts';
@@ -706,5 +707,124 @@ describe('resolveAllTargets - Phase 7.3.7.1', () => {
     // Should not duplicate the same node
     const retryNodes = result.nodes.filter((n) => n.path === 'src/retry.ts');
     assert.strictEqual(retryNodes.length, 1);
+  });
+});
+
+describe('buildNavigatorSynthesisPrompt - Phase 7.3.7.2', () => {
+  it('includes query in prompt', () => {
+    const context: ResolvedContext = {
+      nodes: [],
+      grepMatches: [],
+      functionDetails: [],
+      errors: [],
+    };
+    const prompt = buildNavigatorSynthesisPrompt('How does retry work?', context, 'Test reasoning');
+
+    assert.ok(prompt.includes('How does retry work?'));
+  });
+
+  it('includes navigator reasoning', () => {
+    const context: ResolvedContext = {
+      nodes: [],
+      grepMatches: [],
+      functionDetails: [],
+      errors: [],
+    };
+    const prompt = buildNavigatorSynthesisPrompt(
+      'test',
+      context,
+      'Selected files based on retry pattern'
+    );
+
+    assert.ok(prompt.includes('Selected files based on retry pattern'));
+  });
+
+  it('includes file nodes with summaries', () => {
+    const node = createTestNode('src/generator.ts', { summary: 'Generates LLM prose' });
+    const context: ResolvedContext = {
+      nodes: [node],
+      grepMatches: [],
+      functionDetails: [],
+      errors: [],
+    };
+    const prompt = buildNavigatorSynthesisPrompt('test', context, 'reasoning');
+
+    assert.ok(prompt.includes('src/generator.ts'));
+    assert.ok(prompt.includes('Generates LLM prose'));
+  });
+
+  it('includes grep matches grouped by file', () => {
+    const context: ResolvedContext = {
+      nodes: [],
+      grepMatches: [
+        {
+          path: 'src/retry.ts',
+          matchType: 'functionName',
+          name: 'retry',
+          line: 10,
+          content: 'retry',
+        },
+        {
+          path: 'src/retry.ts',
+          matchType: 'codeSnippet',
+          name: 'callLLM',
+          line: 50,
+          content: 'maxRetries',
+        },
+      ],
+      functionDetails: [],
+      errors: [],
+    };
+    const prompt = buildNavigatorSynthesisPrompt('test', context, 'reasoning');
+
+    assert.ok(prompt.includes('Pattern Matches'));
+    assert.ok(prompt.includes('src/retry.ts'));
+    assert.ok(prompt.includes('retry'));
+    assert.ok(prompt.includes('maxRetries'));
+  });
+
+  it('includes resolution errors as warnings', () => {
+    const context: ResolvedContext = {
+      nodes: [],
+      grepMatches: [],
+      functionDetails: [],
+      errors: ['File not found: src/missing.ts'],
+    };
+    const prompt = buildNavigatorSynthesisPrompt('test', context, 'reasoning');
+
+    assert.ok(prompt.includes('Warnings'));
+    assert.ok(prompt.includes('File not found: src/missing.ts'));
+  });
+
+  it('highlights requested functions with star marker', () => {
+    const node = createTestNode('src/utils.ts', {
+      functions: [
+        { name: 'helper', signature: 'function helper(): void', startLine: 10, endLine: 20 },
+        { name: 'format', signature: 'function format(): void', startLine: 30, endLine: 40 },
+      ],
+    });
+    const context: ResolvedContext = {
+      nodes: [node],
+      grepMatches: [],
+      functionDetails: [
+        {
+          path: 'src/utils.ts',
+          name: 'helper',
+          signature: 'function helper(): void',
+          startLine: 10,
+          endLine: 20,
+        },
+      ],
+      errors: [],
+    };
+    const prompt = buildNavigatorSynthesisPrompt('test', context, 'reasoning');
+
+    // helper should be highlighted, format should not
+    assert.ok(prompt.includes('helper') && prompt.includes('⭐'));
+    // format should not have the star
+    const formatLine = prompt
+      .split('\n')
+      .find((l) => l.includes('format') && l.includes('lines 30-40'));
+    assert.ok(formatLine && !formatLine.includes('⭐'));
   });
 });
