@@ -91,6 +91,54 @@ See [2025-12-31 v4 benchmark results](benchmark-results/2025-12-31-self-test-v4.
 | 7.3.7.1 | `resolveAllTargets` orchestration                          | **Complete** |
 | 7.3.7.2 | `buildNavigatorSynthesisPrompt` synthesis                  | **Complete** |
 
+### Phase 7.3 Manual Testing Results (2026-01-02)
+
+**Test Environment**: Ran Pith on itself (dogfooding)
+
+**Extraction**: 49 TypeScript files extracted in 15.2s
+**Build**: 49 file nodes, 118 function nodes, 11 module nodes
+
+**Navigator Flow Validation**:
+
+- Overview generation: 11 modules, 24 entry points, 29 relationships
+- All target types working: file, grep, function, importers
+
+**Test Queries and Results**:
+
+| Query                                      | Mode      | Files Used | Targets                     | Quality                                             |
+| ------------------------------------------ | --------- | ---------- | --------------------------- | --------------------------------------------------- |
+| "How does the extractor work?"             | navigator | 4          | 4 file, 1 grep, 2 function  | Excellent - found core functions with code snippets |
+| "Where is the /query endpoint defined?"    | navigator | 3          | 3 file, 1 grep              | Good - identified query module files                |
+| "What are the main WikiNode types?"        | navigator | 15         | 1 file, 2 grep, 1 importers | Good - used importers to find all consumers         |
+| "How does the navigator LLM select files?" | navigator | 1          | 1 file, 1 grep, 2 function  | Focused - correctly identified navigator.ts         |
+| "Nonexistent feature xyz123?"              | navigator | 1          | Graceful fallback           | Good - found errors module as closest match         |
+| "How does the extractor work?"             | planner   | 2          | Legacy flow                 | Good - simpler but still works                      |
+
+**Logging Output** (confirmed working):
+
+```
+[query] Navigator flow starting for: "How does the extractor work?"
+[query] Overview: 11 modules, 24 entry points, 29 relationships
+[query] Navigator returned 7 targets: 4 file, 1 grep, 2 function
+[query] Success: 4 files, 12 grep matches, 2 functions
+```
+
+**Key Observations**:
+
+1. Navigator mode (default) provides richer context than planner mode
+2. Multiple target types (file, grep, function, importers) work correctly
+3. Fallback handling works for edge cases
+4. Logging provides good visibility into the flow
+5. Answer quality is comprehensive with file:line references
+
+**Comparison: Navigator vs Planner**:
+
+- Navigator: Uses project overview → LLM selects targets → resolves context
+- Planner: Uses keyword pre-filter → LLM selects files → synthesizes
+- Navigator provides more targeted results with grep matches and function details
+
+---
+
 ### Phase 7 Implementation Summary (2026-01-02)
 
 **New files**:
