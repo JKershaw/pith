@@ -14,6 +14,7 @@ import {
   type ImportersTarget,
   type ResolvedTarget,
   type GrepResult,
+  type ResolvedContext,
   buildNavigatorPrompt,
   parseNavigatorResponse,
   formatOverviewForPrompt,
@@ -21,6 +22,7 @@ import {
   resolveFunctionTarget,
   resolveImportersTarget,
   executeGrepTarget,
+  resolveAllTargets,
 } from './navigator.ts';
 import type { WikiNode } from '../builder/index.ts';
 import { type ProjectOverview } from './overview.ts';
@@ -588,5 +590,121 @@ describe('executeGrepTarget - Phase 7.3.6.2', () => {
 
     assert.strictEqual(result.success, false);
     assert.ok(result.error);
+  });
+});
+
+describe('resolveAllTargets - Phase 7.3.7.1', () => {
+  it('resolves file targets and collects nodes', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/index.ts', { summary: 'Entry point' }),
+      createTestNode('src/utils.ts', { summary: 'Utilities' }),
+    ];
+    const targets: NavigationTarget[] = [
+      { type: 'file', path: 'src/index.ts' },
+      { type: 'file', path: 'src/utils.ts' },
+    ];
+
+    const result = resolveAllTargets(targets, nodes);
+
+    assert.strictEqual(result.nodes.length, 2);
+    assert.ok(result.nodes.some((n) => n.path === 'src/index.ts'));
+    assert.ok(result.nodes.some((n) => n.path === 'src/utils.ts'));
+    assert.deepStrictEqual(result.errors, []);
+  });
+
+  it('resolves grep targets and collects matching nodes', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/retry.ts', {
+        functions: [
+          { name: 'retry', signature: 'function retry(): void', startLine: 1, endLine: 10 },
+        ],
+      }),
+      createTestNode('src/utils.ts', {
+        functions: [
+          { name: 'format', signature: 'function format(): void', startLine: 1, endLine: 10 },
+        ],
+      }),
+    ];
+    const targets: NavigationTarget[] = [{ type: 'grep', pattern: 'retry' }];
+
+    const result = resolveAllTargets(targets, nodes);
+
+    // Should include the node where retry was found
+    assert.ok(result.nodes.some((n) => n.path === 'src/retry.ts'));
+    assert.ok(result.grepMatches);
+    assert.ok(result.grepMatches.length > 0);
+  });
+
+  it('resolves function targets and includes function details', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/utils.ts', {
+        functions: [
+          { name: 'helper', signature: 'function helper(): void', startLine: 10, endLine: 20 },
+        ],
+      }),
+    ];
+    const targets: NavigationTarget[] = [{ type: 'function', name: 'helper', in: 'src/utils.ts' }];
+
+    const result = resolveAllTargets(targets, nodes);
+
+    assert.ok(result.functionDetails);
+    assert.ok(result.functionDetails.length > 0);
+    assert.strictEqual(result.functionDetails[0].name, 'helper');
+  });
+
+  it('resolves importers targets and includes nodes that import the symbol', () => {
+    const typeNode = createTestNode('src/types.ts', { exports: ['Config'] });
+    typeNode.edges = [
+      { type: 'importedBy', target: 'src/app.ts' },
+      { type: 'importedBy', target: 'src/utils.ts' },
+    ];
+    const nodes: WikiNode[] = [
+      typeNode,
+      createTestNode('src/app.ts'),
+      createTestNode('src/utils.ts'),
+    ];
+    const targets: NavigationTarget[] = [{ type: 'importers', of: 'Config' }];
+
+    const result = resolveAllTargets(targets, nodes);
+
+    // Should include the importing nodes
+    assert.ok(result.nodes.some((n) => n.path === 'src/app.ts'));
+    assert.ok(result.nodes.some((n) => n.path === 'src/utils.ts'));
+  });
+
+  it('collects errors for failed resolutions', () => {
+    const nodes: WikiNode[] = [createTestNode('src/index.ts')];
+    const targets: NavigationTarget[] = [
+      { type: 'file', path: 'src/missing.ts' },
+      { type: 'file', path: 'src/index.ts' },
+    ];
+
+    const result = resolveAllTargets(targets, nodes);
+
+    // Should still include the successful resolution
+    assert.ok(result.nodes.some((n) => n.path === 'src/index.ts'));
+    // Should have error for the missing file
+    assert.ok(result.errors.length > 0);
+    assert.ok(result.errors.some((e) => e.includes('not found')));
+  });
+
+  it('deduplicates nodes from multiple targets', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/retry.ts', {
+        functions: [
+          { name: 'retry', signature: 'function retry(): void', startLine: 1, endLine: 10 },
+        ],
+      }),
+    ];
+    const targets: NavigationTarget[] = [
+      { type: 'file', path: 'src/retry.ts' },
+      { type: 'grep', pattern: 'retry' },
+    ];
+
+    const result = resolveAllTargets(targets, nodes);
+
+    // Should not duplicate the same node
+    const retryNodes = result.nodes.filter((n) => n.path === 'src/retry.ts');
+    assert.strictEqual(retryNodes.length, 1);
   });
 });

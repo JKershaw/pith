@@ -605,3 +605,124 @@ export function executeGrepTarget(target: GrepTarget, nodes: WikiNode[]): GrepRe
 
   return { success: true, matches };
 }
+
+// ============================================================================
+// Target Resolution Orchestration - Phase 7.3.7.1
+// ============================================================================
+
+/** Function details from resolved function targets */
+export interface FunctionDetail {
+  path: string;
+  name: string;
+  signature: string;
+  startLine: number;
+  endLine: number;
+}
+
+/** Result of resolving all navigation targets */
+export interface ResolvedContext {
+  /** WikiNodes collected from file and importer targets */
+  nodes: WikiNode[];
+  /** Grep matches from grep targets */
+  grepMatches: GrepMatch[];
+  /** Function details from function targets */
+  functionDetails: FunctionDetail[];
+  /** Errors encountered during resolution */
+  errors: string[];
+}
+
+/**
+ * Resolve all navigation targets and collect context.
+ * Orchestrates the individual resolver functions and aggregates results.
+ *
+ * @param targets - Array of navigation targets from LLM
+ * @param nodes - All WikiNodes in the project
+ * @returns ResolvedContext with collected nodes, matches, and errors
+ */
+export function resolveAllTargets(targets: NavigationTarget[], nodes: WikiNode[]): ResolvedContext {
+  const nodeMap = new Map<string, WikiNode>();
+  const grepMatches: GrepMatch[] = [];
+  const functionDetails: FunctionDetail[] = [];
+  const errors: string[] = [];
+
+  // Build lookup map for nodes
+  const nodeLookup = new Map<string, WikiNode>();
+  for (const node of nodes) {
+    nodeLookup.set(node.path, node);
+  }
+
+  for (const target of targets) {
+    switch (target.type) {
+      case 'file': {
+        const result = resolveFileTarget(target, nodes);
+        if (result.success && result.node) {
+          nodeMap.set(result.node.path, result.node);
+        } else if (result.error) {
+          errors.push(result.error);
+        }
+        break;
+      }
+
+      case 'grep': {
+        const result = executeGrepTarget(target, nodes);
+        if (result.success && result.matches) {
+          grepMatches.push(...result.matches);
+          // Also add the nodes where matches were found
+          for (const match of result.matches) {
+            const node = nodeLookup.get(match.path);
+            if (node && !nodeMap.has(match.path)) {
+              nodeMap.set(match.path, node);
+            }
+          }
+        } else if (result.error) {
+          errors.push(result.error);
+        }
+        break;
+      }
+
+      case 'function': {
+        const result = resolveFunctionTarget(target, nodes);
+        if (result.success && result.functionDetails) {
+          functionDetails.push({
+            path: target.in,
+            name: result.functionDetails.name,
+            signature: result.functionDetails.signature,
+            startLine: result.functionDetails.startLine,
+            endLine: result.functionDetails.endLine,
+          });
+          // Also add the file node
+          const node = nodeLookup.get(target.in);
+          if (node && !nodeMap.has(target.in)) {
+            nodeMap.set(target.in, node);
+          }
+        } else if (result.error) {
+          errors.push(result.error);
+        }
+        break;
+      }
+
+      case 'importers': {
+        const result = resolveImportersTarget(target, nodes);
+        if (result.success && result.importers) {
+          // Add all importing nodes
+          for (const importerPath of result.importers) {
+            const node = nodeLookup.get(importerPath);
+            if (node && !nodeMap.has(importerPath)) {
+              nodeMap.set(importerPath, node);
+            }
+          }
+        } else if (result.error) {
+          errors.push(result.error);
+        }
+        break;
+      }
+    }
+  }
+
+  return {
+    nodes: Array.from(nodeMap.values()),
+    grepMatches,
+    functionDetails,
+    errors,
+  };
+}
