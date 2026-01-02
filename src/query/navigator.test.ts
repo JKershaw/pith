@@ -12,20 +12,24 @@ import {
   type GrepTarget,
   type FunctionTarget,
   type ImportersTarget,
+  type CallersTarget,
   type ResolvedTarget,
   type GrepResult,
   type ResolvedContext,
+  type CallerResult,
   buildNavigatorPrompt,
   parseNavigatorResponse,
   formatOverviewForPrompt,
   resolveFileTarget,
   resolveFunctionTarget,
   resolveImportersTarget,
+  resolveCallersTarget,
   executeGrepTarget,
   resolveAllTargets,
   buildNavigatorSynthesisPrompt,
 } from './navigator.ts';
 import type { WikiNode } from '../builder/index.ts';
+import type { ExtractedFile } from '../extractor/ast.ts';
 import { type ProjectOverview } from './overview.ts';
 
 // Helper to create test overview
@@ -758,6 +762,7 @@ describe('buildNavigatorSynthesisPrompt - Phase 7.3.7.2', () => {
       nodes: [],
       grepMatches: [],
       functionDetails: [],
+      callerResults: [],
       errors: [],
     };
     const prompt = buildNavigatorSynthesisPrompt('How does retry work?', context, 'Test reasoning');
@@ -770,6 +775,7 @@ describe('buildNavigatorSynthesisPrompt - Phase 7.3.7.2', () => {
       nodes: [],
       grepMatches: [],
       functionDetails: [],
+      callerResults: [],
       errors: [],
     };
     const prompt = buildNavigatorSynthesisPrompt(
@@ -787,6 +793,7 @@ describe('buildNavigatorSynthesisPrompt - Phase 7.3.7.2', () => {
       nodes: [node],
       grepMatches: [],
       functionDetails: [],
+      callerResults: [],
       errors: [],
     };
     const prompt = buildNavigatorSynthesisPrompt('test', context, 'reasoning');
@@ -815,6 +822,7 @@ describe('buildNavigatorSynthesisPrompt - Phase 7.3.7.2', () => {
         },
       ],
       functionDetails: [],
+      callerResults: [],
       errors: [],
     };
     const prompt = buildNavigatorSynthesisPrompt('test', context, 'reasoning');
@@ -830,6 +838,7 @@ describe('buildNavigatorSynthesisPrompt - Phase 7.3.7.2', () => {
       nodes: [],
       grepMatches: [],
       functionDetails: [],
+      callerResults: [],
       errors: ['File not found: src/missing.ts'],
     };
     const prompt = buildNavigatorSynthesisPrompt('test', context, 'reasoning');
@@ -857,6 +866,7 @@ describe('buildNavigatorSynthesisPrompt - Phase 7.3.7.2', () => {
           endLine: 20,
         },
       ],
+      callerResults: [],
       errors: [],
     };
     const prompt = buildNavigatorSynthesisPrompt('test', context, 'reasoning');
@@ -868,5 +878,280 @@ describe('buildNavigatorSynthesisPrompt - Phase 7.3.7.2', () => {
       .split('\n')
       .find((l) => l.includes('format') && l.includes('lines 30-40'));
     assert.ok(formatLine && !formatLine.includes('⭐'));
+  });
+
+  it('includes caller results in prompt (Phase 7.7.1)', () => {
+    const context: ResolvedContext = {
+      nodes: [],
+      grepMatches: [],
+      functionDetails: [],
+      callerResults: [
+        {
+          functionId: 'src/auth.ts:validateToken',
+          functionName: 'validateToken',
+          sourceFile: 'src/auth.ts',
+          productionCallers: [
+            { file: 'src/api/index.ts', line: 42, isTest: false },
+            { file: 'src/middleware.ts', line: 15, isTest: false },
+          ],
+          testCallers: [
+            { file: 'src/auth.test.ts', line: 10, isTest: true },
+            { file: 'src/auth.test.ts', line: 25, isTest: true },
+          ],
+          totalCallers: 4,
+        },
+      ],
+      errors: [],
+    };
+    const prompt = buildNavigatorSynthesisPrompt('Who calls validateToken?', context, 'reasoning');
+
+    assert.ok(prompt.includes('Function Consumers'));
+    assert.ok(prompt.includes('validateToken'));
+    assert.ok(prompt.includes('src/auth.ts'));
+    assert.ok(prompt.includes('Total callers:** 4'));
+    assert.ok(prompt.includes('Production callers (2)'));
+    assert.ok(prompt.includes('src/api/index.ts:42'));
+    assert.ok(prompt.includes('src/middleware.ts:15'));
+    assert.ok(prompt.includes('Test callers (2)'));
+    assert.ok(prompt.includes('src/auth.test.ts:10'));
+  });
+});
+
+// Phase 7.7.1: CallersTarget tests
+describe('CallersTarget type - Phase 7.7.1', () => {
+  it('has type and of fields', () => {
+    const target: CallersTarget = { type: 'callers', of: 'src/auth.ts:validateToken' };
+    assert.strictEqual(target.type, 'callers');
+    assert.strictEqual(target.of, 'src/auth.ts:validateToken');
+  });
+});
+
+describe('parseNavigatorResponse - callers target', () => {
+  it('parses callers target correctly', () => {
+    const rawResponse = `\`\`\`json
+{
+  "reasoning": "Finding callers of extractFile function",
+  "targets": [
+    { "type": "callers", "of": "src/extractor/ast.ts:extractFile" }
+  ]
+}
+\`\`\``;
+    const result = parseNavigatorResponse(rawResponse);
+
+    assert.strictEqual(result.error, undefined);
+    assert.strictEqual(result.targets?.length, 1);
+    assert.strictEqual(result.targets?.[0].type, 'callers');
+    assert.strictEqual(
+      (result.targets?.[0] as CallersTarget).of,
+      'src/extractor/ast.ts:extractFile'
+    );
+  });
+
+  it('rejects callers target without of field', () => {
+    const rawResponse = `\`\`\`json
+{
+  "reasoning": "Missing of field",
+  "targets": [
+    { "type": "callers" }
+  ]
+}
+\`\`\``;
+    const result = parseNavigatorResponse(rawResponse);
+
+    assert.ok(result.error?.includes('Callers target missing of'));
+  });
+});
+
+describe('resolveCallersTarget - Phase 7.7.1', () => {
+  // Helper to create test extracted files with correct SymbolUsage structure
+  function createTestExtractedFile(
+    path: string,
+    options: {
+      exports?: Array<{ name: string; kind: string; isReExport: boolean }>;
+      functions?: Array<{ name: string; isExported: boolean }>;
+      symbolUsages?: Array<{
+        symbol: string;
+        usageType: 'call' | 'reference' | 'type';
+        sourceFile: string;
+        usageLines: number[];
+      }>;
+    } = {}
+  ): ExtractedFile {
+    return {
+      path,
+      lines: 100,
+      imports: [],
+      exports: options.exports || [],
+      functions: (options.functions || []).map((f) => ({
+        name: f.name,
+        signature: `function ${f.name}(): void`,
+        params: [],
+        returnType: 'void',
+        isAsync: false,
+        isExported: f.isExported,
+        isDefaultExport: false,
+        startLine: 1,
+        endLine: 10,
+        codeSnippet: '',
+        keyStatements: [],
+        calls: [],
+        calledBy: [],
+        errorPaths: [],
+      })),
+      classes: [],
+      symbolUsages: options.symbolUsages || [],
+    };
+  }
+
+  it('returns error for empty function identifier', () => {
+    const target: CallersTarget = { type: 'callers', of: '' };
+    const result = resolveCallersTarget(target, []);
+
+    assert.strictEqual(result.success, false);
+    assert.ok(result.error?.includes('missing function identifier'));
+  });
+
+  it('returns error for invalid format without colon', () => {
+    const target: CallersTarget = { type: 'callers', of: 'noColonHere' };
+    const result = resolveCallersTarget(target, []);
+
+    assert.strictEqual(result.success, false);
+    assert.ok(result.error?.includes('Invalid callers target format'));
+  });
+
+  it('returns error for non-existent function', () => {
+    const extractedFiles: ExtractedFile[] = [
+      createTestExtractedFile('src/auth.ts', {
+        exports: [{ name: 'login', kind: 'function', isReExport: false }],
+        functions: [{ name: 'login', isExported: true }],
+      }),
+    ];
+    const target: CallersTarget = { type: 'callers', of: 'src/auth.ts:nonExistent' };
+    const result = resolveCallersTarget(target, extractedFiles);
+
+    assert.strictEqual(result.success, false);
+    assert.ok(result.error?.includes('Function not found'));
+  });
+
+  it('resolves callers for exported function', () => {
+    const extractedFiles: ExtractedFile[] = [
+      createTestExtractedFile('src/auth.ts', {
+        exports: [{ name: 'validateToken', kind: 'function', isReExport: false }],
+        functions: [{ name: 'validateToken', isExported: true }],
+      }),
+      createTestExtractedFile('src/api/index.ts', {
+        symbolUsages: [
+          {
+            symbol: 'validateToken',
+            usageType: 'call',
+            sourceFile: '../auth.ts',
+            usageLines: [42],
+          },
+        ],
+      }),
+      createTestExtractedFile('src/auth.test.ts', {
+        symbolUsages: [
+          {
+            symbol: 'validateToken',
+            usageType: 'call',
+            sourceFile: './auth.ts',
+            usageLines: [10, 25],
+          },
+        ],
+      }),
+    ];
+    const target: CallersTarget = { type: 'callers', of: 'src/auth.ts:validateToken' };
+    const result = resolveCallersTarget(target, extractedFiles);
+
+    assert.strictEqual(result.success, true);
+    assert.ok(result.result);
+    assert.strictEqual(result.result.functionName, 'validateToken');
+    assert.strictEqual(result.result.sourceFile, 'src/auth.ts');
+    assert.strictEqual(result.result.totalCallers, 3);
+    assert.strictEqual(result.result.productionCallers.length, 1);
+    assert.strictEqual(result.result.testCallers.length, 2);
+    assert.strictEqual(result.result.productionCallers[0].file, 'src/api/index.ts');
+    assert.strictEqual(result.result.productionCallers[0].line, 42);
+  });
+});
+
+describe('resolveAllTargets - callers target', () => {
+  function createTestExtractedFile(
+    path: string,
+    options: {
+      exports?: Array<{ name: string; kind: string; isReExport: boolean }>;
+      functions?: Array<{ name: string; isExported: boolean }>;
+      symbolUsages?: Array<{
+        symbol: string;
+        usageType: 'call' | 'reference' | 'type';
+        sourceFile: string;
+        usageLines: number[];
+      }>;
+    } = {}
+  ): ExtractedFile {
+    return {
+      path,
+      lines: 100,
+      imports: [],
+      exports: options.exports || [],
+      functions: (options.functions || []).map((f) => ({
+        name: f.name,
+        signature: `function ${f.name}(): void`,
+        params: [],
+        returnType: 'void',
+        isAsync: false,
+        isExported: f.isExported,
+        isDefaultExport: false,
+        startLine: 1,
+        endLine: 10,
+        codeSnippet: '',
+        keyStatements: [],
+        calls: [],
+        calledBy: [],
+        errorPaths: [],
+      })),
+      classes: [],
+      symbolUsages: options.symbolUsages || [],
+    };
+  }
+
+  it('returns error when callers target used without extractedFiles', () => {
+    const nodes: WikiNode[] = [createTestNode('src/auth.ts')];
+    const targets: NavigationTarget[] = [{ type: 'callers', of: 'src/auth.ts:validateToken' }];
+
+    const result = resolveAllTargets(targets, nodes); // No extractedFiles
+
+    assert.ok(result.errors.some((e) => e.includes('requires extracted files')));
+    assert.strictEqual(result.callerResults.length, 0);
+  });
+
+  it('resolves callers target and adds source node', () => {
+    const nodes: WikiNode[] = [createTestNode('src/auth.ts'), createTestNode('src/api/index.ts')];
+    const extractedFiles: ExtractedFile[] = [
+      createTestExtractedFile('src/auth.ts', {
+        exports: [{ name: 'validateToken', kind: 'function', isReExport: false }],
+        functions: [{ name: 'validateToken', isExported: true }],
+      }),
+      createTestExtractedFile('src/api/index.ts', {
+        symbolUsages: [
+          {
+            symbol: 'validateToken',
+            usageType: 'call',
+            sourceFile: '../auth.ts',
+            usageLines: [42],
+          },
+        ],
+      }),
+    ];
+    const targets: NavigationTarget[] = [{ type: 'callers', of: 'src/auth.ts:validateToken' }];
+
+    const result = resolveAllTargets(targets, nodes, extractedFiles);
+
+    assert.strictEqual(result.callerResults.length, 1);
+    assert.strictEqual(result.callerResults[0].functionName, 'validateToken');
+    // Should add the source file node
+    assert.ok(result.nodes.some((n) => n.path === 'src/auth.ts'));
+    // Should add the caller file node
+    assert.ok(result.nodes.some((n) => n.path === 'src/api/index.ts'));
   });
 });

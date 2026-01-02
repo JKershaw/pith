@@ -1387,6 +1387,7 @@ export function createApp(
               nodes: fallbackNodes,
               grepMatches: [],
               functionDetails: [],
+              callerResults: [],
               errors: ['Navigator returned no targets, using keyword fallback'],
             };
 
@@ -1441,8 +1442,19 @@ export function createApp(
           .join(', ')}`
       );
 
-      // Step 4: Resolve all targets (files, greps, functions, importers)
-      const resolvedContext = resolveAllTargets(navigatorResult.targets, allNodes);
+      // Step 4: Resolve all targets (files, greps, functions, importers, callers)
+      // Fetch extracted files if there are any callers targets (Phase 7.7.1)
+      let extractedFiles: ExtractedFile[] | undefined;
+      const hasCallersTargets = navigatorResult.targets.some((t) => t.type === 'callers');
+      if (hasCallersTargets) {
+        const extractedCollection = db.collection<ExtractedFile>('extracted');
+        extractedFiles = await extractedCollection.find({}).toArray();
+        console.log(
+          `[query] Fetched ${extractedFiles.length} extracted files for callers resolution`
+        );
+      }
+
+      const resolvedContext = resolveAllTargets(navigatorResult.targets, allNodes, extractedFiles);
 
       // Log resolution results
       if (resolvedContext.errors.length > 0) {
@@ -1482,6 +1494,7 @@ export function createApp(
             nodes: fallbackNodes,
             grepMatches: [],
             functionDetails: [],
+            callerResults: [],
             errors: [
               ...resolvedContext.errors,
               'All navigator targets failed, using keyword fallback',
