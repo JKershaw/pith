@@ -358,6 +358,151 @@ const allFilePaths = nodes
 
 ---
 
+## Proposed Solution: Overview-Based Navigation
+
+### The Core Problem
+
+The current architecture puts intelligence in the wrong place:
+
+```
+Current: Query → Deterministic pre-filter → LLM selects from filtered list → Fetch
+                  (blind spots here)         (can't recover)
+```
+
+The LLM planner is a sophisticated solution to a problem that doesn't exist (ranking 25 candidates) while ignoring the real problem (finding the right candidates in the first place).
+
+### Proposed Architecture
+
+Instead of constraining the LLM to pre-filtered candidates, give it a high-level project overview and let it reason about where to look:
+
+```
+Proposed: Query → LLM reasons with project overview → Produces search targets → Fetch/validate
+                   (sees full structure)              (can discover anything)
+```
+
+### How It Works
+
+**Step 1: Generate Project Overview (~200-300 tokens)**
+
+Auto-generate from existing module prose and metadata:
+
+```markdown
+## Project Structure
+
+- src/cli/index.ts - Main entry point, orchestrates extract→build→generate→serve
+- src/extractor/ - Deterministic fact extraction from TypeScript
+- src/builder/ - Transforms extracted data into node graph
+- src/generator/ - LLM prose synthesis, includes retry/timeout logic
+- src/api/ - Express server, serves /node and /context endpoints
+- src/db/ - MangoDB wrapper, singleton pattern
+- src/query/ - Query planning and keyword indexing
+
+## Key Relationships
+
+- CLI imports and calls: extractFile, buildNodes, generateProse, createApp
+- WikiNode interface defined in builder/index.ts, used by: generator, api, query
+- generator/index.ts contains callLLM with retry logic (maxRetries=3, backoff)
+
+## Entry Points (fanIn=0)
+
+- src/cli/index.ts - CLI commands
+- src/index.ts - Package exports
+```
+
+**Step 2: LLM Produces Search Targets**
+
+Instead of selecting from a list, the LLM reasons and outputs actionable targets:
+
+```typescript
+interface NavigationResponse {
+  reasoning: string;
+  targets: Array<
+    | { type: 'file'; path: string }
+    | { type: 'grep'; pattern: string; scope?: string }
+    | { type: 'function'; name: string; in: string }
+    | { type: 'importers'; of: string }
+  >;
+}
+```
+
+Example for "What is the retry logic in the LLM client?":
+
+```json
+{
+  "reasoning": "User asks about retry logic in LLM client. From overview, generator module handles LLM calls including retry/timeout logic.",
+  "targets": [
+    { "type": "file", "path": "src/generator/index.ts" },
+    { "type": "grep", "pattern": "retry|maxRetries", "scope": "src/generator/" },
+    { "type": "function", "name": "callLLM", "in": "src/generator/index.ts" }
+  ]
+}
+```
+
+**Step 3: Validate and Fetch**
+
+- Verify file paths exist
+- Execute grep patterns
+- Fetch actual content for valid targets
+
+### Why This Solves Each Issue
+
+| Issue                      | Current Failure                 | How Overview Solves It                               |
+| -------------------------- | ------------------------------- | ---------------------------------------------------- |
+| #1: No import tracking     | Pre-filter can't find consumers | Overview lists "CLI imports extractFile" explicitly  |
+| #2: Entry points invisible | CLI has no exports/fanIn        | Overview explicitly lists entry points section       |
+| #3: Non-determinism        | LLM picks randomly from 25      | LLM reasons from structure, more constrained choices |
+| #4: Can't discover files   | Planner limited to candidates   | LLM sees full project, can suggest any file          |
+
+### Example: R3 "Who calls extractFile?"
+
+**Current behavior**:
+
+1. Pre-filter tokenizes: "extract", "file", "consumers", "function"
+2. Matches files that export "extract\*" functions
+3. Returns ast.ts, builder/index.ts (wrong files)
+4. Planner selects from wrong candidates
+5. Answer is incorrect
+
+**With overview**:
+
+1. LLM sees: "CLI imports and calls: extractFile, buildNodes..."
+2. LLM reasons: "extractFile consumers are listed - CLI calls it"
+3. Outputs: `{ type: "file", path: "src/cli/index.ts" }`, `{ type: "grep", pattern: "extractFile", scope: "src/" }`
+4. Fetches correct file, finds line 185
+5. Answer is correct
+
+### Trade-offs
+
+| Aspect      | Current                           | Proposed                          |
+| ----------- | --------------------------------- | --------------------------------- |
+| Token cost  | ~1000 (25 candidates × 40 tokens) | ~300 (compact overview)           |
+| Accuracy    | Limited by pre-filter blind spots | Limited by overview completeness  |
+| Flexibility | Only keyword-matchable queries    | Semantic/structural queries work  |
+| Validation  | Paths guaranteed valid            | Must verify LLM suggestions exist |
+| Latency     | 1 LLM call (planner)              | 1 LLM call (navigator) - same     |
+
+### Implementation Path
+
+1. **Generate overview automatically** from module nodes (prose summaries + edges)
+2. **Replace planner prompt** with navigator prompt that includes overview
+3. **Add target validation** layer to verify paths and execute greps
+4. **Keep synthesis step** unchanged - it already works well
+
+### Expected Impact
+
+| Query Type       | Current Score | Expected with Overview |
+| ---------------- | ------------- | ---------------------- |
+| Architecture (A) | 15.7/20       | 18-19/20 (+15%)        |
+| Behavior (B)     | 15.7/20       | 18-19/20 (+15%)        |
+| Relationship (R) | 14.0/20       | 17-18/20 (+20%)        |
+| Debugging (D)    | 15.3/20       | 17-18/20 (+12%)        |
+| Modification (M) | 14.3/20       | 16-17/20 (+12%)        |
+| **Overall**      | **73.5%**     | **~85-90%**            |
+
+The biggest gains expected in Relationship queries (R-type) where the overview explicitly captures "who imports/calls what" information that the current keyword index completely misses.
+
+---
+
 ## Appendix: Query Mode Architecture (Current)
 
 ```
