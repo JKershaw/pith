@@ -32,6 +32,13 @@ import {
   parseSynthesisResponse,
 } from '../query/index.ts';
 import { callLLM } from '../generator/index.ts';
+import { buildProjectOverview } from '../query/overview.ts';
+import {
+  buildNavigatorPrompt,
+  parseNavigatorResponse,
+  resolveAllTargets,
+  buildNavigatorSynthesisPrompt,
+} from '../query/navigator.ts';
 
 /**
  * Pattern-specific usage guidance for detected design patterns.
@@ -1183,12 +1190,12 @@ export function createApp(
   });
 
   // POST /query - Query the codebase with natural language
-  // Phase 7: Query Planner
+  // Phase 7.3: Overview-Based Navigation
   app.post('/query', async (req: Request, res: Response) => {
     try {
-      const { query } = req.body as { query?: string };
+      const { query, mode } = req.body as { query?: string; mode?: 'navigator' | 'planner' };
 
-      // Step 7.1.1: Validate request
+      // Validate request
       if (!query || typeof query !== 'string') {
         res.status(400).json({
           error: 'INVALID_REQUEST',
@@ -1217,28 +1224,15 @@ export function createApp(
         return;
       }
 
-      // Step 7.1.2: Build keyword index and pre-filter candidates
-      const keywordIndex = buildKeywordIndex(allNodes);
-      const candidates = preFilter(query, keywordIndex, allNodes);
-
-      // Short-circuit if no candidates matched
-      if (candidates.length === 0) {
-        res.json({
-          query,
-          candidatesConsidered: 0,
-          candidates: [],
-          answer: null,
-          filesUsed: [],
-          reasoning: 'No relevant files found for this query. Try using different keywords.',
-        });
-        return;
-      }
-
-      // If no generator config, return pre-filter results only (graceful degradation)
+      // If no generator config, fall back to pre-filter results only
+      // (LLM is required for both planner and navigator modes)
       if (!generatorConfig) {
+        const keywordIndex = buildKeywordIndex(allNodes);
+        const candidates = preFilter(query, keywordIndex, allNodes);
         const candidatesFormatted = formatCandidatesForPlanner(candidates, allNodes);
         res.json({
           query,
+          mode: mode === 'planner' ? 'planner' : 'fallback',
           candidatesConsidered: candidates.length,
           candidates: candidates.map((c) => ({
             path: c.path,
@@ -1255,77 +1249,147 @@ export function createApp(
         return;
       }
 
-      // Step 7.1.3: Build planner prompt
-      const plannerPrompt = buildPlannerPrompt(query, candidates, allNodes);
+      // Use legacy planner mode if explicitly requested
+      if (mode === 'planner') {
+        // Legacy 7.1 flow: keyword pre-filter → planner LLM → synthesis
+        const keywordIndex = buildKeywordIndex(allNodes);
+        const candidates = preFilter(query, keywordIndex, allNodes);
 
-      // Step 7.1.4: Call planner LLM
-      const plannerRawResponse = await callLLM(plannerPrompt, generatorConfig, fetchFn);
+        if (candidates.length === 0) {
+          res.json({
+            query,
+            mode: 'planner',
+            candidatesConsidered: 0,
+            candidates: [],
+            answer: null,
+            filesUsed: [],
+            reasoning: 'No relevant files found for this query. Try using different keywords.',
+          });
+          return;
+        }
 
-      // Parse planner response
-      const candidatePaths = new Set(candidates.map((c) => c.path));
-      const plannerResult = parsePlannerResponse(plannerRawResponse, candidatePaths);
+        const plannerPrompt = buildPlannerPrompt(query, candidates, allNodes);
+        const plannerRawResponse = await callLLM(plannerPrompt, generatorConfig, fetchFn);
+        const candidatePaths = new Set(candidates.map((c) => c.path));
+        const plannerResult = parsePlannerResponse(plannerRawResponse, candidatePaths);
 
-      // Handle planner parsing errors
-      if ('error' in plannerResult) {
+        if ('error' in plannerResult) {
+          res.json({
+            query,
+            mode: 'planner',
+            candidatesConsidered: candidates.length,
+            candidates: candidates.map((c) => ({
+              path: c.path,
+              score: c.score,
+              matchReasons: c.matchReasons,
+            })),
+            answer: null,
+            filesUsed: [],
+            reasoning: `Planner error: ${plannerResult.error}`,
+          });
+          return;
+        }
+
+        // Fetch prose for selected files
+        const selectedNodes: WikiNode[] = [];
+        for (const filePath of plannerResult.selectedFiles) {
+          let node = allNodes.find((n) => n.id === filePath);
+          if (node && !node.prose) {
+            try {
+              const updatedNode = await generateProseForNode(
+                filePath,
+                db,
+                generatorConfig,
+                fetchFn
+              );
+              if (updatedNode) node = updatedNode;
+            } catch {
+              // Continue without prose
+            }
+          }
+          if (node) selectedNodes.push(node);
+        }
+
+        const synthesisPrompt = buildSynthesisPrompt(query, selectedNodes, plannerResult);
+        const synthesisRawResponse = await callLLM(synthesisPrompt, generatorConfig, fetchFn);
+        const synthesisResult = parseSynthesisResponse(synthesisRawResponse);
+
         res.json({
           query,
+          mode: 'planner',
           candidatesConsidered: candidates.length,
-          candidates: candidates.map((c) => ({
-            path: c.path,
-            score: c.score,
-            matchReasons: c.matchReasons,
-            isHighFanIn: c.isHighFanIn,
-            isModule: c.isModule,
-          })),
-          answer: null,
-          filesUsed: [],
-          reasoning: `Planner error: ${plannerResult.error}`,
+          filesUsed: plannerResult.selectedFiles,
+          reasoning: plannerResult.reasoning,
+          answer: synthesisResult.answer,
+          answerError: synthesisResult.error || undefined,
         });
         return;
       }
 
-      // Step 7.1.5: Fetch prose for selected files
-      const selectedNodes: WikiNode[] = [];
-      for (const filePath of plannerResult.selectedFiles) {
-        let node = allNodes.find((n) => n.id === filePath);
+      // Default: Phase 7.3 Navigator flow
+      // Step 1: Build project overview from all nodes
+      const overview = buildProjectOverview(allNodes);
 
-        // Generate prose if missing and config available
-        if (node && !node.prose) {
+      // Step 2: Build navigator prompt with overview
+      const navigatorPrompt = buildNavigatorPrompt(query, overview);
+
+      // Step 3: Call navigator LLM to get targets
+      const navigatorRawResponse = await callLLM(navigatorPrompt, generatorConfig, fetchFn);
+      const navigatorResult = parseNavigatorResponse(navigatorRawResponse);
+
+      // Handle navigator parsing errors
+      if (navigatorResult.error || !navigatorResult.targets) {
+        res.json({
+          query,
+          mode: 'navigator',
+          answer: null,
+          filesUsed: [],
+          reasoning: navigatorResult.reasoning || 'Navigation failed',
+          error: navigatorResult.error || 'No targets returned',
+        });
+        return;
+      }
+
+      // Step 4: Resolve all targets (files, greps, functions, importers)
+      const resolvedContext = resolveAllTargets(navigatorResult.targets, allNodes);
+
+      // Generate prose for resolved nodes if missing
+      for (const node of resolvedContext.nodes) {
+        if (!node.prose) {
           try {
-            const updatedNode = await generateProseForNode(filePath, db, generatorConfig, fetchFn);
+            const updatedNode = await generateProseForNode(node.id, db, generatorConfig, fetchFn);
             if (updatedNode) {
-              node = updatedNode;
+              // Update node in place
+              Object.assign(node, updatedNode);
             }
-          } catch (error) {
-            // Continue without prose if generation fails - log for debugging
-            console.debug(`Prose generation failed for ${filePath}:`, (error as Error).message);
+          } catch {
+            // Continue without prose
           }
-        }
-
-        if (node) {
-          selectedNodes.push(node);
         }
       }
 
-      // Step 7.1.6: Build synthesis prompt
-      const synthesisPrompt = buildSynthesisPrompt(query, selectedNodes, plannerResult);
+      // Step 5: Build synthesis prompt from resolved context
+      const synthesisPrompt = buildNavigatorSynthesisPrompt(
+        query,
+        resolvedContext,
+        navigatorResult.reasoning
+      );
 
-      // Step 7.1.7: Call synthesis LLM and return answer
+      // Step 6: Call synthesis LLM and return answer
       const synthesisRawResponse = await callLLM(synthesisPrompt, generatorConfig, fetchFn);
       const synthesisResult = parseSynthesisResponse(synthesisRawResponse);
 
       res.json({
         query,
-        candidatesConsidered: candidates.length,
-        candidates: candidates.map((c) => ({
-          path: c.path,
-          score: c.score,
-          matchReasons: c.matchReasons,
-          isHighFanIn: c.isHighFanIn,
-          isModule: c.isModule,
-        })),
-        filesUsed: plannerResult.selectedFiles,
-        reasoning: plannerResult.reasoning,
+        mode: 'navigator',
+        filesUsed: resolvedContext.nodes.map((n) => n.path),
+        reasoning: navigatorResult.reasoning,
+        targets: navigatorResult.targets,
+        grepMatches:
+          resolvedContext.grepMatches.length > 0 ? resolvedContext.grepMatches : undefined,
+        functionDetails:
+          resolvedContext.functionDetails.length > 0 ? resolvedContext.functionDetails : undefined,
+        resolutionErrors: resolvedContext.errors.length > 0 ? resolvedContext.errors : undefined,
         answer: synthesisResult.answer,
         answerError: synthesisResult.error || undefined,
       });

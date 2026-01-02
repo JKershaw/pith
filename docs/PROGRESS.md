@@ -2,9 +2,9 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 7 (Query Planner) - ALL COMPLETE ✅
-**Current step**: N/A - Phase 7 complete
-**Date**: 2026-01-01
+**Last completed phase**: Phase 7.3 (Overview-Based Navigation) - API Integration Complete ✅
+**Current step**: Phase 7.4+ (Overview Content Iteration) pending benchmarking
+**Date**: 2026-01-02
 
 ### Latest Benchmark: 2025-12-31 (v4)
 
@@ -77,37 +77,59 @@ See [2025-12-31 v4 benchmark results](benchmark-results/2025-12-31-self-test-v4.
 | 7.1.6 | Build synthesis prompt                   | **Complete** |
 | 7.1.7 | Call LLM, return synthesized answer      | **Complete** |
 
-### Phase 7 Implementation Summary (2026-01-01)
+### 7.3 Overview-Based Navigation - COMPLETE ✅
+
+| Step    | What                                                       | Status       |
+| ------- | ---------------------------------------------------------- | ------------ |
+| 7.3.1   | Generate project overview from module nodes + edges        | **Complete** |
+| 7.3.2   | Include entry points explicitly (fanIn=0 files)            | **Complete** |
+| 7.3.3   | Include key relationships ("CLI imports extractFile")      | **Complete** |
+| 7.3.4   | Build navigator prompt with overview (~1000-2000 tokens)   | **Complete** |
+| 7.3.5   | Parse navigation targets (file, grep, function, importers) | **Complete** |
+| 7.3.6   | Validate targets exist, execute greps                      | **Complete** |
+| 7.3.7   | Connect to existing synthesis step                         | **Complete** |
+| 7.3.7.1 | `resolveAllTargets` orchestration                          | **Complete** |
+| 7.3.7.2 | `buildNavigatorSynthesisPrompt` synthesis                  | **Complete** |
+
+### Phase 7 Implementation Summary (2026-01-02)
 
 **New files**:
 
-- `src/query/index.ts` - Query planner module with all functions
-- `src/query/index.test.ts` - 50+ tests for query planner
+- `src/query/index.ts` - Legacy query planner module (keyword pre-filter approach)
+- `src/query/index.test.ts` - Tests for query planner
+- `src/query/overview.ts` - Project overview generation (Phase 7.3.1-7.3.3)
+- `src/query/overview.test.ts` - Tests for project overview
+- `src/query/navigator.ts` - Navigator module (Phase 7.3.4-7.3.7)
+- `src/query/navigator.test.ts` - Tests for navigator
 
-**Key functions**:
+**Key navigator functions** (Phase 7.3):
 
-- `buildKeywordIndex()`: Indexes exports, patterns, key statements, summary words, error types, modules
-- `tokenizeQuery()`: Tokenizes queries with stopword filtering and camelCase splitting
-- `preFilter()`: Matches tokens, scores candidates (Export: 10, Pattern: 8, Error: 7, etc.)
-- `formatCandidatesForPlanner()`: Formats candidates for LLM with relationships
-- `buildPlannerPrompt()`: Builds prompt for file selection
-- `parsePlannerResponse()`: Parses LLM response for selected files
-- `buildSynthesisPrompt()`: Builds prompt for answer generation
-- `parseSynthesisResponse()`: Parses LLM answer response
+- `buildProjectOverview()`: Generates high-level project overview from nodes
+- `isEntryPoint()`: Identifies entry points (fanIn=0, few exports)
+- `extractRelationships()`: Extracts import relationships for navigator context
+- `buildNavigatorPrompt()`: Builds navigator prompt with overview
+- `parseNavigatorResponse()`: Parses LLM targets (file, grep, function, importers)
+- `resolveAllTargets()`: Orchestrates resolution of all target types
+- `buildNavigatorSynthesisPrompt()`: Builds synthesis prompt from resolved context
 
 **API endpoint** (`POST /query`):
 
-- Validates query input
-- Builds keyword index from all nodes
-- Pre-filters candidates (max 25)
-- Calls planner LLM to select 3-8 files
-- Fetches/generates prose for selected files
-- Calls synthesis LLM to generate answer
-- Returns: answer, filesUsed, reasoning
+Default mode (navigator):
+
+1. Builds project overview from all nodes
+2. Calls navigator LLM to produce search targets
+3. Resolves targets (files, greps, functions, importers)
+4. Generates prose for resolved nodes if missing
+5. Calls synthesis LLM to generate answer
+6. Returns: answer, filesUsed, reasoning, targets, grepMatches
+
+Legacy mode (`mode: 'planner'`):
+
+- Uses keyword pre-filter → planner LLM → synthesis (Phase 7.1 flow)
 
 **Graceful degradation**: Without LLM config, returns pre-filter results only
 
-**Tests**: 538 total (11 new for Phase 7.1.5-7.1.7)
+**Tests**: 616 total (1 new for navigator API integration)
 
 ### Phase 7 Design Analysis (2026-01-01)
 
@@ -1402,17 +1424,17 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2026-01-01 (Phase 7 Complete):
+As of 2026-01-02 (Phase 7.3 Complete):
 
-- **Total tests**: 538
+- **Total tests**: 616
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 141
+- **Test suites**: 155
 
 Commands:
 
 ```bash
-npm test      # 538 tests pass
+npm test      # 616 tests pass
 npm run lint  # No errors
 ```
 
