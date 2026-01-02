@@ -310,6 +310,11 @@ function createTestExtractedFile(
   options: {
     exports?: Array<{ name: string; kind: string; isReExport: boolean }>;
     functions?: Array<{ name: string; isExported: boolean }>;
+    interfaces?: Array<{
+      name: string;
+      properties: Array<{ name: string; type: string }>;
+      isExported: boolean;
+    }>;
     symbolUsages?: Array<{
       symbol: string;
       usageType: 'call' | 'reference' | 'type';
@@ -340,6 +345,7 @@ function createTestExtractedFile(
       errorPaths: [],
     })),
     classes: [],
+    interfaces: options.interfaces || [],
     symbolUsages: options.symbolUsages || [],
   };
 }
