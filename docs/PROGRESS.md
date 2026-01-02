@@ -3,45 +3,56 @@
 ## Current Status
 
 **Last completed phase**: Phase 7.3 (Overview-Based Navigation) - API Integration Complete ✅
-**Current step**: Phase 7.4+ (Overview Content Iteration) pending benchmarking
+**Current step**: Phase 7.4+ (Overview Content Iteration) - benchmarked, new gaps identified
 **Date**: 2026-01-02
 
-### Latest Benchmark: 2025-12-31 (v4)
+### Latest Benchmark: 2026-01-02 (Query Mode)
 
 **Scores**:
 
-- **Pith**: 17.8/25 (71%) - up from 65% in v3
-- **Control**: 24.0/25 (96%)
-- **Gap**: 6.2 points (down from 8.2)
+- **Pith**: 16.4/20 (82.0%) - **up from 73.5%** on 2026-01-01
+- **Control**: 19.1/20 (95.5%)
+- **Gap**: 2.7 points (down from 4.3)
+- **Win/Loss/Tie**: 0-12-3 (**3 ties achieved!**)
 
-**Wins**: 0 wins, 14 losses, 1 tie (R1: WikiNode Impact)
+**Key Improvements**:
+- +8.5% absolute improvement over previous Query Mode run
+- 3 tasks now tie with Control: A2 (Data Flow), B1 (Cache Logic), B3 (Retry Logic)
+- Line number references now consistently provided
 
 **Worst Categories** (priority order):
-| Category | Pith Avg | Gap |
-|----------|----------|-----|
-| Debugging (D1-D3) | 16.3/25 | -7.7 |
-| Modification (M1-M3) | 16.7/25 | -7.3 |
-| Relationship (R1-R3) | 17.7/25 | -6.3 |
+| Category | Pith Avg | Control Avg | Gap |
+|----------|----------|-------------|-----|
+| Relationship (R1-R3) | 14.3/20 | 19.0/20 | -4.7 |
+| Modification (M1-M3) | 15.3/20 | 18.7/20 | -3.4 |
+| Debugging (D1-D3) | 16.7/20 | 19.0/20 | -2.3 |
 
 **Worst Criteria**:
-| Criterion | Pith Avg | Gap |
-|-----------|----------|-----|
-| Efficiency | 2.1/5 | -2.2 |
-| Actionability | 3.5/5 | -1.5 |
-| Completeness | 3.6/5 | -1.4 |
+| Criterion | Pith Avg | Control Avg | Gap |
+|-----------|----------|-------------|-----|
+| Completeness | 3.9/5 | 5.0/5 | -1.1 |
+| Specificity | 4.0/5 | 5.0/5 | -1.0 |
+| Correctness | 4.4/5 | 5.0/5 | -0.6 |
 
-See [2025-12-31 v4 benchmark results](benchmark-results/2025-12-31-self-test-v4.md) for full analysis.
+**Persistent Gaps** (from benchmark analysis):
+1. **Function-Level Consumer Tracking (R3)**: Pith lists "potential consumers" without line numbers; Control found 1 production + 47 test call sites
+2. **Modification Enumeration (M1)**: Pith found 3-4 locations; Control found 13 specific locations
+3. **Comparative Analysis (D2)**: Pith listed general causes; Control found key bottleneck (sequential vs batch)
+
+See [2026-01-02 benchmark results](benchmark-results/2026-01-02-self-test.md) for full analysis.
 
 ---
 
 ## Benchmark History
 
-| Run    | Date           | Pith Score | Control | Gap      | Notes                     |
-| ------ | -------------- | ---------- | ------- | -------- | ------------------------- |
-| v7     | 2025-12-30     | 65%        | 96%     | -7.6     | Baseline                  |
-| v1     | 2025-12-31     | 78%        | 92%     | -3.5     | Before fuzzy matching bug |
-| v3     | 2025-12-31     | 65%        | 98%     | -8.2     | Fuzzy matching regression |
-| **v4** | **2025-12-31** | **71%**    | **96%** | **-6.2** | **Post-fixes, current**   |
+| Run         | Date           | Mode    | Pith Score | Control | Gap      | Notes                            |
+| ----------- | -------------- | ------- | ---------- | ------- | -------- | -------------------------------- |
+| v7          | 2025-12-30     | Context | 65%        | 96%     | -7.6     | Baseline                         |
+| v1          | 2025-12-31     | Context | 78%        | 92%     | -3.5     | Before fuzzy matching bug        |
+| v3          | 2025-12-31     | Context | 65%        | 98%     | -8.2     | Fuzzy matching regression        |
+| v4          | 2025-12-31     | Context | 71%        | 96%     | -6.2     | Post-fixes                       |
+| Query v1    | 2026-01-01     | Query   | 73.5%      | 95%     | -4.3     | First Query Mode benchmark       |
+| **Query v2**| **2026-01-02** | Query   | **82.0%**  | **95.5%**| **-2.7**| **3 ties, +8.5% improvement**   |
 
 ---
 

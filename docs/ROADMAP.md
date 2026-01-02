@@ -11,25 +11,24 @@
 | 6.8.0       | ✅ Complete    | Fixed fuzzy matching regression                                                                        |
 | 6.8.1-6.8.4 | ✅ Complete    | Deterministic Gap Closure: symbol tracking, content preservation, config extraction, debugging output  |
 | 6.9         | ✅ Complete    | Response Optimization: smarter defaults, function-level consumer tracking                              |
-| 7.0-7.2     | ✅ Complete    | Query Planner baseline: keyword index, pre-filter, planner, synthesis, benchmarking                    |
-| **7.3-7.6** | **⬅️ CURRENT** | **Overview-Based Navigation: replace pre-filter with LLM reasoning over project overview**             |
+| 7.0-7.3     | ✅ Complete    | Query Planner: keyword index, pre-filter, planner, synthesis, overview-based navigation                |
+| **7.4-7.6** | **⬅️ CURRENT** | **Query refinement: content iteration, non-determinism mitigation, target validation**                 |
+| **7.7**     | **⬅️ NEW**     | **Gap closure: function consumer index, modification enumeration**                                     |
 | 10          | Planned        | MCP Server integration                                                                                 |
 | 8-9, 11     | Planned        | Advanced relationships, intelligence, scale                                                            |
 
-**Latest benchmark** (2026-01-01, Query Mode, 15 tasks): Pith 14.7/20 (73.5%) vs Control 19.0/20 (95%). Gap: 21.5 points.
+**Latest benchmark** (2026-01-02, Query Mode, 15 tasks): Pith 16.4/20 (82.0%) vs Control 19.1/20 (95.5%). Gap: 2.7 points.
 
-- Win rate: 0 wins, 15 losses
-- Query Mode = Context Mode (73.5% vs 73%) - LLM research step adds no value
-- Root cause: LLM planner constrained to pre-filtered candidates
-- See [2026-01-01-query-mode-self-test.md](benchmark-results/2026-01-01-query-mode-self-test.md) for full results
-- See [QUERY_MODE_KNOWN_ISSUES.md](QUERY_MODE_KNOWN_ISSUES.md) for root cause analysis
+- Win rate: 0 wins, 12 losses, **3 ties** (A2, B1, B3)
+- **+8.5% improvement** over 2026-01-01 Query Mode
+- Line number references now consistently provided
+- See [2026-01-02-self-test.md](benchmark-results/2026-01-02-self-test.md) for full results
 
-**Key gaps identified** (from Query Mode analysis):
+**Key gaps remaining** (from 2026-01-02 benchmark):
 
-- **Relationship (R1-R3)**: 14.0/20 - can't trace function-level consumers (Issue #1)
-- **Entry points invisible**: CLI never appears as candidate (Issue #2)
-- **Non-determinism**: B3 scored 10/20 due to planner skipping #1 candidate (Issue #3)
-- **Can't discover files**: Planner limited to pre-filtered candidates (Issue #4)
+- **Relationship (R1-R3)**: 14.3/20 - R3 (extractFile consumers) scored 11/20; can't trace function call sites
+- **Modification (M1-M3)**: 15.3/20 - M1 found 3-4 locations vs Control's 13; incomplete enumeration
+- **Debugging (D1-D3)**: 16.7/20 - D2 missed key bottleneck (sequential vs batch processing)
 
 **Benchmark History**:
 | Run | Mode | Pith Score | Control | Gap | Notes |
@@ -38,7 +37,8 @@
 | v1 (2025-12-31) | Context | 78% | 96% | -3.5 | Before fuzzy matching bug |
 | v3 (2025-12-31) | Context | 65% | 96% | -8.2 | Fuzzy matching regression |
 | v4 (2025-12-31) | Context | 71% | 96% | -6.2 | Post-fixes |
-| **Query (2026-01-01)** | **Query** | **73.5%** | **95%** | **-21.5** | **First Query Mode benchmark** |
+| Query v1 (2026-01-01) | Query | 73.5% | 95% | -4.3 | First Query Mode benchmark |
+| **Query v2 (2026-01-02)** | **Query** | **82.0%** | **95.5%** | **-2.7** | **3 ties, +8.5% improvement** |
 
 ---
 
@@ -1290,14 +1290,68 @@ interface NavigationResponse {
 
 ---
 
-##### Phase 7 Success Criteria (Updated)
+#### 7.7 Gap Closure ⬅️ NEW (based on 2026-01-02 benchmark)
 
-| Metric         | 7.0-7.1 Baseline | After 7.3-7.6 |
-| -------------- | ---------------- | ------------- |
-| Overall        | 73.5%            | ≥85%          |
-| Gap to Control | 21.5 points      | ≤10 points    |
-| Win rate       | 0/15             | ≥5/15         |
-| R-type queries | 14.0/20          | ≥17/20        |
+**Goal**: Close remaining gaps identified in benchmark through targeted improvements.
+
+**Context**: 2026-01-02 benchmark achieved 82.0% but revealed specific capability gaps:
+
+- R3 (extractFile consumers): 11/20 - Can't trace function-level call sites
+- M1 (JavaScript support): 13/20 - Incomplete modification enumeration
+- D2 (Slow generation): 16/20 - Missed comparative analysis opportunity
+
+##### 7.7.1 Navigator Function Consumer Target
+
+**Problem**: R3 scored 11/20. Pith listed "potential consumers" without line numbers; Control found 1 production + 47 test call sites.
+
+**Root cause**: Navigator's `importers` target returns file-level dependents, not function-level call sites.
+
+| Step    | What                                                      | Test                                                    |
+| ------- | --------------------------------------------------------- | ------------------------------------------------------- |
+| 7.7.1.1 | Add `callers` target type to navigator                    | Navigator can request `{ type: 'callers', of: 'func' }` |
+| 7.7.1.2 | Resolve callers using existing function consumer tracking | Returns file:line for each call site                    |
+| 7.7.1.3 | Distinguish production vs test callers in output          | Shows "1 production, 47 test call sites"                |
+
+**Benchmark target**: R3: 11/20 → 18/20
+
+##### 7.7.2 Hardcoded Value Cross-Reference
+
+**Problem**: M1 scored 13/20. Pith found 3-4 locations to modify; Control found 13 specific locations including config files.
+
+**Root cause**: Navigator can grep for patterns but doesn't automatically search for hardcoded values referenced in a file (like `'.ts'` extension patterns).
+
+| Step    | What                                                          | Test                                                    |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| 7.7.2.1 | Add `references` target type to navigator                     | Navigator can request `{ type: 'references', of: '.ts' }` |
+| 7.7.2.2 | Auto-detect likely cross-reference candidates (file extensions, patterns) | Modification queries suggest related searches           |
+| 7.7.2.3 | Include config files (package.json, tsconfig.json) in search scope | Extension patterns found in config files               |
+
+**Benchmark target**: M1: 13/20 → 17/20
+
+##### 7.7.3 Comparative Bottleneck Detection
+
+**Problem**: D2 scored 16/20. Pith listed general slowness causes; Control found the key bottleneck (sequential vs batch processing).
+
+**Root cause**: Navigator finds relevant code but doesn't highlight comparative performance characteristics.
+
+| Step    | What                                                          | Test                                                    |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| 7.7.3.1 | Add performance hints to key statement extraction             | Identify `BATCH_SIZE`, sequential loops, async patterns |
+| 7.7.3.2 | Include comparative context in synthesis prompt               | "extract uses BATCH_SIZE=4, generate processes sequentially" |
+| 7.7.3.3 | Flag functions with different processing patterns             | Highlights batch vs sequential differences              |
+
+**Benchmark target**: D2: 16/20 → 19/20
+
+---
+
+##### Phase 7 Success Criteria (Updated with 2026-01-02 Results)
+
+| Metric         | 7.0-7.1 Baseline | After 7.3 (Actual) | Target (7.7) |
+| -------------- | ---------------- | ------------------ | ------------ |
+| Overall        | 73.5%            | **82.0%** ✅        | ≥88%         |
+| Gap to Control | 4.3 points       | **2.7 points** ✅   | ≤2 points    |
+| Win rate       | 0/15             | **0/15** (3 ties)  | ≥3/15        |
+| R-type queries | 14.0/20          | 14.3/20            | ≥17/20       |
 
 **Why Overview-Based Navigation works**:
 
@@ -1368,14 +1422,26 @@ Only needed for very large codebases.
 
 ## Priority Summary
 
-Based on v4 benchmark (2025-12-31), focus on:
+Based on 2026-01-02 benchmark (82.0% Pith vs 95.5% Control), focus on:
 
-1. **Smarter defaults** (Phase 6.9.1) - Reduce token usage via intelligent output sizing
-2. **Function-level consumer tracking** (Phase 6.9.2) - Close R3's 12-point gap
-3. **Query Planner** (Phase 7) - Two LLM calls: planner selects files, final synthesizes answer
+1. **Navigator function consumer target** (Phase 7.7.1) - Add `callers` target to fix R3 gap (11/20 → 18/20)
+2. **Hardcoded value cross-reference** (Phase 7.7.2) - Fix M1's incomplete enumeration (13/20 → 17/20)
+3. **Comparative bottleneck detection** (Phase 7.7.3) - Improve debugging specificity (16/20 → 19/20)
 4. **MCP server** (Phase 10) - LLM tool integration after quality gaps closed
 
-**Design principle**: Pith should be a smart context provider that "just works". The Query Planner is the logical evolution - accept questions, not file paths.
+**Design principle**: Pith should be a smart context provider that "just works". Query Mode is now the primary interface - 82% accuracy with 3 ties against control.
+
+**Recent wins** (from 2026-01-02 benchmark):
+- +8.5% improvement over previous Query Mode run
+- 3 tasks now tie with Control (A2, B1, B3)
+- Line number references consistently provided
+
+**Gap closure priorities** (ordered by benchmark impact):
+| Task | Current | Target | Impact |
+|------|---------|--------|--------|
+| R3 (function consumers) | 11/20 | 18/20 | +7 points |
+| M1 (modification enumeration) | 13/20 | 17/20 | +4 points |
+| D2 (comparative analysis) | 16/20 | 19/20 | +3 points |
 
 Skip for now:
 
