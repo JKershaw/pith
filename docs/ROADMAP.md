@@ -2,38 +2,43 @@
 
 ## Current Status
 
-| Phase       | Status          | Description                                                                                            |
-| ----------- | --------------- | ------------------------------------------------------------------------------------------------------ |
-| 1-5         | ✅ Complete     | MVP: Extraction, Build, Generate, API, Polish                                                          |
-| 6.1-6.5     | ✅ Complete     | On-demand generation, test files, modification impact, patterns, gotcha validation                     |
-| 6.6.1-6.6.8 | ✅ Complete     | Line numbers, code snippets, key statements, change impact, patterns, call graphs, error paths         |
-| 6.7.1-6.7.5 | ✅ Complete     | Enhanced output: consumer locations, modification guides, call flow, debugging hints, pattern evidence |
-| 6.8.0       | ✅ Complete     | Fixed fuzzy matching regression                                                                        |
-| 6.8.1-6.8.4 | ✅ Complete     | Deterministic Gap Closure: symbol tracking, content preservation, config extraction, debugging output  |
-| **6.9**     | **⬅️ CURRENT**  | **Response Optimization: smarter defaults, function-level consumer tracking**                          |
-| 7           | Planned         | Query Planner: LLM-driven file selection with codebase context                                         |
-| 10          | Planned         | MCP Server integration                                                                                 |
-| 8-9, 11     | Planned         | Advanced relationships, intelligence, scale                                                            |
+| Phase       | Status         | Description                                                                                            |
+| ----------- | -------------- | ------------------------------------------------------------------------------------------------------ |
+| 1-5         | ✅ Complete    | MVP: Extraction, Build, Generate, API, Polish                                                          |
+| 6.1-6.5     | ✅ Complete    | On-demand generation, test files, modification impact, patterns, gotcha validation                     |
+| 6.6.1-6.6.8 | ✅ Complete    | Line numbers, code snippets, key statements, change impact, patterns, call graphs, error paths         |
+| 6.7.1-6.7.5 | ✅ Complete    | Enhanced output: consumer locations, modification guides, call flow, debugging hints, pattern evidence |
+| 6.8.0       | ✅ Complete    | Fixed fuzzy matching regression                                                                        |
+| 6.8.1-6.8.4 | ✅ Complete    | Deterministic Gap Closure: symbol tracking, content preservation, config extraction, debugging output  |
+| 6.9         | ✅ Complete    | Response Optimization: smarter defaults, function-level consumer tracking                              |
+| 7.0-7.2     | ✅ Complete    | Query Planner baseline: keyword index, pre-filter, planner, synthesis, benchmarking                    |
+| **7.3-7.6** | **⬅️ CURRENT** | **Overview-Based Navigation: replace pre-filter with LLM reasoning over project overview**             |
+| 10          | Planned        | MCP Server integration                                                                                 |
+| 8-9, 11     | Planned        | Advanced relationships, intelligence, scale                                                            |
 
-**Latest benchmark** (2025-12-31 v4, 15 tasks): Pith 17.8/25 (71%) vs Control 24.0/25 (96%). Gap: 6.2 points.
+**Latest benchmark** (2026-01-01, Query Mode, 15 tasks): Pith 14.7/20 (73.5%) vs Control 19.0/20 (95%). Gap: 21.5 points.
 
-- Win rate: 0 wins, 14 losses, **1 tie** (R1: WikiNode Impact)
-- Improvement from v3: +6% overall, gap narrowed by 2 points
-- See [2025-12-31-self-test-v4.md](benchmark-results/2025-12-31-self-test-v4.md) for full results.
+- Win rate: 0 wins, 15 losses
+- Query Mode = Context Mode (73.5% vs 73%) - LLM research step adds no value
+- Root cause: LLM planner constrained to pre-filtered candidates
+- See [2026-01-01-query-mode-self-test.md](benchmark-results/2026-01-01-query-mode-self-test.md) for full results
+- See [QUERY_MODE_KNOWN_ISSUES.md](QUERY_MODE_KNOWN_ISSUES.md) for root cause analysis
 
-**Remaining gaps** (from v4 analysis):
-- **Efficiency**: 2.1/5 (worst criterion) - returns full files instead of targeted sections
-- **Debugging (D1-D3)**: 16.3/25 - prose lacks debugging-specific insights
-- **Modification (M1-M3)**: 16.7/25 - missing step-by-step implementation guides
-- **R3 (extractFile consumers)**: 13/25 - file-level tracking, not function-level
+**Key gaps identified** (from Query Mode analysis):
+
+- **Relationship (R1-R3)**: 14.0/20 - can't trace function-level consumers (Issue #1)
+- **Entry points invisible**: CLI never appears as candidate (Issue #2)
+- **Non-determinism**: B3 scored 10/20 due to planner skipping #1 candidate (Issue #3)
+- **Can't discover files**: Planner limited to pre-filtered candidates (Issue #4)
 
 **Benchmark History**:
-| Run | Pith Score | Gap | Notes |
-|-----|------------|-----|-------|
-| v7 (2025-12-30) | 65% | -7.6 | Baseline |
-| v1 (2025-12-31) | 78% | -3.5 | Before fuzzy matching bug |
-| v3 (2025-12-31) | 65% | -8.2 | Fuzzy matching regression |
-| **v4 (2025-12-31)** | **71%** | **-6.2** | **Current - post-fixes** |
+| Run | Mode | Pith Score | Control | Gap | Notes |
+|-----|------|------------|---------|-----|-------|
+| v7 (2025-12-30) | Context | 65% | 96% | -7.6 | Baseline |
+| v1 (2025-12-31) | Context | 78% | 96% | -3.5 | Before fuzzy matching bug |
+| v3 (2025-12-31) | Context | 65% | 96% | -8.2 | Fuzzy matching regression |
+| v4 (2025-12-31) | Context | 71% | 96% | -6.2 | Post-fixes |
+| **Query (2026-01-01)** | **Query** | **73.5%** | **95%** | **-21.5** | **First Query Mode benchmark** |
 
 ---
 
@@ -927,10 +932,12 @@ When querying `src/extractor/index.ts`:
 **Context**: v4 benchmark (2025-12-31) shows Efficiency at 2.1/5 (worst criterion). Pith uses 1.2x more tokens than Control on average, with worst case 4.9x (M1).
 
 **Key Issues from v4** (addressed here):
+
 - Token inefficiency: Returns full files instead of targeted excerpts
 - R3: File-level import tracking misses 46 of 48 call sites
 
 **Deferred to Phase 7** (Query Planner handles better):
+
 - D1-D3: Debugging-specific insights (planner sees the actual question)
 - M1-M3: Query-type adaptation (planner routes appropriately)
 
@@ -940,12 +947,12 @@ When querying `src/extractor/index.ts`:
 
 **Approach**: Make defaults smarter instead of adding parameters. Pith should automatically decide what to include.
 
-| Step    | What                                                          | Test                                                    |
-| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
-| 6.9.1.1 | Default to compact output (prose + key statements only)       | `/context` returns ~50% fewer tokens than current       |
-| 6.9.1.2 | Auto-expand for small files (<5 functions)                    | Small utility files show full content                   |
-| 6.9.1.3 | Prioritize by relevance (high fan-in → more detail)           | Widely-used types get full signatures, others get summary |
-| 6.9.1.4 | Include full code only for functions with patterns/errors     | `callLLM` shows retry logic, simple getters show signature only |
+| Step    | What                                                      | Test                                                            |
+| ------- | --------------------------------------------------------- | --------------------------------------------------------------- |
+| 6.9.1.1 | Default to compact output (prose + key statements only)   | `/context` returns ~50% fewer tokens than current               |
+| 6.9.1.2 | Auto-expand for small files (<5 functions)                | Small utility files show full content                           |
+| 6.9.1.3 | Prioritize by relevance (high fan-in → more detail)       | Widely-used types get full signatures, others get summary       |
+| 6.9.1.4 | Include full code only for functions with patterns/errors | `callLLM` shows retry logic, simple getters show signature only |
 
 **Benchmark target**: Efficiency 2.1/5 → 4/5, token usage ≤ Control average
 
@@ -955,12 +962,12 @@ When querying `src/extractor/index.ts`:
 
 **Problem**: R3 scored 13/25. importedBy edges show 2 files but Control found 48 call sites with line numbers.
 
-| Step    | What                                                          | Test                                                    |
-| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
-| 6.9.2.1 | Track call sites for exported functions across files          | `extractFile` shows 48 call sites, not 2 files          |
-| 6.9.2.2 | Store function usage with file:line references                | Each call site has file path and line number            |
-| 6.9.2.3 | Add `/consumers/:file/:function` endpoint                     | Returns all consumers of specific function              |
-| 6.9.2.4 | Distinguish production vs test consumers                      | "1 production consumer, 47 test consumers"              |
+| Step    | What                                                 | Test                                           |
+| ------- | ---------------------------------------------------- | ---------------------------------------------- |
+| 6.9.2.1 | Track call sites for exported functions across files | `extractFile` shows 48 call sites, not 2 files |
+| 6.9.2.2 | Store function usage with file:line references       | Each call site has file path and line number   |
+| 6.9.2.3 | Add `/consumers/:file/:function` endpoint            | Returns all consumers of specific function     |
+| 6.9.2.4 | Distinguish production vs test consumers             | "1 production consumer, 47 test consumers"     |
 
 **Benchmark target**: R3: 13/25 → 20/25
 
@@ -968,10 +975,10 @@ When querying `src/extractor/index.ts`:
 
 ##### Phase 6.9 Success Criteria
 
-| Metric         | v4 Baseline   | Target       |
-| -------------- | ------------- | ------------ |
-| Efficiency     | 2.1/5         | ≥4/5         |
-| R3             | 13/25         | ≥20/25       |
+| Metric     | v4 Baseline | Target |
+| ---------- | ----------- | ------ |
+| Efficiency | 2.1/5       | ≥4/5   |
+| R3         | 13/25       | ≥20/25 |
 
 **Execution Order**:
 
@@ -1011,6 +1018,7 @@ POST /query { query: "How does retry work?" }
 ```
 
 **Key design decisions**:
+
 - **Pre-filter first**: Deterministic keyword matching reduces candidates from 100+ to ~25
 - **Two LLM calls**: (1) planner selects from candidates, (2) synthesizer answers
 - **Planner reasoning preserved**: Feeds into synthesis prompt for context
@@ -1019,46 +1027,49 @@ POST /query { query: "How does retry work?" }
 
 **Data used for matching**:
 
-| Data Type | Matches Query Type | Example |
-|-----------|-------------------|---------|
-| Export names | Feature questions | "retry" → `callLLM` |
-| Function names | Direct references | "extractFile" → `ast.ts` |
-| Detected patterns | Behavior questions | "caching" → files with cache pattern |
-| Key statements | Config questions | "timeout" → files with timeout values |
-| Error paths | Debugging questions | "404" → files that return 404 |
-| Summaries | General questions | "LLM" → generator module |
+| Data Type         | Matches Query Type  | Example                               |
+| ----------------- | ------------------- | ------------------------------------- |
+| Export names      | Feature questions   | "retry" → `callLLM`                   |
+| Function names    | Direct references   | "extractFile" → `ast.ts`              |
+| Detected patterns | Behavior questions  | "caching" → files with cache pattern  |
+| Key statements    | Config questions    | "timeout" → files with timeout values |
+| Error paths       | Debugging questions | "404" → files that return 404         |
+| Summaries         | General questions   | "LLM" → generator module              |
 
 #### 7.0 Prep Work
 
 Foundational components that simplify Phase 7 implementation.
 
-| Step  | What                                                              | Test                                                    |
-| ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.0.1 | Keyword index from deterministic data                             | Index contains exports, patterns, key statements, errors, modules |
-| 7.0.2 | Extend index with summary words (when prose exists)               | Index contains summary words; logs warning for missing prose |
-| 7.0.3 | Query tokenizer with stopword filtering                           | "How does retry work?" → ["retry", "work"] |
-| 7.0.4 | Pre-filter: match tokens, score, add modules                      | Returns ~20-25 candidates with match reasons + parent modules |
-| 7.0.5 | Candidate formatter with relationships                            | Shows path, summary, exports, `Uses:` imports (~40 tokens) |
+| Step  | What                                                | Test                                                              |
+| ----- | --------------------------------------------------- | ----------------------------------------------------------------- |
+| 7.0.1 | Keyword index from deterministic data               | Index contains exports, patterns, key statements, errors, modules |
+| 7.0.2 | Extend index with summary words (when prose exists) | Index contains summary words; logs warning for missing prose      |
+| 7.0.3 | Query tokenizer with stopword filtering             | "How does retry work?" → ["retry", "work"]                        |
+| 7.0.4 | Pre-filter: match tokens, score, add modules        | Returns ~20-25 candidates with match reasons + parent modules     |
+| 7.0.5 | Candidate formatter with relationships              | Shows path, summary, exports, `Uses:` imports (~40 tokens)        |
 
 **Keyword index structure**:
+
 ```typescript
 interface KeywordIndex {
-  byExport: Map<string, string[]>;      // "callLLM" → ["src/generator/index.ts"]
-  byPattern: Map<string, string[]>;     // "retry" → ["src/generator/index.ts"]
+  byExport: Map<string, string[]>; // "callLLM" → ["src/generator/index.ts"]
+  byPattern: Map<string, string[]>; // "retry" → ["src/generator/index.ts"]
   byKeyStatement: Map<string, string[]>; // "timeout" → ["src/generator/index.ts"]
   bySummaryWord: Map<string, string[]>; // "llm" → ["src/generator/index.ts"] (when prose exists)
-  byErrorType: Map<string, string[]>;   // "404" → ["src/api/index.ts"]
-  byModule: Map<string, string[]>;      // "generator" → ["src/generator/"]
+  byErrorType: Map<string, string[]>; // "404" → ["src/api/index.ts"]
+  byModule: Map<string, string[]>; // "generator" → ["src/generator/"]
 }
 ```
 
 **Index lifecycle**:
+
 - Built on server start from all nodes in database
 - 7.0.1: Index deterministic data (exports, patterns, key statements, error types, module names)
 - 7.0.2: Add summary words when `node.prose?.summary` exists; log warning for nodes without prose
 - Index held in memory for fast lookup during queries
 
 **Pre-filter logic** (7.0.4):
+
 1. Tokenize query using 7.0.3
 2. Look up each token in all index maps
 3. Score by match type: export (10) > pattern (8) > keyStatement (5) > summary (3) > module (2)
@@ -1068,17 +1079,18 @@ interface KeywordIndex {
 
 #### 7.1 Query Endpoint
 
-| Step  | What                                                              | Test                                                    |
-| ----- | ----------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.1.1 | `POST /query` endpoint accepting `{ query: string }`              | Endpoint accepts natural language query                 |
-| 7.1.2 | Integrate pre-filter: query → candidates + modules                | Returns candidates with match reasons and relationships |
-| 7.1.3 | Build planner prompt (two-level: modules then files)              | Compact prompt with ~500-1000 tokens                    |
-| 7.1.4 | Call LLM, parse file selection as JSON                            | Returns `{ informationNeeded, files, reasoning }`       |
-| 7.1.5 | Fetch prose for selected files (generate if missing)              | All selected files have prose available                 |
-| 7.1.6 | Build synthesis prompt with module context + guidelines           | Includes informationNeeded, module summaries, guidelines |
-| 7.1.7 | Call LLM, return synthesized answer                               | Specific answer with file:line references               |
+| Step  | What                                                    | Test                                                     |
+| ----- | ------------------------------------------------------- | -------------------------------------------------------- |
+| 7.1.1 | `POST /query` endpoint accepting `{ query: string }`    | Endpoint accepts natural language query                  |
+| 7.1.2 | Integrate pre-filter: query → candidates + modules      | Returns candidates with match reasons and relationships  |
+| 7.1.3 | Build planner prompt (two-level: modules then files)    | Compact prompt with ~500-1000 tokens                     |
+| 7.1.4 | Call LLM, parse file selection as JSON                  | Returns `{ informationNeeded, files, reasoning }`        |
+| 7.1.5 | Fetch prose for selected files (generate if missing)    | All selected files have prose available                  |
+| 7.1.6 | Build synthesis prompt with module context + guidelines | Includes informationNeeded, module summaries, guidelines |
+| 7.1.7 | Call LLM, return synthesized answer                     | Specific answer with file:line references                |
 
 **Planner prompt structure**:
+
 ```
 You are helping answer a question about a codebase.
 
@@ -1114,6 +1126,7 @@ Return JSON:
 ```
 
 **Synthesizer prompt structure**:
+
 ```
 Answer this question about a codebase.
 
@@ -1142,13 +1155,14 @@ Guidelines:
 ```
 
 **Response structure**:
+
 ```typescript
 interface QueryResponse {
-  answer: string;                    // The synthesized answer
-  filesUsed: string[];               // Which files informed the answer
-  reasoning: string;                 // Why those files were selected
-  informationNeeded: string;         // What info was needed (from planner)
-  candidatesConsidered: number;      // How many files pre-filter found
+  answer: string; // The synthesized answer
+  filesUsed: string[]; // Which files informed the answer
+  reasoning: string; // Why those files were selected
+  informationNeeded: string; // What info was needed (from planner)
+  candidatesConsidered: number; // How many files pre-filter found
 }
 ```
 
@@ -1156,31 +1170,155 @@ interface QueryResponse {
 
 ---
 
-##### Phase 7 Success Criteria
+#### 7.2 Baseline Benchmarking ✅ COMPLETE
 
-| Metric         | v4 Baseline   | Target       |
-| -------------- | ------------- | ------------ |
-| Overall        | 17.8/25 (71%) | ≥20/25 (80%) |
-| Gap to Control | 6.2 points    | ≤3 points    |
-| Win rate       | 0/15          | ≥3/15        |
+First Query Mode benchmark established baseline metrics and identified architectural issues.
 
-**Why this works**:
-- Pre-filter uses rich deterministic data (patterns, exports, errors) to narrow candidates
-- Module context gives planner high-level understanding
-- Relationships between candidates (`Uses:`) prevent redundant selection
-- `informationNeeded` focuses the synthesizer on what matters
-- Explicit guidelines produce specific, actionable answers
-- Bridges information asymmetry: callers have questions, Pith has structure
+| Step  | What                                                 | Status  |
+| ----- | ---------------------------------------------------- | ------- |
+| 7.2.1 | Run full 15-task benchmark with Query Mode           | ✅ Done |
+| 7.2.2 | Document file selection precision/recall by category | ✅ Done |
+| 7.2.3 | Identify failure patterns and root causes            | ✅ Done |
+| 7.2.4 | Create QUERY_MODE_KNOWN_ISSUES.md with findings      | ✅ Done |
 
-**Token efficiency**:
-- Pre-filter: 0 tokens (deterministic)
-- Planner: ~500-1000 tokens (25 candidates × 40 tokens)
-- Synthesis: ~2000-4000 tokens (5-8 files × prose + module context)
-- Total: ~3000-5000 tokens vs 10000+ if showing all files
+**Results** (2026-01-01):
 
-**Future extensions** (not in MVP):
-- Caching common query patterns
-- Query type classification for specialized context emphasis
+- Pith Query Mode: 73.5% vs Control: 95%
+- Same as Context Mode (73%) - LLM research step adds no value
+- Root cause: LLM planner constrained to pre-filtered candidates
+
+**Key Issues Identified**:
+
+1. KeywordIndex doesn't track imports/calls - can't answer "who uses X?"
+2. Entry points (CLI) invisible - fanIn=0, no exports
+3. LLM planner non-deterministic - sometimes worse than score ranking
+4. LLM can't discover files outside pre-filtered candidates
+
+See `docs/QUERY_MODE_KNOWN_ISSUES.md` for full analysis.
+
+---
+
+#### 7.3 Overview-Based Navigation ⬅️ NEXT
+
+**Goal**: Replace pre-filter + planner with LLM reasoning over project overview.
+
+**Problem**: Current architecture puts intelligence in the wrong place:
+
+```
+Current: Query → Deterministic pre-filter → LLM selects from filtered list → Fetch
+                  (blind spots here)         (can't recover)
+```
+
+**Proposed**:
+
+```
+Proposed: Query → LLM reasons with project overview → Produces search targets → Validate & Fetch
+                   (sees full structure)              (can discover anything)
+```
+
+| Step  | What                                                       | Test                                                  |
+| ----- | ---------------------------------------------------------- | ----------------------------------------------------- |
+| 7.3.1 | Generate project overview from module nodes + edges        | Overview includes README, file tree, module summaries |
+| 7.3.2 | Include entry points explicitly (fanIn=0 files)            | CLI and main files appear in overview                 |
+| 7.3.3 | Include key relationships ("CLI imports extractFile")      | Import/call relationships visible to LLM              |
+| 7.3.4 | Build navigator prompt with overview (~1000-2000 tokens)   | Prompt fits in context, covers full project           |
+| 7.3.5 | Parse navigation targets (file, grep, function, importers) | LLM can request files, greps, or consumer lookups     |
+| 7.3.6 | Validate targets exist, execute greps                      | Invalid paths return graceful errors                  |
+| 7.3.7 | Connect to existing synthesis step                         | Synthesis unchanged, receives validated context       |
+
+**Navigator response structure**:
+
+```typescript
+interface NavigationResponse {
+  reasoning: string;
+  targets: Array<
+    | { type: 'file'; path: string }
+    | { type: 'grep'; pattern: string; scope?: string }
+    | { type: 'function'; name: string; in: string }
+    | { type: 'importers'; of: string }
+  >;
+}
+```
+
+**Benchmark target**: 73.5% → 85%+ (based on issue resolution analysis)
+
+---
+
+#### 7.4 Overview Content Iteration
+
+**Goal**: Start with generous context, refine only if needed.
+
+**Principle**: Avoid over-fitting to benchmark. Only trim context if there's a real problem (token limits, latency), not for benchmark optimization.
+
+| Step  | What                                                           | Test                                           |
+| ----- | -------------------------------------------------------------- | ---------------------------------------------- |
+| 7.4.1 | Initial: README + file tree + module summaries + entry points  | All project structure visible to navigator LLM |
+| 7.4.2 | Benchmark with generous context                                | Measure accuracy, latency, token usage         |
+| 7.4.3 | Check if context exceeds model limits or causes latency issues | If no issues, keep generous context            |
+| 7.4.4 | Only if needed: identify unused context via reasoning analysis | Track what LLM actually references             |
+| 7.4.5 | Only if needed: trim clearly unused sections                   | Don't trim for marginal benchmark gains        |
+
+**Rationale**: Premature optimization risks hurting accuracy on query types not in benchmark. Let real-world usage guide refinement.
+
+---
+
+#### 7.5 Non-Determinism Mitigation
+
+**Goal**: Ensure consistent, reliable results across runs.
+
+| Step  | What                                                             | Test                                       |
+| ----- | ---------------------------------------------------------------- | ------------------------------------------ |
+| 7.5.1 | Run same queries 3x, measure answer variance                     | Document variance rate per query type      |
+| 7.5.2 | If variance > 20%, try temperature=0                             | Reduced variance without quality loss      |
+| 7.5.3 | If still high variance, consider ensemble (3 runs, intersection) | Critical queries get consistent results    |
+| 7.5.4 | Log navigator decisions for debugging                            | Can trace why specific targets were chosen |
+
+**Acceptance criteria**: Same query produces same file selection ≥80% of runs
+
+---
+
+#### 7.6 Target Validation & Fallbacks
+
+**Goal**: Handle LLM suggestions gracefully when targets don't exist.
+
+| Step  | What                                                    | Test                                                |
+| ----- | ------------------------------------------------------- | --------------------------------------------------- |
+| 7.6.1 | Validate file paths exist before fetching               | Invalid paths don't cause errors                    |
+| 7.6.2 | For near-miss paths, suggest alternatives               | "src/foo.ts not found, did you mean src/foobar.ts?" |
+| 7.6.3 | Execute grep patterns with timeout                      | Bad patterns fail gracefully                        |
+| 7.6.4 | If all targets invalid, fall back to keyword pre-filter | Query still returns useful results                  |
+
+---
+
+##### Phase 7 Success Criteria (Updated)
+
+| Metric         | 7.0-7.1 Baseline | After 7.3-7.6 |
+| -------------- | ---------------- | ------------- |
+| Overall        | 73.5%            | ≥85%          |
+| Gap to Control | 21.5 points      | ≤10 points    |
+| Win rate       | 0/15             | ≥5/15         |
+| R-type queries | 14.0/20          | ≥17/20        |
+
+**Why Overview-Based Navigation works**:
+
+- LLM sees full project structure, not pre-filtered subset
+- Entry points explicitly listed (solves Issue #2)
+- Import/call relationships visible (solves Issue #1)
+- Can request any file, not just candidates (solves Issue #4)
+- More constrained reasoning reduces non-determinism (partially addresses Issue #3)
+
+**Token efficiency** (better than current):
+
+- Navigator: ~1000-2000 tokens (overview) vs ~1000 tokens (25 candidates × 40)
+- Similar cost, but LLM sees full project instead of keyword-filtered subset
+- Synthesis: unchanged (~2000-4000 tokens)
+
+**Iteration philosophy**:
+
+- Start broad with generous context
+- Measure with benchmarks
+- Only refine if real issues (token limits, latency)
+- Avoid over-fitting to specific benchmark tasks
 
 ---
 
