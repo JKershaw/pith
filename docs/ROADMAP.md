@@ -1327,7 +1327,7 @@ interface NavigationResponse {
 
 **Problem**: M1 scored 13/20. Pith found 3-4 locations to modify; Control found 13 specific locations including config files.
 
-**Root cause analysis**: Navigator can grep for patterns but the LLM doesn't automatically think to search for related string literals like `'.ts'`. The issue is partly prompt engineering - the LLM needs guidance to search for related patterns.
+**Root cause analysis**: Navigator can grep for patterns but the LLM doesn't automatically search for related string literals like `'.ts'`. This requires explicit guidance in the prompt.
 
 **Existing capabilities that aren't being leveraged**:
 - Config files (package.json, tsconfig.json) ARE extracted (Phase 6.8.3)
@@ -1339,16 +1339,20 @@ interface NavigationResponse {
 2. Enhance overview to show what config files exist
 3. Add synthesis prompt guidance about checking config files for modifications
 
-**Recommendation**: Option 3 is simplest. Option 2 provides better context. Combine both.
+**Recommendation**: Start with prompt changes (options 2+3), validate early, add infrastructure (option 1) only if needed.
+
+**Risk**: Prompt engineering may not be sufficient. The LLM may still miss patterns even with guidance. Mitigation: Step 7.7.2.2 validates before investing in further steps.
 
 | Step    | What                                                          | Test                                                    |
 | ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.7.2.1 | Add config files to project overview (package.json, tsconfig.json exists) | Overview shows "Config files: package.json, tsconfig.json" |
-| 7.7.2.2 | Update navigator prompt with modification guidance            | For "add X support" queries, suggests searching configs |
-| 7.7.2.3 | Enhance synthesis prompt for modification queries             | Reminds to check config files when modifying patterns   |
-| 7.7.2.4 | (Optional) Add `references` target for auto-grep expansion    | `{ type: 'references', pattern: '.ts' }` searches all   |
+| 7.7.2.1 | Add config files section to project overview                  | Overview shows "Config files: package.json, tsconfig.json, pith.config.json" |
+| 7.7.2.2 | **VALIDATE**: Run M1 manually with updated overview, measure improvement | If score improves ≥2 points, continue; else reconsider approach |
+| 7.7.2.3 | Add explicit modification examples to navigator prompt        | Prompt includes: "For file extension changes, grep for '.ts', '.js' patterns. For API changes, check package.json scripts." |
+| 7.7.2.4 | Enhance synthesis prompt with modification checklist          | Reminds: "For modifications, verify you checked: 1) Config files, 2) Related string literals, 3) Test fixtures" |
+| 7.7.2.5 | **VALIDATE**: Re-run M1 benchmark task                        | M1: 13/20 → 15/20 minimum; if not, proceed to 7.7.2.6   |
+| 7.7.2.6 | (If needed) Add `references` target for auto-grep expansion   | `{ type: 'references', pattern: '.ts' }` searches all files including configs |
 
-**Benchmark target**: M1: 13/20 → 17/20
+**Benchmark target**: M1: 13/20 → 17/20 (may require 7.7.2.6 if prompt changes insufficient)
 
 ##### 7.7.3 Comparative Bottleneck Detection
 
