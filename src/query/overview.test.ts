@@ -361,27 +361,27 @@ describe('relationships in buildProjectOverview - Phase 7.3.3', () => {
     assert.ok(cliRel.imports.includes('buildNodes'));
   });
 
-  it('includes high-fanIn files with consumer counts', () => {
+  it('includes high-fanIn files with their exports in relationships', () => {
     const nodes: WikiNode[] = [
-      // High fanIn file - widely used
+      // High fanIn file - widely used (fanIn >= 5 threshold)
       createFileNode('src/types/index.ts', {
         fanIn: 12,
         exports: ['WikiNode', 'Edge', 'ProseData'],
         summary: 'Core type definitions',
       }),
-      // Normal file
+      // Normal file below threshold
       createFileNode('src/utils.ts', { fanIn: 2, exports: ['helper'] }),
     ];
 
     const overview = buildProjectOverview(nodes);
 
-    // High fanIn files should appear in relationships section
+    // High fanIn files should appear in relationships section with their exports
     const highFanInRel = overview.relationships.find((r) => r.from === 'src/types/index.ts');
-    // Or check that it's tracked somehow
-    assert.ok(
-      overview.relationships.some((r) => r.from.includes('types')) ||
-        overview.modules.some((m) => m.summary?.includes('12'))
-    );
+    assert.ok(highFanInRel, 'High-fanIn file should be in relationships');
+    // The imports field contains what this file provides (exports) for high-fanIn files
+    assert.ok(highFanInRel.imports.includes('WikiNode'), 'Should list WikiNode export');
+    assert.ok(highFanInRel.imports.includes('Edge'), 'Should list Edge export');
+    assert.ok(highFanInRel.imports.includes('ProseData'), 'Should list ProseData export');
   });
 
   it('shows what entry points import for navigation context', () => {
