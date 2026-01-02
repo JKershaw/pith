@@ -1304,13 +1304,22 @@ interface NavigationResponse {
 
 **Problem**: R3 scored 11/20. Pith listed "potential consumers" without line numbers; Control found 1 production + 47 test call sites.
 
-**Root cause**: Navigator's `importers` target returns file-level dependents, not function-level call sites.
+**Root cause**: Navigator's `importers` target returns file-level dependents, not function-level call sites. The existing `buildFunctionConsumers()` function (builder/index.ts:1069-1141) already provides this data but isn't connected to navigator.
+
+**Design consideration**: `resolveAllTargets()` receives `WikiNode[]` but `buildFunctionConsumers()` requires `ExtractedFile[]`. Either:
+- Pass extracted files to resolver (changes function signature)
+- Pre-compute consumers during build and store in DB
+- Fetch from 'extracted' collection in resolver (like `/consumers` endpoint does)
+
+**Recommendation**: Fetch from 'extracted' collection in resolver to match existing `/consumers` endpoint pattern.
 
 | Step    | What                                                      | Test                                                    |
 | ------- | --------------------------------------------------------- | ------------------------------------------------------- |
-| 7.7.1.1 | Add `callers` target type to navigator                    | Navigator can request `{ type: 'callers', of: 'func' }` |
-| 7.7.1.2 | Resolve callers using existing function consumer tracking | Returns file:line for each call site                    |
-| 7.7.1.3 | Distinguish production vs test callers in output          | Shows "1 production, 47 test call sites"                |
+| 7.7.1.1 | Add `CallersTarget` type: `{ type: 'callers', of: 'file:func' }` | Type compiles, parseNavigatorResponse validates it      |
+| 7.7.1.2 | Implement `resolveCallersTarget()` fetching from 'extracted' | Returns `{ productionCallers: [], testCallers: [] }`    |
+| 7.7.1.3 | Add `callers` case to `resolveAllTargets()` switch        | Callers appear in resolved context                      |
+| 7.7.1.4 | Update navigator prompt to mention `callers` target type  | LLM requests callers for consumer-type questions        |
+| 7.7.1.5 | Format caller results in synthesis (production/test split)| Shows "1 production, 47 test call sites"                |
 
 **Benchmark target**: R3: 11/20 → 18/20
 
@@ -1318,13 +1327,26 @@ interface NavigationResponse {
 
 **Problem**: M1 scored 13/20. Pith found 3-4 locations to modify; Control found 13 specific locations including config files.
 
-**Root cause**: Navigator can grep for patterns but doesn't automatically search for hardcoded values referenced in a file (like `'.ts'` extension patterns).
+**Root cause analysis**: Navigator can grep for patterns but the LLM doesn't automatically think to search for related string literals like `'.ts'`. The issue is partly prompt engineering - the LLM needs guidance to search for related patterns.
+
+**Existing capabilities that aren't being leveraged**:
+- Config files (package.json, tsconfig.json) ARE extracted (Phase 6.8.3)
+- Grep target CAN search for string patterns
+- Key statements DO detect config values
+
+**Design options**:
+1. Add `references` target type that auto-expands to related greps
+2. Enhance overview to show what config files exist
+3. Add synthesis prompt guidance about checking config files for modifications
+
+**Recommendation**: Option 3 is simplest. Option 2 provides better context. Combine both.
 
 | Step    | What                                                          | Test                                                    |
 | ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.7.2.1 | Add `references` target type to navigator                     | Navigator can request `{ type: 'references', of: '.ts' }` |
-| 7.7.2.2 | Auto-detect likely cross-reference candidates (file extensions, patterns) | Modification queries suggest related searches           |
-| 7.7.2.3 | Include config files (package.json, tsconfig.json) in search scope | Extension patterns found in config files               |
+| 7.7.2.1 | Add config files to project overview (package.json, tsconfig.json exists) | Overview shows "Config files: package.json, tsconfig.json" |
+| 7.7.2.2 | Update navigator prompt with modification guidance            | For "add X support" queries, suggests searching configs |
+| 7.7.2.3 | Enhance synthesis prompt for modification queries             | Reminds to check config files when modifying patterns   |
+| 7.7.2.4 | (Optional) Add `references` target for auto-grep expansion    | `{ type: 'references', pattern: '.ts' }` searches all   |
 
 **Benchmark target**: M1: 13/20 → 17/20
 
@@ -1332,15 +1354,41 @@ interface NavigationResponse {
 
 **Problem**: D2 scored 16/20. Pith listed general slowness causes; Control found the key bottleneck (sequential vs batch processing).
 
-**Root cause**: Navigator finds relevant code but doesn't highlight comparative performance characteristics.
+**Root cause**: `extractKeyStatements()` (ast.ts:269-355) detects config values like `BATCH_SIZE = 4` but doesn't detect:
+- Loop patterns (for, while, for...of)
+- Async patterns (Promise.all vs sequential await)
+- Processing style (batch vs sequential)
+
+**Current key statement categories**: config, url, math, condition, error
+
+**Needed categories**:
+- `loop`: for/while/for...of statements
+- `async-pattern`: Promise.all, sequential awaits in loops
 
 | Step    | What                                                          | Test                                                    |
 | ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
-| 7.7.3.1 | Add performance hints to key statement extraction             | Identify `BATCH_SIZE`, sequential loops, async patterns |
-| 7.7.3.2 | Include comparative context in synthesis prompt               | "extract uses BATCH_SIZE=4, generate processes sequentially" |
-| 7.7.3.3 | Flag functions with different processing patterns             | Highlights batch vs sequential differences              |
+| 7.7.3.1 | Add 'loop' category to extractKeyStatements                   | Detects `for (const file of files)` with line number    |
+| 7.7.3.2 | Add 'async-pattern' category for Promise.all                  | Detects `await Promise.all(files.map(...))` pattern     |
+| 7.7.3.3 | Add 'async-pattern' for sequential await in loops             | Detects `for (...) { await ... }` as sequential         |
+| 7.7.3.4 | Include processing pattern summary in function details        | Shows "batch (BATCH_SIZE=4)" or "sequential"            |
+| 7.7.3.5 | Update synthesis prompt to highlight processing differences   | Compares related functions' processing patterns         |
 
 **Benchmark target**: D2: 16/20 → 19/20
+
+---
+
+##### Phase 7.7 Dependencies
+
+```
+7.7.1 (Callers target)      - Independent, uses existing buildFunctionConsumers
+7.7.2 (Config references)   - Independent, mostly prompt changes
+7.7.3 (Bottleneck detection) - Independent, extends key statement extraction
+
+Recommended order: 7.7.1 → 7.7.3 → 7.7.2
+- 7.7.1 has highest impact (+7 points)
+- 7.7.3 requires code changes but is self-contained
+- 7.7.2 is mostly prompt engineering, can iterate after
+```
 
 ---
 
