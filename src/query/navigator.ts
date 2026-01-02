@@ -10,6 +10,7 @@
  */
 
 import type { ProjectOverview } from './overview.ts';
+import type { WikiNode } from '../builder/index.ts';
 
 // ============================================================================
 // Target Types
@@ -274,4 +275,205 @@ function validateTarget(target: unknown): { target?: NavigationTarget; error?: s
     default:
       return { error: `Unknown target type: ${type}` };
   }
+}
+
+// ============================================================================
+// Target Resolution - Phase 7.3.6
+// ============================================================================
+
+/** Result of resolving a navigation target */
+export interface ResolvedTarget {
+  /** Whether resolution succeeded */
+  success: boolean;
+  /** Error message if resolution failed */
+  error?: string;
+  /** Suggestions for similar paths when file not found */
+  suggestions?: string[];
+  /** The resolved WikiNode for file targets */
+  node?: WikiNode;
+  /** Function details for function targets */
+  functionDetails?: {
+    name: string;
+    signature: string;
+    startLine: number;
+    endLine: number;
+  };
+  /** List of importing file paths for importers targets */
+  importers?: string[];
+}
+
+/**
+ * Resolve a file target by finding the matching WikiNode.
+ * Returns error with suggestions if file not found.
+ *
+ * @param target - The file target to resolve
+ * @param nodes - All WikiNodes in the project
+ * @returns ResolvedTarget with node or error
+ */
+export function resolveFileTarget(target: FileTarget, nodes: WikiNode[]): ResolvedTarget {
+  // Validate input
+  if (!target.path || target.path.trim() === '') {
+    return { success: false, error: 'File path is empty' };
+  }
+
+  // Find exact match (only file nodes)
+  const node = nodes.find((n) => n.type === 'file' && n.path === target.path);
+
+  if (node) {
+    return { success: true, node };
+  }
+
+  // File not found - try to find suggestions
+  const suggestions = findSimilarPaths(target.path, nodes);
+
+  return {
+    success: false,
+    error: `File not found: ${target.path}`,
+    suggestions: suggestions.length > 0 ? suggestions : undefined,
+  };
+}
+
+/**
+ * Find similar paths for suggestions when a file is not found.
+ * Uses exact segment matching to avoid substring false positives.
+ */
+function findSimilarPaths(targetPath: string, nodes: WikiNode[]): string[] {
+  // Filter empty parts from paths with leading/trailing/double slashes
+  const targetParts = targetPath.split('/').filter((p) => p.length > 0);
+  if (targetParts.length === 0) return [];
+
+  const targetFilename = targetParts[targetParts.length - 1];
+  const targetDirParts = targetParts.slice(0, -1);
+
+  const scored: Array<{ path: string; score: number }> = [];
+
+  for (const node of nodes) {
+    if (node.type !== 'file') continue;
+
+    const nodeParts = node.path.split('/').filter((p) => p.length > 0);
+    if (nodeParts.length === 0) continue;
+
+    const nodeFilename = nodeParts[nodeParts.length - 1];
+    const nodeDirParts = nodeParts.slice(0, -1);
+
+    let score = 0;
+
+    // Same filename is a strong signal
+    if (nodeFilename === targetFilename) {
+      score += 3;
+    }
+
+    // Check for exact matching directory segments (not substring matching)
+    const nodeDirSet = new Set(nodeDirParts);
+    for (const dirPart of targetDirParts) {
+      if (nodeDirSet.has(dirPart)) {
+        score += 2;
+      }
+      // Also check for prefix matches (extract -> extractor)
+      for (const nodeDirPart of nodeDirParts) {
+        if (nodeDirPart.startsWith(dirPart) && nodeDirPart !== dirPart) {
+          score += 1;
+        }
+      }
+    }
+
+    if (score > 0) {
+      scored.push({ path: node.path, score });
+    }
+  }
+
+  // Return top 3 suggestions sorted by score
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((s) => s.path);
+}
+
+/**
+ * Resolve a function target by finding the function in the specified file.
+ *
+ * @param target - The function target to resolve
+ * @param nodes - All WikiNodes in the project
+ * @returns ResolvedTarget with function details or error
+ */
+export function resolveFunctionTarget(target: FunctionTarget, nodes: WikiNode[]): ResolvedTarget {
+  // Validate input
+  if (!target.name || target.name.trim() === '') {
+    return { success: false, error: 'Function name is empty' };
+  }
+  if (!target.in || target.in.trim() === '') {
+    return { success: false, error: 'File path is empty' };
+  }
+
+  // First find the file (only file nodes)
+  const fileNode = nodes.find((n) => n.type === 'file' && n.path === target.in);
+
+  if (!fileNode) {
+    // Try to provide suggestions for the file
+    const suggestions = findSimilarPaths(target.in, nodes);
+    return {
+      success: false,
+      error: `File not found: ${target.in}`,
+      suggestions: suggestions.length > 0 ? suggestions : undefined,
+    };
+  }
+
+  // Find the function in the file's functions array
+  const functions = fileNode.raw?.functions || [];
+  const func = functions.find((f) => f.name === target.name);
+
+  if (!func) {
+    return {
+      success: false,
+      error: `Function '${target.name}' not found in ${target.in}`,
+    };
+  }
+
+  return {
+    success: true,
+    functionDetails: {
+      name: func.name,
+      signature: func.signature,
+      startLine: func.startLine,
+      endLine: func.endLine,
+    },
+  };
+}
+
+/**
+ * Resolve an importers target by finding files that import the symbol.
+ * Uses the importedBy edges on nodes that export the symbol.
+ *
+ * @param target - The importers target to resolve
+ * @param nodes - All WikiNodes in the project
+ * @returns ResolvedTarget with list of importing files
+ */
+export function resolveImportersTarget(target: ImportersTarget, nodes: WikiNode[]): ResolvedTarget {
+  // Validate input
+  if (!target.of || target.of.trim() === '') {
+    return { success: false, error: 'Symbol name is empty' };
+  }
+
+  // Use Set for O(1) lookup to avoid O(n²) performance
+  const importerSet = new Set<string>();
+
+  // Find nodes that export the symbol
+  for (const node of nodes) {
+    const exports = node.raw?.exports || [];
+    const hasSymbol = exports.some((e) => e.name === target.of);
+
+    if (hasSymbol) {
+      // Get all files that import from this node using importedBy edges
+      for (const edge of node.edges) {
+        if (edge.type === 'importedBy') {
+          importerSet.add(edge.target);
+        }
+      }
+    }
+  }
+
+  return {
+    success: true,
+    importers: Array.from(importerSet),
+  };
 }

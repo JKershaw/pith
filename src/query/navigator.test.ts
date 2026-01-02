@@ -12,10 +12,15 @@ import {
   type GrepTarget,
   type FunctionTarget,
   type ImportersTarget,
+  type ResolvedTarget,
   buildNavigatorPrompt,
   parseNavigatorResponse,
   formatOverviewForPrompt,
+  resolveFileTarget,
+  resolveFunctionTarget,
+  resolveImportersTarget,
 } from './navigator.ts';
+import type { WikiNode } from '../builder/index.ts';
 import { type ProjectOverview } from './overview.ts';
 
 // Helper to create test overview
@@ -222,5 +227,185 @@ describe('parseNavigatorResponse', () => {
     }`;
     const result = parseNavigatorResponse(rawResponse);
     assert.ok(result.error);
+  });
+});
+
+// Helper to create test WikiNodes
+function createTestNode(
+  path: string,
+  options: {
+    type?: 'file' | 'module' | 'function';
+    fanIn?: number;
+    exports?: string[];
+    functions?: Array<{ name: string; signature: string; startLine: number; endLine: number }>;
+    summary?: string;
+  } = {}
+): WikiNode {
+  return {
+    id: path,
+    type: options.type || 'file',
+    path,
+    name: path.split('/').pop() || path,
+    metadata: {
+      lines: 100,
+      commits: 5,
+      lastModified: new Date(),
+      authors: ['test'],
+      fanIn: options.fanIn ?? 0,
+    },
+    edges: [],
+    raw: {
+      exports: (options.exports || []).map((name) => ({ name, kind: 'function' as const })),
+      functions: options.functions?.map((f) => ({
+        name: f.name,
+        signature: f.signature,
+        startLine: f.startLine,
+        endLine: f.endLine,
+        isAsync: false,
+        isExported: true,
+        isDefaultExport: false,
+        codeSnippet: '',
+        keyStatements: [],
+        calls: [],
+        calledBy: [],
+        crossFileCalls: [],
+        crossFileCalledBy: [],
+        errorPaths: [],
+      })),
+    },
+    prose: options.summary
+      ? {
+          summary: options.summary,
+          purpose: 'Test purpose',
+          gotchas: [],
+          generatedAt: new Date(),
+        }
+      : undefined,
+  };
+}
+
+describe('resolveFileTarget - Phase 7.3.6.1', () => {
+  it('resolves valid file path to node', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/index.ts', { summary: 'Main entry' }),
+      createTestNode('src/utils.ts', { summary: 'Utilities' }),
+    ];
+    const target: FileTarget = { type: 'file', path: 'src/index.ts' };
+
+    const result = resolveFileTarget(target, nodes);
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.node?.path, 'src/index.ts');
+  });
+
+  it('returns error for non-existent file', () => {
+    const nodes: WikiNode[] = [createTestNode('src/index.ts')];
+    const target: FileTarget = { type: 'file', path: 'src/missing.ts' };
+
+    const result = resolveFileTarget(target, nodes);
+
+    assert.strictEqual(result.success, false);
+    assert.ok(result.error);
+    assert.ok(result.error.includes('not found'));
+  });
+
+  it('provides suggestions for similar paths', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/extractor/index.ts'),
+      createTestNode('src/generator/index.ts'),
+    ];
+    const target: FileTarget = { type: 'file', path: 'src/extract/index.ts' };
+
+    const result = resolveFileTarget(target, nodes);
+
+    assert.strictEqual(result.success, false);
+    assert.ok(result.suggestions);
+    assert.ok(result.suggestions.includes('src/extractor/index.ts'));
+  });
+});
+
+describe('resolveFunctionTarget - Phase 7.3.6.3', () => {
+  it('resolves function in file', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/utils.ts', {
+        functions: [
+          { name: 'helper', signature: 'function helper(): void', startLine: 10, endLine: 20 },
+          {
+            name: 'format',
+            signature: 'function format(s: string): string',
+            startLine: 25,
+            endLine: 35,
+          },
+        ],
+      }),
+    ];
+    const target: FunctionTarget = { type: 'function', name: 'helper', in: 'src/utils.ts' };
+
+    const result = resolveFunctionTarget(target, nodes);
+
+    assert.strictEqual(result.success, true);
+    assert.ok(result.functionDetails);
+    assert.strictEqual(result.functionDetails.name, 'helper');
+    assert.strictEqual(result.functionDetails.startLine, 10);
+  });
+
+  it('returns error for missing function', () => {
+    const nodes: WikiNode[] = [
+      createTestNode('src/utils.ts', {
+        functions: [
+          { name: 'helper', signature: 'function helper(): void', startLine: 10, endLine: 20 },
+        ],
+      }),
+    ];
+    const target: FunctionTarget = { type: 'function', name: 'missing', in: 'src/utils.ts' };
+
+    const result = resolveFunctionTarget(target, nodes);
+
+    assert.strictEqual(result.success, false);
+    assert.ok(result.error?.includes('not found'));
+  });
+
+  it('returns error for missing file', () => {
+    const nodes: WikiNode[] = [createTestNode('src/other.ts')];
+    const target: FunctionTarget = { type: 'function', name: 'helper', in: 'src/utils.ts' };
+
+    const result = resolveFunctionTarget(target, nodes);
+
+    assert.strictEqual(result.success, false);
+    assert.ok(result.error?.includes('not found'));
+  });
+});
+
+describe('resolveImportersTarget - Phase 7.3.6.4', () => {
+  it('finds files that import a symbol using importedBy edges', () => {
+    const typeNode = createTestNode('src/types.ts', { exports: ['WikiNode'] });
+    typeNode.edges = [
+      { type: 'importedBy', target: 'src/builder.ts' },
+      { type: 'importedBy', target: 'src/api.ts' },
+    ];
+    const nodes: WikiNode[] = [
+      typeNode,
+      createTestNode('src/builder.ts'),
+      createTestNode('src/api.ts'),
+    ];
+    const target: ImportersTarget = { type: 'importers', of: 'WikiNode' };
+
+    const result = resolveImportersTarget(target, nodes);
+
+    assert.strictEqual(result.success, true);
+    assert.ok(result.importers);
+    assert.ok(result.importers.length >= 2);
+    assert.ok(result.importers.includes('src/builder.ts'));
+    assert.ok(result.importers.includes('src/api.ts'));
+  });
+
+  it('returns empty list when symbol not found', () => {
+    const nodes: WikiNode[] = [createTestNode('src/utils.ts', { exports: ['helper'] })];
+    const target: ImportersTarget = { type: 'importers', of: 'UnknownSymbol' };
+
+    const result = resolveImportersTarget(target, nodes);
+
+    assert.strictEqual(result.success, true);
+    assert.deepStrictEqual(result.importers, []);
   });
 });
