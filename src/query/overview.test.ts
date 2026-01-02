@@ -361,7 +361,7 @@ describe('relationships in buildProjectOverview - Phase 7.3.3', () => {
     assert.ok(cliRel.imports.includes('buildNodes'));
   });
 
-  it('includes high-fanIn files with their exports in relationships', () => {
+  it('includes high-fanIn files with their exports and consumer count in relationships', () => {
     const nodes: WikiNode[] = [
       // High fanIn file - widely used (fanIn >= 5 threshold)
       createFileNode('src/types/index.ts', {
@@ -378,6 +378,10 @@ describe('relationships in buildProjectOverview - Phase 7.3.3', () => {
     // High fanIn files should appear in relationships section with their exports
     const highFanInRel = overview.relationships.find((r) => r.from === 'src/types/index.ts');
     assert.ok(highFanInRel, 'High-fanIn file should be in relationships');
+
+    // Verify consumer count is tracked
+    assert.strictEqual(highFanInRel.consumerCount, 12, 'Should track consumer count (fanIn)');
+
     // The imports field contains what this file provides (exports) for high-fanIn files
     assert.ok(highFanInRel.imports.includes('WikiNode'), 'Should list WikiNode export');
     assert.ok(highFanInRel.imports.includes('Edge'), 'Should list Edge export');

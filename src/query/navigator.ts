@@ -90,9 +90,10 @@ export function formatOverviewForPrompt(overview: ProjectOverview): string {
 
   // Relationships
   if (overview.relationships.length > 0) {
-    const relLines = overview.relationships.map(
-      (r) => `- ${r.from} imports: ${r.imports.join(', ')}`
-    );
+    const relLines = overview.relationships.map((r) => {
+      const consumerInfo = r.consumerCount ? ` (${r.consumerCount} consumers)` : '';
+      return `- ${r.from}${consumerInfo} imports: ${r.imports.join(', ')}`;
+    });
     sections.push(`## Key Relationships\n${relLines.join('\n')}`);
   }
 

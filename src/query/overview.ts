@@ -69,6 +69,9 @@ export interface Relationship {
 
   /** List of imported symbols/functions */
   imports: string[];
+
+  /** Number of files that depend on this file (for high-fanIn files) */
+  consumerCount?: number;
 }
 
 /**
@@ -302,6 +305,7 @@ function extractRelationships(nodes: WikiNode[]): Relationship[] {
       relationships.push({
         from: node.path,
         imports: exports, // Note: "imports" field used to show what this file provides
+        consumerCount: node.metadata.fanIn,
       });
     }
   }
