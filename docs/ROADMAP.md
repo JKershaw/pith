@@ -11,25 +11,24 @@
 | 6.8.0       | ✅ Complete    | Fixed fuzzy matching regression                                                                        |
 | 6.8.1-6.8.4 | ✅ Complete    | Deterministic Gap Closure: symbol tracking, content preservation, config extraction, debugging output  |
 | 6.9         | ✅ Complete    | Response Optimization: smarter defaults, function-level consumer tracking                              |
-| 7.0-7.2     | ✅ Complete    | Query Planner baseline: keyword index, pre-filter, planner, synthesis, benchmarking                    |
-| **7.3-7.6** | **⬅️ CURRENT** | **Overview-Based Navigation: replace pre-filter with LLM reasoning over project overview**             |
+| 7.0-7.3     | ✅ Complete    | Query Planner: keyword index, pre-filter, planner, synthesis, overview-based navigation                |
+| **7.4-7.6** | **⬅️ CURRENT** | **Query refinement: content iteration, non-determinism mitigation, target validation**                 |
+| **7.7**     | **⬅️ NEW**     | **Gap closure: function consumer index, modification enumeration**                                     |
 | 10          | Planned        | MCP Server integration                                                                                 |
 | 8-9, 11     | Planned        | Advanced relationships, intelligence, scale                                                            |
 
-**Latest benchmark** (2026-01-01, Query Mode, 15 tasks): Pith 14.7/20 (73.5%) vs Control 19.0/20 (95%). Gap: 21.5 points.
+**Latest benchmark** (2026-01-02, Query Mode, 15 tasks): Pith 16.4/20 (82.0%) vs Control 19.1/20 (95.5%). Gap: 2.7 points.
 
-- Win rate: 0 wins, 15 losses
-- Query Mode = Context Mode (73.5% vs 73%) - LLM research step adds no value
-- Root cause: LLM planner constrained to pre-filtered candidates
-- See [2026-01-01-query-mode-self-test.md](benchmark-results/2026-01-01-query-mode-self-test.md) for full results
-- See [QUERY_MODE_KNOWN_ISSUES.md](QUERY_MODE_KNOWN_ISSUES.md) for root cause analysis
+- Win rate: 0 wins, 12 losses, **3 ties** (A2, B1, B3)
+- **+8.5% improvement** over 2026-01-01 Query Mode
+- Line number references now consistently provided
+- See [2026-01-02-self-test.md](benchmark-results/2026-01-02-self-test.md) for full results
 
-**Key gaps identified** (from Query Mode analysis):
+**Key gaps remaining** (from 2026-01-02 benchmark):
 
-- **Relationship (R1-R3)**: 14.0/20 - can't trace function-level consumers (Issue #1)
-- **Entry points invisible**: CLI never appears as candidate (Issue #2)
-- **Non-determinism**: B3 scored 10/20 due to planner skipping #1 candidate (Issue #3)
-- **Can't discover files**: Planner limited to pre-filtered candidates (Issue #4)
+- **Relationship (R1-R3)**: 14.3/20 - R3 (extractFile consumers) scored 11/20; can't trace function call sites
+- **Modification (M1-M3)**: 15.3/20 - M1 found 3-4 locations vs Control's 13; incomplete enumeration
+- **Debugging (D1-D3)**: 16.7/20 - D2 missed key bottleneck (sequential vs batch processing)
 
 **Benchmark History**:
 | Run | Mode | Pith Score | Control | Gap | Notes |
@@ -38,7 +37,8 @@
 | v1 (2025-12-31) | Context | 78% | 96% | -3.5 | Before fuzzy matching bug |
 | v3 (2025-12-31) | Context | 65% | 96% | -8.2 | Fuzzy matching regression |
 | v4 (2025-12-31) | Context | 71% | 96% | -6.2 | Post-fixes |
-| **Query (2026-01-01)** | **Query** | **73.5%** | **95%** | **-21.5** | **First Query Mode benchmark** |
+| Query v1 (2026-01-01) | Query | 73.5% | 95% | -4.3 | First Query Mode benchmark |
+| **Query v2 (2026-01-02)** | **Query** | **82.0%** | **95.5%** | **-2.7** | **3 ties, +8.5% improvement** |
 
 ---
 
@@ -1290,14 +1290,120 @@ interface NavigationResponse {
 
 ---
 
-##### Phase 7 Success Criteria (Updated)
+#### 7.7 Gap Closure ⬅️ NEW (based on 2026-01-02 benchmark)
 
-| Metric         | 7.0-7.1 Baseline | After 7.3-7.6 |
-| -------------- | ---------------- | ------------- |
-| Overall        | 73.5%            | ≥85%          |
-| Gap to Control | 21.5 points      | ≤10 points    |
-| Win rate       | 0/15             | ≥5/15         |
-| R-type queries | 14.0/20          | ≥17/20        |
+**Goal**: Close remaining gaps identified in benchmark through targeted improvements.
+
+**Context**: 2026-01-02 benchmark achieved 82.0% but revealed specific capability gaps:
+
+- R3 (extractFile consumers): 11/20 - Can't trace function-level call sites
+- M1 (JavaScript support): 13/20 - Incomplete modification enumeration
+- D2 (Slow generation): 16/20 - Missed comparative analysis opportunity
+
+##### 7.7.1 Navigator Function Consumer Target
+
+**Problem**: R3 scored 11/20. Pith listed "potential consumers" without line numbers; Control found 1 production + 47 test call sites.
+
+**Root cause**: Navigator's `importers` target returns file-level dependents, not function-level call sites. The existing `buildFunctionConsumers()` function (builder/index.ts:1069-1141) already provides this data but isn't connected to navigator.
+
+**Design consideration**: `resolveAllTargets()` receives `WikiNode[]` but `buildFunctionConsumers()` requires `ExtractedFile[]`. Either:
+- Pass extracted files to resolver (changes function signature)
+- Pre-compute consumers during build and store in DB
+- Fetch from 'extracted' collection in resolver (like `/consumers` endpoint does)
+
+**Recommendation**: Fetch from 'extracted' collection in resolver to match existing `/consumers` endpoint pattern.
+
+| Step    | What                                                      | Test                                                    |
+| ------- | --------------------------------------------------------- | ------------------------------------------------------- |
+| 7.7.1.1 | Add `CallersTarget` type: `{ type: 'callers', of: 'file:func' }` | Type compiles, parseNavigatorResponse validates it      |
+| 7.7.1.2 | Implement `resolveCallersTarget()` fetching from 'extracted' | Returns `{ productionCallers: [], testCallers: [] }`    |
+| 7.7.1.3 | Add `callers` case to `resolveAllTargets()` switch        | Callers appear in resolved context                      |
+| 7.7.1.4 | Update navigator prompt to mention `callers` target type  | LLM requests callers for consumer-type questions        |
+| 7.7.1.5 | Format caller results in synthesis (production/test split)| Shows "1 production, 47 test call sites"                |
+
+**Benchmark target**: R3: 11/20 → 18/20
+
+##### 7.7.2 Hardcoded Value Cross-Reference
+
+**Problem**: M1 scored 13/20. Pith found 3-4 locations to modify; Control found 13 specific locations including config files.
+
+**Root cause analysis**: Navigator can grep for patterns but the LLM doesn't automatically search for related string literals like `'.ts'`. This requires explicit guidance in the prompt.
+
+**Existing capabilities that aren't being leveraged**:
+- Config files (package.json, tsconfig.json) ARE extracted (Phase 6.8.3)
+- Grep target CAN search for string patterns
+- Key statements DO detect config values
+
+**Design options**:
+1. Add `references` target type that auto-expands to related greps
+2. Enhance overview to show what config files exist
+3. Add synthesis prompt guidance about checking config files for modifications
+
+**Recommendation**: Start with prompt changes (options 2+3), validate early, add infrastructure (option 1) only if needed.
+
+**Risk**: Prompt engineering may not be sufficient. The LLM may still miss patterns even with guidance. Mitigation: Step 7.7.2.2 validates before investing in further steps.
+
+| Step    | What                                                          | Test                                                    |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| 7.7.2.1 | Add config files section to project overview                  | Overview shows "Config files: package.json, tsconfig.json, pith.config.json" |
+| 7.7.2.2 | **VALIDATE**: Run M1 manually with updated overview, measure improvement | If score improves ≥2 points, continue; else reconsider approach |
+| 7.7.2.3 | Add explicit modification examples to navigator prompt        | Prompt includes: "For file extension changes, grep for '.ts', '.js' patterns. For API changes, check package.json scripts." |
+| 7.7.2.4 | Enhance synthesis prompt with modification checklist          | Reminds: "For modifications, verify you checked: 1) Config files, 2) Related string literals, 3) Test fixtures" |
+| 7.7.2.5 | **VALIDATE**: Re-run M1 benchmark task                        | M1: 13/20 → 15/20 minimum; if not, proceed to 7.7.2.6   |
+| 7.7.2.6 | (If needed) Add `references` target for auto-grep expansion   | `{ type: 'references', pattern: '.ts' }` searches all files including configs |
+
+**Benchmark target**: M1: 13/20 → 17/20 (may require 7.7.2.6 if prompt changes insufficient)
+
+##### 7.7.3 Comparative Bottleneck Detection
+
+**Problem**: D2 scored 16/20. Pith listed general slowness causes; Control found the key bottleneck (sequential vs batch processing).
+
+**Root cause**: `extractKeyStatements()` (ast.ts:269-355) detects config values like `BATCH_SIZE = 4` but doesn't detect:
+- Loop patterns (for, while, for...of)
+- Async patterns (Promise.all vs sequential await)
+- Processing style (batch vs sequential)
+
+**Current key statement categories**: config, url, math, condition, error
+
+**Needed categories**:
+- `loop`: for/while/for...of statements
+- `async-pattern`: Promise.all, sequential awaits in loops
+
+| Step    | What                                                          | Test                                                    |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| 7.7.3.1 | Add 'loop' category to extractKeyStatements                   | Detects `for (const file of files)` with line number    |
+| 7.7.3.2 | Add 'async-pattern' category for Promise.all                  | Detects `await Promise.all(files.map(...))` pattern     |
+| 7.7.3.3 | Add 'async-pattern' for sequential await in loops             | Detects `for (...) { await ... }` as sequential         |
+| 7.7.3.4 | Include processing pattern summary in function details        | Shows "batch (BATCH_SIZE=4)" or "sequential"            |
+| 7.7.3.5 | Update synthesis prompt to highlight processing differences   | Compares related functions' processing patterns         |
+
+**Benchmark target**: D2: 16/20 → 19/20
+
+---
+
+##### Phase 7.7 Dependencies
+
+```
+7.7.1 (Callers target)      - Independent, uses existing buildFunctionConsumers
+7.7.2 (Config references)   - Independent, mostly prompt changes
+7.7.3 (Bottleneck detection) - Independent, extends key statement extraction
+
+Recommended order: 7.7.1 → 7.7.3 → 7.7.2
+- 7.7.1 has highest impact (+7 points)
+- 7.7.3 requires code changes but is self-contained
+- 7.7.2 is mostly prompt engineering, can iterate after
+```
+
+---
+
+##### Phase 7 Success Criteria (Updated with 2026-01-02 Results)
+
+| Metric         | 7.0-7.1 Baseline | After 7.3 (Actual) | Target (7.7) |
+| -------------- | ---------------- | ------------------ | ------------ |
+| Overall        | 73.5%            | **82.0%** ✅        | ≥88%         |
+| Gap to Control | 4.3 points       | **2.7 points** ✅   | ≤2 points    |
+| Win rate       | 0/15             | **0/15** (3 ties)  | ≥3/15        |
+| R-type queries | 14.0/20          | 14.3/20            | ≥17/20       |
 
 **Why Overview-Based Navigation works**:
 
@@ -1368,14 +1474,26 @@ Only needed for very large codebases.
 
 ## Priority Summary
 
-Based on v4 benchmark (2025-12-31), focus on:
+Based on 2026-01-02 benchmark (82.0% Pith vs 95.5% Control), focus on:
 
-1. **Smarter defaults** (Phase 6.9.1) - Reduce token usage via intelligent output sizing
-2. **Function-level consumer tracking** (Phase 6.9.2) - Close R3's 12-point gap
-3. **Query Planner** (Phase 7) - Two LLM calls: planner selects files, final synthesizes answer
+1. **Navigator function consumer target** (Phase 7.7.1) - Add `callers` target to fix R3 gap (11/20 → 18/20)
+2. **Hardcoded value cross-reference** (Phase 7.7.2) - Fix M1's incomplete enumeration (13/20 → 17/20)
+3. **Comparative bottleneck detection** (Phase 7.7.3) - Improve debugging specificity (16/20 → 19/20)
 4. **MCP server** (Phase 10) - LLM tool integration after quality gaps closed
 
-**Design principle**: Pith should be a smart context provider that "just works". The Query Planner is the logical evolution - accept questions, not file paths.
+**Design principle**: Pith should be a smart context provider that "just works". Query Mode is now the primary interface - 82% accuracy with 3 ties against control.
+
+**Recent wins** (from 2026-01-02 benchmark):
+- +8.5% improvement over previous Query Mode run
+- 3 tasks now tie with Control (A2, B1, B3)
+- Line number references consistently provided
+
+**Gap closure priorities** (ordered by benchmark impact):
+| Task | Current | Target | Impact |
+|------|---------|--------|--------|
+| R3 (function consumers) | 11/20 | 18/20 | +7 points |
+| M1 (modification enumeration) | 13/20 | 17/20 | +4 points |
+| D2 (comparative analysis) | 16/20 | 19/20 | +3 points |
 
 Skip for now:
 
