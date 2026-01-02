@@ -304,6 +304,46 @@ function createTestNode(
   };
 }
 
+// Helper to create test extracted files with correct SymbolUsage structure
+function createTestExtractedFile(
+  path: string,
+  options: {
+    exports?: Array<{ name: string; kind: string; isReExport: boolean }>;
+    functions?: Array<{ name: string; isExported: boolean }>;
+    symbolUsages?: Array<{
+      symbol: string;
+      usageType: 'call' | 'reference' | 'type';
+      sourceFile: string;
+      usageLines: number[];
+    }>;
+  } = {}
+): ExtractedFile {
+  return {
+    path,
+    lines: 100,
+    imports: [],
+    exports: options.exports || [],
+    functions: (options.functions || []).map((f) => ({
+      name: f.name,
+      signature: `function ${f.name}(): void`,
+      params: [],
+      returnType: 'void',
+      isAsync: false,
+      isExported: f.isExported,
+      isDefaultExport: false,
+      startLine: 1,
+      endLine: 10,
+      codeSnippet: '',
+      keyStatements: [],
+      calls: [],
+      calledBy: [],
+      errorPaths: [],
+    })),
+    classes: [],
+    symbolUsages: options.symbolUsages || [],
+  };
+}
+
 describe('resolveFileTarget - Phase 7.3.6.1', () => {
   it('resolves valid file path to node', () => {
     const nodes: WikiNode[] = [
@@ -963,46 +1003,6 @@ describe('parseNavigatorResponse - callers target', () => {
 });
 
 describe('resolveCallersTarget - Phase 7.7.1', () => {
-  // Helper to create test extracted files with correct SymbolUsage structure
-  function createTestExtractedFile(
-    path: string,
-    options: {
-      exports?: Array<{ name: string; kind: string; isReExport: boolean }>;
-      functions?: Array<{ name: string; isExported: boolean }>;
-      symbolUsages?: Array<{
-        symbol: string;
-        usageType: 'call' | 'reference' | 'type';
-        sourceFile: string;
-        usageLines: number[];
-      }>;
-    } = {}
-  ): ExtractedFile {
-    return {
-      path,
-      lines: 100,
-      imports: [],
-      exports: options.exports || [],
-      functions: (options.functions || []).map((f) => ({
-        name: f.name,
-        signature: `function ${f.name}(): void`,
-        params: [],
-        returnType: 'void',
-        isAsync: false,
-        isExported: f.isExported,
-        isDefaultExport: false,
-        startLine: 1,
-        endLine: 10,
-        codeSnippet: '',
-        keyStatements: [],
-        calls: [],
-        calledBy: [],
-        errorPaths: [],
-      })),
-      classes: [],
-      symbolUsages: options.symbolUsages || [],
-    };
-  }
-
   it('returns error for empty function identifier', () => {
     const target: CallersTarget = { type: 'callers', of: '' };
     const result = resolveCallersTarget(target, []);
@@ -1076,45 +1076,6 @@ describe('resolveCallersTarget - Phase 7.7.1', () => {
 });
 
 describe('resolveAllTargets - callers target', () => {
-  function createTestExtractedFile(
-    path: string,
-    options: {
-      exports?: Array<{ name: string; kind: string; isReExport: boolean }>;
-      functions?: Array<{ name: string; isExported: boolean }>;
-      symbolUsages?: Array<{
-        symbol: string;
-        usageType: 'call' | 'reference' | 'type';
-        sourceFile: string;
-        usageLines: number[];
-      }>;
-    } = {}
-  ): ExtractedFile {
-    return {
-      path,
-      lines: 100,
-      imports: [],
-      exports: options.exports || [],
-      functions: (options.functions || []).map((f) => ({
-        name: f.name,
-        signature: `function ${f.name}(): void`,
-        params: [],
-        returnType: 'void',
-        isAsync: false,
-        isExported: f.isExported,
-        isDefaultExport: false,
-        startLine: 1,
-        endLine: 10,
-        codeSnippet: '',
-        keyStatements: [],
-        calls: [],
-        calledBy: [],
-        errorPaths: [],
-      })),
-      classes: [],
-      symbolUsages: options.symbolUsages || [],
-    };
-  }
-
   it('returns error when callers target used without extractedFiles', () => {
     const nodes: WikiNode[] = [createTestNode('src/auth.ts')];
     const targets: NavigationTarget[] = [{ type: 'callers', of: 'src/auth.ts:validateToken' }];
