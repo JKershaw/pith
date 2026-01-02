@@ -501,6 +501,39 @@ Example for "What is the retry logic in the LLM client?":
 
 The biggest gains expected in Relationship queries (R-type) where the overview explicitly captures "who imports/calls what" information that the current keyword index completely misses.
 
+### Remaining Considerations
+
+The proposed solution introduces new considerations that will be addressed through benchmarking and iteration:
+
+| Consideration             | Initial Approach                                              | Refine Later                                              |
+| ------------------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
+| **Overview completeness** | Include README + full file/folder tree + all module summaries | Trim based on what LLM actually uses                      |
+| **Overview staleness**    | Regenerate on each `pith build`                               | Add incremental updates if perf matters                   |
+| **Non-determinism**       | Accept variance, measure across benchmark runs                | Add temperature=0 or ensemble if variance is high         |
+| **Invalid targets**       | Validate paths, return graceful errors                        | Add retry with "file not found, did you mean..." feedback |
+| **Grep pattern quality**  | Let synthesis handle gaps if grep returns nothing             | Improve prompt if failure rate is high                    |
+
+### Implementation Strategy: Start Broad, Refine Narrow
+
+Rather than prematurely optimizing the overview format, the implementation should:
+
+1. **Start generous with context** (~1000-2000 tokens)
+   - Include full README.md
+   - Include complete file/folder tree (truncate smartly if needed)
+   - Include all module summaries with key relationships
+
+2. **Measure with benchmarks**
+   - Run same queries multiple times to measure variance
+   - Track which context the LLM actually references in its reasoning
+   - Identify which queries still fail despite full context
+
+3. **Refine based on data**
+   - Remove context that's never used
+   - Add context for query types that still fail
+   - Tune non-determinism mitigations if variance is unacceptable
+
+This approach ensures we don't sacrifice accuracy for token efficiency before we have data showing what's actually needed.
+
 ---
 
 ## Appendix: Query Mode Architecture (Current)
