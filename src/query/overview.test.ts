@@ -12,6 +12,7 @@ import {
   type EntryPoint,
   type Relationship,
   buildProjectOverview,
+  isEntryPoint,
 } from './overview.ts';
 
 // Helper to create minimal WikiNode for testing
@@ -223,5 +224,111 @@ describe('buildProjectOverview', () => {
     assert.strictEqual(overview.modules.length, 1);
     assert.strictEqual(overview.modules[0].summary, 'Utility functions');
     assert.deepStrictEqual(overview.modules[0].keyExports, []);
+  });
+
+  it('identifies entry points (fanIn=0, no exports) - Phase 7.3.2', () => {
+    const nodes: WikiNode[] = [
+      // CLI entry point: fanIn=0, no exports
+      createFileNode('src/cli/index.ts', {
+        fanIn: 0,
+        exports: [],
+        summary: 'CLI entry point for pith commands',
+      }),
+      // Regular file with exports and dependents
+      createFileNode('src/extractor/ast.ts', {
+        fanIn: 5,
+        exports: ['extractFile', 'extractGit'],
+        summary: 'AST extraction utilities',
+      }),
+      // Package entry: fanIn=0 but has exports (not an entry point)
+      createFileNode('src/index.ts', {
+        fanIn: 0,
+        exports: ['WikiNode', 'buildNodes'],
+        summary: 'Package exports',
+      }),
+    ];
+
+    const overview = buildProjectOverview(nodes);
+
+    // Should only include CLI as entry point (fanIn=0, no exports)
+    assert.strictEqual(overview.entryPoints.length, 1);
+    assert.strictEqual(overview.entryPoints[0].path, 'src/cli/index.ts');
+    assert.ok(overview.entryPoints[0].description.includes('CLI'));
+  });
+
+  it('uses file summary as entry point description', () => {
+    const nodes: WikiNode[] = [
+      createFileNode('src/main.ts', {
+        fanIn: 0,
+        exports: [],
+        summary: 'Main application entry point',
+      }),
+    ];
+
+    const overview = buildProjectOverview(nodes);
+
+    assert.strictEqual(overview.entryPoints.length, 1);
+    assert.strictEqual(overview.entryPoints[0].description, 'Main application entry point');
+  });
+
+  it('generates description from imports when no summary', () => {
+    const nodes: WikiNode[] = [
+      createFileNode('src/cli/index.ts', {
+        fanIn: 0,
+        exports: [],
+        imports: [
+          { from: './extractor', names: ['extractFile'] },
+          { from: './builder', names: ['buildNodes'] },
+        ],
+        // no summary
+      }),
+    ];
+
+    const overview = buildProjectOverview(nodes);
+
+    assert.strictEqual(overview.entryPoints.length, 1);
+    // Should mention what it imports
+    assert.ok(
+      overview.entryPoints[0].description.includes('extractFile') ||
+        overview.entryPoints[0].description.includes('extractor')
+    );
+  });
+});
+
+describe('isEntryPoint', () => {
+  it('returns true for file with fanIn=0 and no exports', () => {
+    const node = createFileNode('src/cli/index.ts', { fanIn: 0, exports: [] });
+    assert.strictEqual(isEntryPoint(node), true);
+  });
+
+  it('returns false for file with fanIn > 0', () => {
+    const node = createFileNode('src/utils.ts', { fanIn: 3, exports: [] });
+    assert.strictEqual(isEntryPoint(node), false);
+  });
+
+  it('returns false for file with exports', () => {
+    const node = createFileNode('src/index.ts', { fanIn: 0, exports: ['main', 'config'] });
+    assert.strictEqual(isEntryPoint(node), false);
+  });
+
+  it('returns false for module nodes', () => {
+    const node = createModuleNode('src/cli/');
+    // Force fanIn to 0 for test
+    node.metadata.fanIn = 0;
+    assert.strictEqual(isEntryPoint(node), false);
+  });
+
+  it('returns true when fanIn is undefined (no dependents)', () => {
+    const node = createFileNode('src/main.ts', { exports: [] });
+    // fanIn is undefined by default in helper
+    node.metadata.fanIn = undefined;
+    assert.strictEqual(isEntryPoint(node), true);
+  });
+
+  it('allows files with 1-2 exports as potential entry points', () => {
+    // Some entry points might export a few things for testing
+    const node = createFileNode('src/cli/index.ts', { fanIn: 0, exports: ['run'] });
+    // Should still be considered entry point with just 1 export
+    assert.strictEqual(isEntryPoint(node), true);
   });
 });

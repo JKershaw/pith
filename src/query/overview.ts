@@ -97,8 +97,8 @@ export function buildProjectOverview(nodes: WikiNode[]): ProjectOverview {
   // Extract module summaries
   const modules = extractModuleSummaries(nodes);
 
-  // TODO: 7.3.2 - Entry points
-  const entryPoints: EntryPoint[] = [];
+  // 7.3.2 - Entry points (fanIn=0 files that orchestrate)
+  const entryPoints = extractEntryPoints(nodes);
 
   // TODO: 7.3.3 - Relationships
   const relationships: Relationship[] = [];
@@ -184,4 +184,81 @@ function extractModuleSummaries(nodes: WikiNode[]): ModuleInfo[] {
     summary: node.prose?.summary || '',
     keyExports: node.prose?.keyExports || [],
   }));
+}
+
+/**
+ * Check if a node is an entry point.
+ * Entry points are files with fanIn=0 (nothing imports them) and few/no exports.
+ * Examples: CLI entry points, main files, script runners.
+ *
+ * @param node - WikiNode to check
+ * @returns true if node is an entry point
+ */
+export function isEntryPoint(node: WikiNode): boolean {
+  // Must be a file node
+  if (node.type !== 'file') {
+    return false;
+  }
+
+  // Must have fanIn=0 or undefined (nothing imports it)
+  const fanIn = node.metadata.fanIn;
+  if (fanIn !== undefined && fanIn > 0) {
+    return false;
+  }
+
+  // Must have few exports (0-1) - entry points orchestrate, don't export much
+  // Files with 2+ exports are likely library modules, not entry points
+  const exports = node.raw?.exports || [];
+  if (exports.length > 1) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Extract entry points from file nodes.
+ * Entry points are files with fanIn=0 that orchestrate the application.
+ */
+function extractEntryPoints(nodes: WikiNode[]): EntryPoint[] {
+  const entryPointNodes = nodes.filter(isEntryPoint);
+
+  return entryPointNodes.map((node) => ({
+    path: node.path,
+    description: buildEntryPointDescription(node),
+  }));
+}
+
+/**
+ * Build a description for an entry point.
+ * Uses prose summary if available, otherwise describes imports.
+ */
+function buildEntryPointDescription(node: WikiNode): string {
+  // Use prose summary if available
+  if (node.prose?.summary) {
+    return node.prose.summary;
+  }
+
+  // Otherwise, describe what it imports
+  const imports = node.raw?.imports || [];
+  if (imports.length > 0) {
+    const importedNames = imports
+      .flatMap((imp) => {
+        // Get the imported names or the module name
+        if (imp.names && imp.names.length > 0) {
+          return imp.names;
+        }
+        // Extract module name from path
+        const moduleName = imp.from.split('/').pop()?.replace(/\.ts$/, '');
+        return moduleName ? [moduleName] : [];
+      })
+      .slice(0, 5); // Limit to 5 names
+
+    if (importedNames.length > 0) {
+      return `Entry point that uses: ${importedNames.join(', ')}`;
+    }
+  }
+
+  // Fallback
+  return 'Application entry point';
 }
