@@ -1327,8 +1327,15 @@ export function createApp(
       }
 
       // Default: Phase 7.3 Navigator flow
+      console.log(
+        `[query] Navigator flow starting for: "${query.slice(0, 50)}${query.length > 50 ? '...' : ''}"`
+      );
+
       // Step 1: Build project overview from all nodes
       const overview = buildProjectOverview(allNodes);
+      console.log(
+        `[query] Overview: ${overview.modules.length} modules, ${overview.entryPoints.length} entry points, ${overview.relationships.length} relationships`
+      );
 
       // Step 2: Build navigator prompt with overview
       const navigatorPrompt = buildNavigatorPrompt(query, overview);
@@ -1345,12 +1352,16 @@ export function createApp(
       ) {
         // Fall back to keyword pre-filter if navigator returned no targets
         if (!navigatorResult.error && navigatorResult.targets?.length === 0) {
+          console.warn(
+            '[query] Navigator returned empty targets, falling back to keyword pre-filter'
+          );
           const keywordIndex = buildKeywordIndex(allNodes);
           const candidates = preFilter(query, keywordIndex, allNodes);
 
           if (candidates.length > 0) {
             // Use top candidates as fallback
             const fallbackFiles = candidates.slice(0, 5).map((c) => c.path);
+            console.log(`[query] Fallback using ${fallbackFiles.length} keyword-matched files`);
             const fallbackNodes = allNodes.filter((n) => fallbackFiles.includes(n.path));
 
             // Generate prose for fallback nodes if missing
@@ -1402,6 +1413,7 @@ export function createApp(
           }
         }
 
+        console.warn(`[query] Navigator failed: ${navigatorResult.error || 'no targets'}`);
         res.json({
           query,
           mode: 'navigator',
@@ -1413,16 +1425,41 @@ export function createApp(
         return;
       }
 
+      // Log target breakdown
+      const targetCounts = navigatorResult.targets.reduce(
+        (acc, t) => {
+          acc[t.type] = (acc[t.type] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>
+      );
+      console.log(
+        `[query] Navigator returned ${navigatorResult.targets.length} targets: ${Object.entries(
+          targetCounts
+        )
+          .map(([type, count]) => `${count} ${type}`)
+          .join(', ')}`
+      );
+
       // Step 4: Resolve all targets (files, greps, functions, importers)
       const resolvedContext = resolveAllTargets(navigatorResult.targets, allNodes);
 
+      // Log resolution results
+      if (resolvedContext.errors.length > 0) {
+        console.warn(
+          `[query] Resolution errors (${resolvedContext.errors.length}): ${resolvedContext.errors.join('; ')}`
+        );
+      }
+
       // If no files resolved successfully, fall back to keyword pre-filter
       if (resolvedContext.nodes.length === 0 && resolvedContext.grepMatches.length === 0) {
+        console.warn('[query] All targets failed to resolve, falling back to keyword pre-filter');
         const keywordIndex = buildKeywordIndex(allNodes);
         const candidates = preFilter(query, keywordIndex, allNodes);
 
         if (candidates.length > 0) {
           const fallbackFiles = candidates.slice(0, 5).map((c) => c.path);
+          console.log(`[query] Fallback using ${fallbackFiles.length} keyword-matched files`);
           const fallbackNodes = allNodes.filter((n) => fallbackFiles.includes(n.path));
 
           for (const node of fallbackNodes) {
@@ -1500,6 +1537,10 @@ export function createApp(
       // Step 6: Call synthesis LLM and return answer
       const synthesisRawResponse = await callLLM(synthesisPrompt, generatorConfig, fetchFn);
       const synthesisResult = parseSynthesisResponse(synthesisRawResponse);
+
+      console.log(
+        `[query] Success: ${resolvedContext.nodes.length} files, ${resolvedContext.grepMatches.length} grep matches, ${resolvedContext.functionDetails.length} functions`
+      );
 
       res.json({
         query,
