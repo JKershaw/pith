@@ -2,8 +2,8 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 7.3 (Overview-Based Navigation) - API Integration Complete ✅
-**Current step**: Phase 7.4+ (Overview Content Iteration) - benchmarked, new gaps identified
+**Last completed phase**: Phase 7.7.1 (Navigator Function Consumer Target) ✅
+**Current step**: Phase 7.7.2 (Hardcoded Value Cross-Reference)
 **Date**: 2026-01-02
 
 ### Latest Benchmark: 2026-01-02 (Query Mode)
@@ -16,6 +16,7 @@
 - **Win/Loss/Tie**: 0-12-3 (**3 ties achieved!**)
 
 **Key Improvements**:
+
 - +8.5% absolute improvement over previous Query Mode run
 - 3 tasks now tie with Control: A2 (Data Flow), B1 (Cache Logic), B3 (Retry Logic)
 - Line number references now consistently provided
@@ -35,6 +36,7 @@
 | Correctness | 4.4/5 | 5.0/5 | -0.6 |
 
 **Persistent Gaps** (from benchmark analysis):
+
 1. **Function-Level Consumer Tracking (R3)**: Pith lists "potential consumers" without line numbers; Control found 1 production + 47 test call sites
 2. **Modification Enumeration (M1)**: Pith found 3-4 locations; Control found 13 specific locations
 3. **Comparative Analysis (D2)**: Pith listed general causes; Control found key bottleneck (sequential vs batch)
@@ -45,14 +47,14 @@ See [2026-01-02 benchmark results](benchmark-results/2026-01-02-self-test.md) fo
 
 ## Benchmark History
 
-| Run         | Date           | Mode    | Pith Score | Control | Gap      | Notes                            |
-| ----------- | -------------- | ------- | ---------- | ------- | -------- | -------------------------------- |
-| v7          | 2025-12-30     | Context | 65%        | 96%     | -7.6     | Baseline                         |
-| v1          | 2025-12-31     | Context | 78%        | 92%     | -3.5     | Before fuzzy matching bug        |
-| v3          | 2025-12-31     | Context | 65%        | 98%     | -8.2     | Fuzzy matching regression        |
-| v4          | 2025-12-31     | Context | 71%        | 96%     | -6.2     | Post-fixes                       |
-| Query v1    | 2026-01-01     | Query   | 73.5%      | 95%     | -4.3     | First Query Mode benchmark       |
-| **Query v2**| **2026-01-02** | Query   | **82.0%**  | **95.5%**| **-2.7**| **3 ties, +8.5% improvement**   |
+| Run          | Date           | Mode    | Pith Score | Control   | Gap      | Notes                         |
+| ------------ | -------------- | ------- | ---------- | --------- | -------- | ----------------------------- |
+| v7           | 2025-12-30     | Context | 65%        | 96%       | -7.6     | Baseline                      |
+| v1           | 2025-12-31     | Context | 78%        | 92%       | -3.5     | Before fuzzy matching bug     |
+| v3           | 2025-12-31     | Context | 65%        | 98%       | -8.2     | Fuzzy matching regression     |
+| v4           | 2025-12-31     | Context | 71%        | 96%       | -6.2     | Post-fixes                    |
+| Query v1     | 2026-01-01     | Query   | 73.5%      | 95%       | -4.3     | First Query Mode benchmark    |
+| **Query v2** | **2026-01-02** | Query   | **82.0%**  | **95.5%** | **-2.7** | **3 ties, +8.5% improvement** |
 
 ---
 
@@ -189,6 +191,57 @@ Legacy mode (`mode: 'planner'`):
 **Graceful degradation**: Without LLM config, returns pre-filter results only
 
 **Tests**: 616 total (1 new for navigator API integration)
+
+---
+
+## Phase 7.7: Gap Closure - IN PROGRESS
+
+**Goal**: Close the remaining gaps identified in the 2026-01-02 benchmark.
+
+### 7.7.1 Navigator Function Consumer Target - COMPLETE ✅
+
+| Step    | What                                                            | Status       |
+| ------- | --------------------------------------------------------------- | ------------ |
+| 7.7.1.1 | Add `CallersTarget` type to navigator.ts                        | **Complete** |
+| 7.7.1.2 | Implement `resolveCallersTarget()` using buildFunctionConsumers | **Complete** |
+| 7.7.1.3 | Add 'callers' case to `resolveAllTargets()` switch              | **Complete** |
+| 7.7.1.4 | Update navigator prompt to document 'callers' target type       | **Complete** |
+| 7.7.1.5 | Format caller results in synthesis prompt                       | **Complete** |
+
+**Implementation Notes**:
+
+- New target type: `{ "type": "callers", "of": "src/file.ts:functionName" }`
+- Leverages existing `buildFunctionConsumers()` from Phase 6.9.2
+- Distinguishes production vs test callers with line numbers
+- API fetches extracted files only when callers targets are present (on-demand)
+- Adds 10 new tests (626 total)
+
+**Expected Impact**: R3 benchmark task 11/20 → 18/20 (+7 points)
+
+### 7.7.2 Hardcoded Value Cross-Reference - PENDING
+
+| Step    | What                                          | Status  |
+| ------- | --------------------------------------------- | ------- |
+| 7.7.2.1 | Add config files to project overview          | Pending |
+| 7.7.2.2 | Validate prompt changes improve M1 task       | Pending |
+| 7.7.2.3 | Add modification guidance to synthesis prompt | Pending |
+| 7.7.2.4 | Test with M1 query                            | Pending |
+| 7.7.2.5 | Validate improvement before proceeding        | Pending |
+| 7.7.2.6 | (If needed) Add `references` target type      | Pending |
+
+**Expected Impact**: M1 benchmark task 13/20 → 17/20 (+4 points)
+
+### 7.7.3 Comparative Bottleneck Detection - PENDING
+
+| Step    | What                                                           | Status  |
+| ------- | -------------------------------------------------------------- | ------- |
+| 7.7.3.1 | Add 'loop' category to key statement extraction                | Pending |
+| 7.7.3.2 | Add 'async-pattern' category (Promise.all vs sequential await) | Pending |
+| 7.7.3.3 | Test with D2 query                                             | Pending |
+
+**Expected Impact**: D2 benchmark task 16/20 → 19/20 (+3 points)
+
+---
 
 ### Phase 7 Design Analysis (2026-01-01)
 
