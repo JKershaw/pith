@@ -21,7 +21,7 @@ describe('findFiles', () => {
     const files = await findFiles(fixtureDir);
 
     assert.ok(Array.isArray(files));
-    assert.strictEqual(files.length, 7);
+    assert.strictEqual(files.length, 8);
 
     // Should include all TypeScript files
     assert.ok(files.some((f) => f.endsWith('types.ts')));
@@ -31,6 +31,7 @@ describe('findFiles', () => {
     assert.ok(files.some((f) => f.endsWith('utils.ts')));
     assert.ok(files.some((f) => f.endsWith('service.ts')));
     assert.ok(files.some((f) => f.endsWith('controller.ts')));
+    assert.ok(files.some((f) => f.endsWith('async-patterns.ts')));
   });
 
   it('returns relative paths from project root', async () => {
@@ -360,6 +361,143 @@ describe('extractFile symbol usages (Phase 6.8.1)', () => {
     assert.ok(Array.isArray(result.symbolUsages));
     // types.ts has no imports, so no symbol usages
     assert.strictEqual(result.symbolUsages.length, 0);
+  });
+});
+
+// Phase 7.7.3: Bottleneck detection key statements
+describe('extractFile key statements - loop and async patterns (Phase 7.7.3)', () => {
+  it('detects for-of loops with loop category (7.7.3.1)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/async-patterns.ts');
+
+    const processFilesSequential = result.functions.find(
+      (f) => f.name === 'processFilesSequential'
+    );
+    assert.ok(processFilesSequential);
+    assert.ok(Array.isArray(processFilesSequential.keyStatements));
+
+    const loopStatements = processFilesSequential.keyStatements.filter(
+      (s) => s.category === 'loop'
+    );
+    assert.ok(loopStatements.length > 0, 'Should detect for-of loop');
+    assert.ok(loopStatements.some((s) => s.text.includes('for') && s.text.includes('of')));
+  });
+
+  it('detects classic for loops (7.7.3.1)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/async-patterns.ts');
+
+    const countItems = result.functions.find((f) => f.name === 'countItems');
+    assert.ok(countItems);
+
+    const loopStatements = countItems.keyStatements.filter((s) => s.category === 'loop');
+    assert.ok(loopStatements.length > 0, 'Should detect classic for loop');
+    assert.ok(loopStatements.some((s) => s.text.includes('for (')));
+  });
+
+  it('detects while loops (7.7.3.1)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/async-patterns.ts');
+
+    const waitForCondition = result.functions.find((f) => f.name === 'waitForCondition');
+    assert.ok(waitForCondition);
+
+    const loopStatements = waitForCondition.keyStatements.filter((s) => s.category === 'loop');
+    assert.ok(loopStatements.length > 0, 'Should detect while loop');
+    assert.ok(loopStatements.some((s) => s.text.includes('while')));
+  });
+
+  it('detects for-in loops (7.7.3.1)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/async-patterns.ts');
+
+    const collectKeys = result.functions.find((f) => f.name === 'collectKeys');
+    assert.ok(collectKeys);
+
+    const loopStatements = collectKeys.keyStatements.filter((s) => s.category === 'loop');
+    assert.ok(loopStatements.length > 0, 'Should detect for-in loop');
+    assert.ok(loopStatements.some((s) => s.text.includes('for') && s.text.includes('in')));
+  });
+
+  it('detects Promise.all batch pattern (7.7.3.2)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/async-patterns.ts');
+
+    const processFilesBatch = result.functions.find((f) => f.name === 'processFilesBatch');
+    assert.ok(processFilesBatch);
+
+    const asyncStatements = processFilesBatch.keyStatements.filter(
+      (s) => s.category === 'async-pattern'
+    );
+    assert.ok(asyncStatements.length > 0, 'Should detect Promise.all pattern');
+    assert.ok(asyncStatements.some((s) => s.text.includes('Promise.all')));
+  });
+
+  it('detects Promise.allSettled pattern (7.7.3.2)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/async-patterns.ts');
+
+    const processWithSettled = result.functions.find((f) => f.name === 'processWithSettled');
+    assert.ok(processWithSettled);
+
+    const asyncStatements = processWithSettled.keyStatements.filter(
+      (s) => s.category === 'async-pattern'
+    );
+    assert.ok(asyncStatements.length > 0, 'Should detect Promise.allSettled pattern');
+    assert.ok(asyncStatements.some((s) => s.text.includes('Promise.allSettled')));
+  });
+
+  it('detects sequential await in for-of loop as bottleneck (7.7.3.3)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/async-patterns.ts');
+
+    const processFilesSequential = result.functions.find(
+      (f) => f.name === 'processFilesSequential'
+    );
+    assert.ok(processFilesSequential);
+
+    const asyncStatements = processFilesSequential.keyStatements.filter(
+      (s) => s.category === 'async-pattern'
+    );
+    // Should detect the sequential await inside the loop
+    assert.ok(asyncStatements.length > 0, 'Should detect sequential await in loop');
+    assert.ok(asyncStatements.some((s) => s.text.includes('[sequential]')));
+  });
+
+  it('detects sequential await in while loop as bottleneck (7.7.3.3)', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/async-patterns.ts');
+
+    const pollUntilReady = result.functions.find((f) => f.name === 'pollUntilReady');
+    assert.ok(pollUntilReady);
+
+    // Should have both the while loop and the sequential await
+    const loopStatements = pollUntilReady.keyStatements.filter((s) => s.category === 'loop');
+    const asyncStatements = pollUntilReady.keyStatements.filter(
+      (s) => s.category === 'async-pattern'
+    );
+
+    assert.ok(loopStatements.length > 0, 'Should detect while loop');
+    assert.ok(asyncStatements.length > 0, 'Should detect sequential await in while loop');
+    assert.ok(asyncStatements.some((s) => s.text.includes('[sequential]')));
+  });
+
+  it('includes line numbers for loop and async patterns', () => {
+    const ctx = createProject(fixtureDir);
+    const result = extractFile(ctx, 'src/async-patterns.ts');
+
+    const processFilesSequential = result.functions.find(
+      (f) => f.name === 'processFilesSequential'
+    );
+    assert.ok(processFilesSequential);
+
+    // All key statements should have valid line numbers
+    for (const stmt of processFilesSequential.keyStatements) {
+      assert.ok(
+        typeof stmt.line === 'number' && stmt.line > 0,
+        `Line should be positive: ${stmt.line}`
+      );
+    }
   });
 });
 

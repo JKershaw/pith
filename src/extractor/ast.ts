@@ -57,11 +57,12 @@ export interface Param {
 /**
  * Key statement extracted from a function via AST analysis.
  * These are the "important" lines that capture config, formulas, conditions.
+ * Phase 7.7.3: Added 'loop' and 'async-pattern' for bottleneck detection.
  */
 export interface KeyStatement {
   line: number;
   text: string;
-  category: 'config' | 'url' | 'math' | 'condition' | 'error';
+  category: 'config' | 'url' | 'math' | 'condition' | 'error' | 'loop' | 'async-pattern';
 }
 
 /**
@@ -274,6 +275,16 @@ function extractKeyStatements(func: FunctionDeclaration | MethodDeclaration): Ke
     const init = decl.getInitializer();
     if (!init) continue;
 
+    // Skip variable declarations that are part of loop initializers (for, for-of, for-in)
+    // These will be captured by the loop detection below
+    const varStmt = decl.getFirstAncestorByKind(SyntaxKind.VariableStatement);
+    const forStmt = decl.getFirstAncestorByKind(SyntaxKind.ForStatement);
+    const forOfStmt = decl.getFirstAncestorByKind(SyntaxKind.ForOfStatement);
+    const forInStmt = decl.getFirstAncestorByKind(SyntaxKind.ForInStatement);
+    if (!varStmt && (forStmt || forOfStmt || forInStmt)) {
+      continue; // Skip loop variable declarations
+    }
+
     const initText = init.getText();
     const declText = decl.getText();
     const line = decl.getStartLineNumber();
@@ -340,6 +351,88 @@ function extractKeyStatements(func: FunctionDeclaration | MethodDeclaration): Ke
     const param = catchClause.getVariableDeclaration();
     const paramText = param ? param.getText() : 'error';
     statements.push({ line, text: `catch (${paramText})`, category: 'error' });
+  }
+
+  // 5. Phase 7.7.3.1: Find loop statements (for, while, for...of, for...in)
+  for (const forStmt of func.getDescendantsOfKind(SyntaxKind.ForStatement)) {
+    const line = forStmt.getStartLineNumber();
+    // Get just the for header, not the body
+    const initText = forStmt.getInitializer()?.getText() || '';
+    const condText = forStmt.getCondition()?.getText() || '';
+    const incText = forStmt.getIncrementor()?.getText() || '';
+    const headerText = `for (${initText}; ${condText}; ${incText})`;
+    statements.push({ line, text: headerText, category: 'loop' });
+  }
+
+  for (const forOfStmt of func.getDescendantsOfKind(SyntaxKind.ForOfStatement)) {
+    const line = forOfStmt.getStartLineNumber();
+    const initText = forOfStmt.getInitializer()?.getText() || '';
+    const exprText = forOfStmt.getExpression().getText();
+    const headerText = `for (${initText} of ${exprText})`;
+    statements.push({ line, text: headerText, category: 'loop' });
+  }
+
+  for (const forInStmt of func.getDescendantsOfKind(SyntaxKind.ForInStatement)) {
+    const line = forInStmt.getStartLineNumber();
+    const initText = forInStmt.getInitializer()?.getText() || '';
+    const exprText = forInStmt.getExpression().getText();
+    const headerText = `for (${initText} in ${exprText})`;
+    statements.push({ line, text: headerText, category: 'loop' });
+  }
+
+  for (const whileStmt of func.getDescendantsOfKind(SyntaxKind.WhileStatement)) {
+    const line = whileStmt.getStartLineNumber();
+    const condText = whileStmt.getExpression().getText();
+    const headerText = `while (${condText})`;
+    statements.push({ line, text: headerText, category: 'loop' });
+  }
+
+  // 6. Phase 7.7.3.2: Find Promise.all patterns (batch processing)
+  for (const callExpr of func.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callText = callExpr.getText();
+    // Detect Promise.all, Promise.allSettled, Promise.race
+    if (
+      callText.includes('Promise.all') ||
+      callText.includes('Promise.allSettled') ||
+      callText.includes('Promise.race')
+    ) {
+      const stmt =
+        callExpr.getFirstAncestorByKind(SyntaxKind.VariableStatement) ||
+        callExpr.getFirstAncestorByKind(SyntaxKind.ExpressionStatement) ||
+        callExpr.getFirstAncestorByKind(SyntaxKind.AwaitExpression);
+      if (stmt) {
+        const line = stmt.getStartLineNumber();
+        // Avoid duplicates
+        if (!statements.some((s) => s.line === line)) {
+          statements.push({ line, text: stmt.getText().trim(), category: 'async-pattern' });
+        }
+      }
+    }
+  }
+
+  // 7. Phase 7.7.3.3: Find sequential await in loops (potential bottleneck)
+  // This is when there's an await expression inside a loop body
+  const loopNodes = [
+    ...func.getDescendantsOfKind(SyntaxKind.ForStatement),
+    ...func.getDescendantsOfKind(SyntaxKind.ForOfStatement),
+    ...func.getDescendantsOfKind(SyntaxKind.ForInStatement),
+    ...func.getDescendantsOfKind(SyntaxKind.WhileStatement),
+  ];
+
+  for (const loopNode of loopNodes) {
+    // Find await expressions inside this loop
+    const awaitsInLoop = loopNode.getDescendantsOfKind(SyntaxKind.AwaitExpression);
+    for (const awaitExpr of awaitsInLoop) {
+      const line = awaitExpr.getStartLineNumber();
+      // Avoid duplicates
+      if (!statements.some((s) => s.line === line)) {
+        statements.push({
+          line,
+          text: `[sequential] ${awaitExpr.getText()}`,
+          category: 'async-pattern',
+        });
+      }
+    }
   }
 
   // Sort by line number and deduplicate
