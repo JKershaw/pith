@@ -416,14 +416,13 @@ describe('relationships in buildProjectOverview - Phase 7.3.3', () => {
 
 // Phase 7.7.2.1: Config files in project overview
 describe('configFiles in buildProjectOverview - Phase 7.7.2.1', () => {
-  it('returns default config files when no config file nodes exist', () => {
+  it('returns empty array when no config file nodes exist', () => {
     const nodes: WikiNode[] = [createFileNode('src/index.ts'), createFileNode('src/utils.ts')];
 
     const overview = buildProjectOverview(nodes);
 
-    // Should return default config files
-    assert.ok(overview.configFiles.includes('package.json'));
-    assert.ok(overview.configFiles.includes('tsconfig.json'));
+    // Should return empty array when no config files detected
+    assert.deepStrictEqual(overview.configFiles, []);
   });
 
   it('detects package.json as config file', () => {

@@ -390,11 +390,5 @@ function extractConfigFiles(nodes: WikiNode[]): string[] {
     }
   }
 
-  // Default: if no config files found in nodes, list common ones that likely exist
-  if (foundConfigs.length === 0) {
-    // Return common config files that typically exist in TypeScript projects
-    return ['package.json', 'tsconfig.json'];
-  }
-
   return foundConfigs.sort();
 }
