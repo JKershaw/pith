@@ -146,6 +146,7 @@ export interface WikiNode {
     functions?: FunctionDetails[]; // Phase 6.6.1 - function details with line numbers
     patterns?: import('../extractor/patterns.ts').DetectedPattern[]; // Phase 6.6.6 - detected design patterns
     symbolUsages?: import('../extractor/ast.ts').SymbolUsage[]; // Phase 6.8.1 - symbol-level import tracking
+    configFiles?: string[]; // Config files in module
   };
   prose?: ProseData; // Generated prose from LLM
 }
