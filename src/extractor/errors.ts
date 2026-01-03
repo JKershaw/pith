@@ -347,7 +347,7 @@ function detectHttpStatus(path: ErrorPath): number | undefined {
   // Validate against standard HTTP status code ranges to avoid false positives
   // (e.g., "timeout 429 seconds" or "process 500 items")
   const statusMatch = textToSearch.match(/\b(4\d{2}|5\d{2})\b/);
-  if (statusMatch) {
+  if (statusMatch?.[1]) {
     const code = parseInt(statusMatch[1], 10);
     // Standard 4xx codes: 400-451, standard 5xx codes: 500-511
     if ((code >= 400 && code <= 451) || (code >= 500 && code <= 511)) {

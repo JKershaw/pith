@@ -15,7 +15,6 @@ import { buildCrossFileCallGraph, getCrossFileCallsForFunction } from './cross-f
 
 // Re-export types for testing
 export type { FunctionData };
-export type { FunctionConsumer, FunctionConsumers };
 
 /**
  * Edge between wiki nodes.

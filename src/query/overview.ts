@@ -131,7 +131,7 @@ function extractReadme(nodes: WikiNode[]): string {
 
   // Prefer root/shortest path (likely the main README)
   modulesWithReadme.sort((a, b) => a.path.length - b.path.length);
-  const readme = modulesWithReadme[0].raw?.readme || '';
+  const readme = modulesWithReadme[0]?.raw?.readme || '';
 
   return readme;
 }
