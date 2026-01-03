@@ -17,12 +17,15 @@ const testDataDir = join(__dirname, '../../test-data');
 /**
  * Helper to run CLI commands and capture output
  */
-function runCli(args: string[], env: Record<string, string> = {}): { stdout: string; stderr: string; exitCode: number } {
+function runCli(
+  args: string[],
+  env: Record<string, string> = {}
+): { stdout: string; stderr: string; exitCode: number } {
   try {
-    const stdout = execSync(
-      `node --experimental-strip-types ${cliPath} ${args.join(' ')}`,
-      { encoding: 'utf-8', env: { ...process.env, ...env } }
-    );
+    const stdout = execSync(`node --experimental-strip-types ${cliPath} ${args.join(' ')}`, {
+      encoding: 'utf-8',
+      env: { ...process.env, ...env },
+    });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (error) {
     const execError = error as { stdout?: string; stderr?: string; status?: number };
@@ -46,19 +49,17 @@ describe('CLI', () => {
   });
 
   it('shows help when run with --help', () => {
-    const result = execSync(
-      `node --experimental-strip-types ${cliPath} --help`,
-      { encoding: 'utf-8' }
-    );
+    const result = execSync(`node --experimental-strip-types ${cliPath} --help`, {
+      encoding: 'utf-8',
+    });
     assert.ok(result.includes('pith'));
     assert.ok(result.includes('extract'));
   });
 
   it('has extract command', () => {
-    const result = execSync(
-      `node --experimental-strip-types ${cliPath} extract --help`,
-      { encoding: 'utf-8' }
-    );
+    const result = execSync(`node --experimental-strip-types ${cliPath} extract --help`, {
+      encoding: 'utf-8',
+    });
     assert.ok(result.includes('extract'));
     assert.ok(result.includes('path'));
   });
@@ -72,7 +73,10 @@ describe('CLI', () => {
 
     // Verify progress output
     assert.ok(result.includes('Extracting from'), 'Should show extraction start');
-    assert.ok(result.includes('Found') && result.includes('TypeScript files'), 'Should show file count');
+    assert.ok(
+      result.includes('Found') && result.includes('TypeScript files'),
+      'Should show file count'
+    );
     assert.ok(result.includes('Completed in'), 'Should show completion summary with elapsed time');
 
     // Connect to the test database and verify data was stored
@@ -80,8 +84,8 @@ describe('CLI', () => {
     const collection = db.collection<ExtractedFile>('extracted');
     const files = await collection.find({}).toArray();
 
-    // Should have extracted all 7 TypeScript files
-    assert.strictEqual(files.length, 7, 'Should extract 7 files');
+    // Should have extracted all 8 TypeScript files (including async-patterns.ts for Phase 7.7.3)
+    assert.strictEqual(files.length, 8, 'Should extract 8 files');
 
     // Check that each file has required fields
     for (const file of files) {
@@ -112,7 +116,7 @@ describe('CLI', () => {
     }
 
     // Verify specific file was extracted (e.g., index.ts)
-    const indexFile = files.find(f => f.path === 'src/index.ts');
+    const indexFile = files.find((f) => f.path === 'src/index.ts');
     assert.ok(indexFile, 'Should have extracted src/index.ts');
   });
 
@@ -120,18 +124,17 @@ describe('CLI', () => {
     const nonExistentPath = '/path/that/does/not/exist';
 
     try {
-      execSync(
-        `node --experimental-strip-types ${cliPath} extract ${nonExistentPath}`,
-        { encoding: 'utf-8', stdio: 'pipe' }
-      );
+      execSync(`node --experimental-strip-types ${cliPath} extract ${nonExistentPath}`, {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
       assert.fail('Should have thrown an error');
     } catch (error) {
       // The command should fail but with a descriptive error message
       const execError = error as { stderr?: string; status?: number };
       assert.strictEqual(execError.status, 1, 'Should exit with code 1');
       assert.ok(
-        execError.stderr?.includes('does not exist') ||
-        execError.stderr?.includes('Error'),
+        execError.stderr?.includes('does not exist') || execError.stderr?.includes('Error'),
         'Should show error message about path not existing'
       );
     }
@@ -146,16 +149,10 @@ describe('CLI', () => {
       await mkdir(join(tempDir, 'src'), { recursive: true });
 
       // Write a valid TypeScript file
-      await writeFile(
-        join(tempDir, 'src/valid.ts'),
-        'export const foo = "bar";'
-      );
+      await writeFile(join(tempDir, 'src/valid.ts'), 'export const foo = "bar";');
 
       // Write an invalid TypeScript file (syntax error)
-      await writeFile(
-        join(tempDir, 'src/invalid.ts'),
-        'export const = "missing name";'
-      );
+      await writeFile(join(tempDir, 'src/invalid.ts'), 'export const = "missing name";');
 
       // Write a tsconfig.json for ts-morph
       await writeFile(
@@ -164,10 +161,10 @@ describe('CLI', () => {
       );
 
       // Run the extract command
-      const result = execSync(
-        `node --experimental-strip-types ${cliPath} extract ${tempDir}`,
-        { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: tempDataDir } }
-      );
+      const result = execSync(`node --experimental-strip-types ${cliPath} extract ${tempDir}`, {
+        encoding: 'utf-8',
+        env: { ...process.env, PITH_DATA_DIR: tempDataDir },
+      });
 
       // Verify the command reported errors but didn't crash
       assert.ok(
@@ -182,7 +179,7 @@ describe('CLI', () => {
 
       // At least the valid file should be extracted
       assert.ok(files.length >= 1, 'Should have extracted at least one file');
-      const validFile = files.find(f => f.path.includes('valid.ts'));
+      const validFile = files.find((f) => f.path.includes('valid.ts'));
       assert.ok(validFile, 'Should have extracted the valid file');
     } finally {
       // Clean up
@@ -193,31 +190,36 @@ describe('CLI', () => {
   });
 
   it('has build command', () => {
-    const result = execSync(
-      `node --experimental-strip-types ${cliPath} build --help`,
-      { encoding: 'utf-8' }
-    );
+    const result = execSync(`node --experimental-strip-types ${cliPath} build --help`, {
+      encoding: 'utf-8',
+    });
     assert.ok(result.includes('build'));
     assert.ok(result.includes('Build node graph'));
   });
 
   it('pith build creates all nodes from extracted data', async () => {
     // First run extract to populate the extracted collection (with --force to ensure all files are extracted)
-    execSync(
-      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`,
-      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
-    );
+    execSync(`node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`, {
+      encoding: 'utf-8',
+      env: { ...process.env, PITH_DATA_DIR: testDataDir },
+    });
 
     // Now run build to create nodes
-    const result = execSync(
-      `node --experimental-strip-types ${cliPath} build`,
-      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
-    );
+    const result = execSync(`node --experimental-strip-types ${cliPath} build`, {
+      encoding: 'utf-8',
+      env: { ...process.env, PITH_DATA_DIR: testDataDir },
+    });
 
     // Verify progress output
     assert.ok(result.includes('Building node graph'), 'Should show build start');
-    assert.ok(result.includes('Found') && result.includes('extracted files'), 'Should show extracted file count');
-    assert.ok(result.includes('Created') && result.includes('file nodes'), 'Should show file node count');
+    assert.ok(
+      result.includes('Found') && result.includes('extracted files'),
+      'Should show extracted file count'
+    );
+    assert.ok(
+      result.includes('Created') && result.includes('file nodes'),
+      'Should show file node count'
+    );
     assert.ok(result.includes('function nodes'), 'Should show function node count');
     assert.ok(result.includes('module nodes'), 'Should show module node count');
     assert.ok(result.includes('Build complete'), 'Should show completion');
@@ -252,16 +254,20 @@ describe('CLI', () => {
     // Verify computed metadata was added
     assert.ok(typeof fileNode.metadata.fanIn === 'number', 'File node should have fanIn');
     assert.ok(typeof fileNode.metadata.fanOut === 'number', 'File node should have fanOut');
-    assert.ok(typeof fileNode.metadata.recencyInDays === 'number', 'File node should have recencyInDays');
+    assert.ok(
+      typeof fileNode.metadata.recencyInDays === 'number',
+      'File node should have recencyInDays'
+    );
   });
 
   it('pith build requires extract first', async () => {
     // Try to run build without extracting first (on a fresh database)
     try {
-      execSync(
-        `node --experimental-strip-types ${cliPath} build`,
-        { encoding: 'utf-8', stdio: 'pipe', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
-      );
+      execSync(`node --experimental-strip-types ${cliPath} build`, {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+        env: { ...process.env, PITH_DATA_DIR: testDataDir },
+      });
       assert.fail('Should have thrown an error');
     } catch (error) {
       // The command should fail with a descriptive error message
@@ -269,7 +275,7 @@ describe('CLI', () => {
       assert.strictEqual(execError.status, 1, 'Should exit with code 1');
       assert.ok(
         execError.stderr?.includes('No extracted data found') ||
-        execError.stderr?.includes('extract first'),
+          execError.stderr?.includes('extract first'),
         'Should show error message about missing extracted data'
       );
     }
@@ -291,7 +297,7 @@ describe('pith generate', () => {
 
     const { stdout, stderr } = runCli(['generate'], {
       PITH_DATA_DIR: testDataDir,
-      OPENROUTER_API_KEY: 'dummy-key-for-testing'
+      OPENROUTER_API_KEY: 'dummy-key-for-testing',
     });
 
     const output = stdout + stderr;
@@ -318,7 +324,7 @@ describe('pith generate', () => {
 
     const { stdout, stderr } = runCli(['generate'], {
       PITH_DATA_DIR: testDataDir,
-      OPENROUTER_API_KEY: '',  // Not set
+      OPENROUTER_API_KEY: '', // Not set
     });
 
     const output = stdout + stderr;
@@ -351,10 +357,9 @@ describe('CLI improvements (Phase 5.3)', () => {
   });
 
   it('shows global --verbose, --quiet, and --dry-run flags in help', () => {
-    const result = execSync(
-      `node --experimental-strip-types ${cliPath} --help`,
-      { encoding: 'utf-8' }
-    );
+    const result = execSync(`node --experimental-strip-types ${cliPath} --help`, {
+      encoding: 'utf-8',
+    });
     assert.ok(result.includes('--verbose'), 'Should show --verbose flag');
     assert.ok(result.includes('--quiet'), 'Should show --quiet flag');
     assert.ok(result.includes('--dry-run'), 'Should show --dry-run flag');
@@ -378,16 +383,16 @@ describe('CLI improvements (Phase 5.3)', () => {
 
   it('dry-run build shows what would be created without saving', async () => {
     // First extract normally (not dry-run)
-    execSync(
-      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`,
-      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
-    );
+    execSync(`node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`, {
+      encoding: 'utf-8',
+      env: { ...process.env, PITH_DATA_DIR: testDataDir },
+    });
 
     // Then run build in dry-run mode
-    const result = execSync(
-      `node --experimental-strip-types ${cliPath} build --dry-run`,
-      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
-    );
+    const result = execSync(`node --experimental-strip-types ${cliPath} build --dry-run`, {
+      encoding: 'utf-8',
+      env: { ...process.env, PITH_DATA_DIR: testDataDir },
+    });
 
     // Should show dry-run indicator
     assert.ok(result.includes('[DRY-RUN]'), 'Should show [DRY-RUN] indicator');
@@ -407,20 +412,20 @@ describe('CLI improvements (Phase 5.3)', () => {
 
   it('generate --estimate shows cost estimate', async () => {
     // First extract and build
-    execSync(
-      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`,
-      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
-    );
-    execSync(
-      `node --experimental-strip-types ${cliPath} build`,
-      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
-    );
+    execSync(`node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`, {
+      encoding: 'utf-8',
+      env: { ...process.env, PITH_DATA_DIR: testDataDir },
+    });
+    execSync(`node --experimental-strip-types ${cliPath} build`, {
+      encoding: 'utf-8',
+      env: { ...process.env, PITH_DATA_DIR: testDataDir },
+    });
 
     // Run generate with --estimate
-    const result = execSync(
-      `node --experimental-strip-types ${cliPath} generate --estimate`,
-      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
-    );
+    const result = execSync(`node --experimental-strip-types ${cliPath} generate --estimate`, {
+      encoding: 'utf-8',
+      env: { ...process.env, PITH_DATA_DIR: testDataDir },
+    });
 
     // Should show estimate
     assert.ok(result.includes('estimate'), 'Should show estimate');
@@ -439,7 +444,10 @@ describe('CLI improvements (Phase 5.3)', () => {
     // Verbose mode should show each file extraction
     assert.ok(result.includes('Extracted'), 'Should show extraction progress');
     // Should show force mode message
-    assert.ok(result.includes('Force mode') || result.includes('Extracting'), 'Should show verbose messages');
+    assert.ok(
+      result.includes('Force mode') || result.includes('Extracting'),
+      'Should show verbose messages'
+    );
   });
 
   it('quiet mode suppresses normal output during extract', () => {
@@ -450,7 +458,7 @@ describe('CLI improvements (Phase 5.3)', () => {
 
     // Quiet mode should only show final summary, not individual file progress
     // The output should be minimal
-    const lines = result.split('\n').filter(line => line.trim().length > 0);
+    const lines = result.split('\n').filter((line) => line.trim().length > 0);
 
     // In quiet mode, we should have very few output lines (just summary)
     // This is a loose check - the exact number depends on implementation
@@ -469,16 +477,16 @@ describe('CLI improvements (Phase 5.3)', () => {
 
   it('shows elapsed time in build summary', () => {
     // First extract
-    execSync(
-      `node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`,
-      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
-    );
+    execSync(`node --experimental-strip-types ${cliPath} extract ${fixtureDir} --force`, {
+      encoding: 'utf-8',
+      env: { ...process.env, PITH_DATA_DIR: testDataDir },
+    });
 
     // Then build
-    const result = execSync(
-      `node --experimental-strip-types ${cliPath} build`,
-      { encoding: 'utf-8', env: { ...process.env, PITH_DATA_DIR: testDataDir } }
-    );
+    const result = execSync(`node --experimental-strip-types ${cliPath} build`, {
+      encoding: 'utf-8',
+      env: { ...process.env, PITH_DATA_DIR: testDataDir },
+    });
 
     // Should show elapsed time in summary
     assert.ok(result.includes('complete in') && result.includes('s:'), 'Should show elapsed time');

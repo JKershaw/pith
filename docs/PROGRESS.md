@@ -2,9 +2,9 @@
 
 ## Current Status
 
-**Last completed phase**: Phase 7.7.1 (Navigator Function Consumer Target) ✅
-**Current step**: Phase 7.7.2 (Hardcoded Value Cross-Reference)
-**Date**: 2026-01-02
+**Last completed phase**: Phase 7.7.3 (Comparative Bottleneck Detection) ✅
+**Current step**: Ready for validation/benchmark
+**Date**: 2026-01-03
 
 ### Latest Benchmark: 2026-01-02 (Query Mode)
 
@@ -218,26 +218,45 @@ Legacy mode (`mode: 'planner'`):
 
 **Expected Impact**: R3 benchmark task 11/20 → 18/20 (+7 points)
 
-### 7.7.2 Hardcoded Value Cross-Reference - PENDING
+### 7.7.2 Hardcoded Value Cross-Reference - COMPLETE ✅
 
-| Step    | What                                          | Status  |
-| ------- | --------------------------------------------- | ------- |
-| 7.7.2.1 | Add config files to project overview          | Pending |
-| 7.7.2.2 | Validate prompt changes improve M1 task       | Pending |
-| 7.7.2.3 | Add modification guidance to synthesis prompt | Pending |
-| 7.7.2.4 | Test with M1 query                            | Pending |
-| 7.7.2.5 | Validate improvement before proceeding        | Pending |
-| 7.7.2.6 | (If needed) Add `references` target type      | Pending |
+| Step    | What                                          | Status       |
+| ------- | --------------------------------------------- | ------------ |
+| 7.7.2.1 | Add config files to project overview          | **Complete** |
+| 7.7.2.2 | Validate prompt changes improve M1 task       | Pending      |
+| 7.7.2.3 | Add modification guidance to navigator prompt | **Complete** |
+| 7.7.2.4 | Enhance synthesis prompt with mod checklist   | **Complete** |
+| 7.7.2.5 | Validate improvement before proceeding        | Pending      |
+| 7.7.2.6 | (If needed) Add `references` target type      | Deferred     |
 
-**Expected Impact**: M1 benchmark task 13/20 → 17/20 (+4 points)
+**Implementation Notes (2026-01-03)**:
 
-### 7.7.3 Comparative Bottleneck Detection - PENDING
+- Added `configFiles` field to `ProjectOverview` interface
+- `extractConfigFiles()` detects package.json, tsconfig.json, etc. from file nodes
+- Navigator prompt now includes "For Modification Questions" guidance section
+- Synthesis prompt includes 4-point checklist for modification verification
+- 5 new tests for config file detection (618 total)
 
-| Step    | What                                                           | Status  |
-| ------- | -------------------------------------------------------------- | ------- |
-| 7.7.3.1 | Add 'loop' category to key statement extraction                | Pending |
-| 7.7.3.2 | Add 'async-pattern' category (Promise.all vs sequential await) | Pending |
-| 7.7.3.3 | Test with D2 query                                             | Pending |
+**Expected Impact**: M1 benchmark task 13/20 → 15/20 (+2 points)
+
+### 7.7.3 Comparative Bottleneck Detection - COMPLETE ✅
+
+| Step    | What                                                           | Status       |
+| ------- | -------------------------------------------------------------- | ------------ |
+| 7.7.3.1 | Add 'loop' category to key statement extraction                | **Complete** |
+| 7.7.3.2 | Add 'async-pattern' category (Promise.all vs sequential await) | **Complete** |
+| 7.7.3.3 | Test with D2 query                                             | Pending      |
+
+**Implementation Notes (2026-01-03)**:
+
+- Extended `KeyStatement.category` with 'loop' and 'async-pattern' types
+- Loop detection: for, while, for-of, for-in statements
+- Async pattern detection:
+  - Promise.all/allSettled/race (batch processing)
+  - Sequential await in loops (marked as `[sequential]` for bottleneck identification)
+- Skip loop initializer variables from config detection to avoid duplicates
+- New test fixture `async-patterns.ts` with various loop and async patterns
+- 9 new tests for loop and async pattern detection (618 total)
 
 **Expected Impact**: D2 benchmark task 16/20 → 19/20 (+3 points)
 
@@ -1536,17 +1555,17 @@ curl http://localhost:3000/node/src/auth/login.ts?prose=false
 
 ## Test Summary
 
-As of 2026-01-02 (Phase 7.3 Complete):
+As of 2026-01-03 (Phase 7.7.3 Complete):
 
-- **Total tests**: 616
+- **Total tests**: 618
 - **All passing**: Yes
 - **Lint**: Clean
-- **Test suites**: 155
+- **Test suites**: 158
 
 Commands:
 
 ```bash
-npm test      # 616 tests pass
+npm test      # 618 tests pass
 npm run lint  # No errors
 ```
 

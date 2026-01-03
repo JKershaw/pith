@@ -101,6 +101,7 @@ describe('ProjectOverview types', () => {
       modules: [],
       entryPoints: [],
       relationships: [],
+      configFiles: [],
     };
 
     assert.strictEqual(typeof overview.readme, 'string');
@@ -108,6 +109,7 @@ describe('ProjectOverview types', () => {
     assert.ok(Array.isArray(overview.modules));
     assert.ok(Array.isArray(overview.entryPoints));
     assert.ok(Array.isArray(overview.relationships));
+    assert.ok(Array.isArray(overview.configFiles));
   });
 
   it('ModuleInfo has path, summary, and keyExports', () => {
@@ -152,6 +154,7 @@ describe('buildProjectOverview', () => {
     assert.deepStrictEqual(overview.modules, []);
     assert.deepStrictEqual(overview.entryPoints, []);
     assert.deepStrictEqual(overview.relationships, []);
+    assert.deepStrictEqual(overview.configFiles, []);
   });
 
   it('extracts README from root module node', () => {
@@ -408,5 +411,65 @@ describe('relationships in buildProjectOverview - Phase 7.3.3', () => {
     assert.strictEqual(mainRel.from, 'src/main.ts');
     assert.ok(mainRel.imports.includes('createApp'));
     assert.ok(mainRel.imports.includes('loadConfig'));
+  });
+});
+
+// Phase 7.7.2.1: Config files in project overview
+describe('configFiles in buildProjectOverview - Phase 7.7.2.1', () => {
+  it('returns default config files when no config file nodes exist', () => {
+    const nodes: WikiNode[] = [createFileNode('src/index.ts'), createFileNode('src/utils.ts')];
+
+    const overview = buildProjectOverview(nodes);
+
+    // Should return default config files
+    assert.ok(overview.configFiles.includes('package.json'));
+    assert.ok(overview.configFiles.includes('tsconfig.json'));
+  });
+
+  it('detects package.json as config file', () => {
+    const packageJsonNode = createFileNode('package.json');
+    const nodes: WikiNode[] = [packageJsonNode, createFileNode('src/index.ts')];
+
+    const overview = buildProjectOverview(nodes);
+
+    assert.ok(overview.configFiles.includes('package.json'));
+  });
+
+  it('detects tsconfig.json as config file', () => {
+    const tsconfigNode = createFileNode('tsconfig.json');
+    const nodes: WikiNode[] = [tsconfigNode, createFileNode('src/index.ts')];
+
+    const overview = buildProjectOverview(nodes);
+
+    assert.ok(overview.configFiles.includes('tsconfig.json'));
+  });
+
+  it('detects multiple config files', () => {
+    const nodes: WikiNode[] = [
+      createFileNode('package.json'),
+      createFileNode('tsconfig.json'),
+      createFileNode('jest.config.js'),
+      createFileNode('src/index.ts'),
+    ];
+
+    const overview = buildProjectOverview(nodes);
+
+    assert.ok(overview.configFiles.includes('package.json'));
+    assert.ok(overview.configFiles.includes('tsconfig.json'));
+    assert.ok(overview.configFiles.includes('jest.config.js'));
+  });
+
+  it('sorts config files alphabetically', () => {
+    const nodes: WikiNode[] = [
+      createFileNode('tsconfig.json'),
+      createFileNode('package.json'),
+      createFileNode('jest.config.js'),
+    ];
+
+    const overview = buildProjectOverview(nodes);
+
+    // Should be sorted alphabetically
+    const sorted = [...overview.configFiles].sort();
+    assert.deepStrictEqual(overview.configFiles, sorted);
   });
 });
