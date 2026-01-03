@@ -42,6 +42,7 @@ import { generateProse, updateNodeWithProse, type GeneratorConfig } from '../gen
 import { createApp } from '../api/index.ts';
 import { loadConfig } from '../config/index.ts';
 import { PithError, formatError, groupErrorsBySeverity } from '../errors/index.ts';
+import { createConcurrencyLimiter } from '../utils/concurrency.ts';
 
 const program = new Command();
 
@@ -485,11 +486,18 @@ program
   .command('generate')
   .description('Generate prose documentation for nodes using LLM')
   .option('-m, --model <model>', 'OpenRouter model to use (or set OPENROUTER_MODEL in .env)')
+  .option('-c, --concurrency <number>', 'Max concurrent LLM calls (default: 5, max: 20)', '5')
   .option('--node <nodeId>', 'Generate for specific node only')
   .option('--force', 'Regenerate prose even if already exists')
   .option('--estimate', 'Show cost estimate without generating')
   .action(
-    async (options: { model?: string; node?: string; force?: boolean; estimate?: boolean }) => {
+    async (options: {
+      model?: string;
+      concurrency?: string;
+      node?: string;
+      force?: boolean;
+      estimate?: boolean;
+    }) => {
       const startTime = Date.now();
       // Load configuration
       const config = await loadConfig();
@@ -501,6 +509,13 @@ program
         process.env.OPENROUTER_MODEL ||
         config.llm?.model ||
         'anthropic/claude-sonnet-4';
+
+      // Parse and clamp concurrency (1-20)
+      const parsedConcurrency = parseInt(options.concurrency || '5', 10);
+      const concurrency = Math.max(
+        1,
+        Math.min(20, Number.isNaN(parsedConcurrency) ? 5 : parsedConcurrency)
+      );
 
       // For estimation and dry-run, we don't need the API key
       const needsApiKey = !options.estimate && !outputOptions.dryRun;
@@ -573,6 +588,7 @@ program
           log(`  Estimated output tokens: ~${totalOutputTokens.toLocaleString()}`);
           log(`  Estimated cost: ~$${totalCost.toFixed(2)}`);
           log(`  Using model: ${model}`);
+          log(`  Concurrency: ${concurrency}`);
 
           if (outputOptions.dryRun) {
             log('\n[DRY-RUN] Would generate prose for these nodes:');
@@ -590,39 +606,37 @@ program
 
         log(`Generating prose for ${nodes.length} nodes...`);
         log(`Using model: ${model}`);
+        log(`Concurrency: ${concurrency}`);
 
         let generated = 0;
         const generationErrors: Array<{ nodeId: string; error: Error | PithError }> = [];
+        const proseResults = new Map<string, { summary: string }>();
 
         // Process nodes (file nodes first for fractal generation)
         const fileNodes = nodes.filter((n) => n.type === 'file');
         const moduleNodes = nodes.filter((n) => n.type === 'module');
-        const orderedNodes = [...fileNodes, ...moduleNodes];
+        const totalNodes = fileNodes.length + moduleNodes.length;
 
-        for (const node of orderedNodes) {
+        // Create concurrency limiter
+        const limit = createConcurrencyLimiter(concurrency);
+
+        // Helper to process a single node
+        const processNode = async (
+          node: WikiNode,
+          childSummaries?: Map<string, string>
+        ): Promise<void> => {
           try {
             log(`  Generating: ${node.id}`, 'verbose');
-            if (!outputOptions.verbose && generated % 5 === 0 && generated > 0) {
-              log(`Progress: ${generated}/${orderedNodes.length} nodes`);
-            }
-
-            // For module nodes, gather child summaries
-            let childSummaries: Map<string, string> | undefined;
-            if (node.type === 'module') {
-              const childIds = node.edges.filter((e) => e.type === 'contains').map((e) => e.target);
-
-              const children = await nodesCollection.find({ id: { $in: childIds } }).toArray();
-
-              childSummaries = new Map(
-                children.filter((c) => c.prose?.summary).map((c) => [c.id, c.prose!.summary])
-              );
-            }
-
             const prose = await generateProse(node, generatorConfig, { childSummaries });
+            proseResults.set(node.id, { summary: prose.summary });
             await updateNodeWithProse(db, node.id, prose);
-
             generated++;
             log(`    ✓ ${node.id}`, 'verbose');
+
+            // Progress reporting (every 5 nodes or at completion)
+            if (!outputOptions.verbose && (generated % 5 === 0 || generated === totalNodes)) {
+              log(`Progress: ${generated}/${totalNodes} nodes`);
+            }
           } catch (error) {
             const pithError =
               error instanceof Error
@@ -641,6 +655,44 @@ program
             generationErrors.push({ nodeId: node.id, error: pithError });
             log(`    ✗ ${node.id}: ${(error as Error).message}`, 'verbose');
           }
+        };
+
+        // Phase 1: Process all file nodes in parallel
+        if (fileNodes.length > 0) {
+          log(`Phase 1: Generating ${fileNodes.length} file nodes...`, 'verbose');
+          await Promise.all(fileNodes.map((node) => limit(() => processNode(node))));
+        }
+
+        // Phase 2: Process module nodes in parallel (now have child summaries available)
+        if (moduleNodes.length > 0) {
+          log(`Phase 2: Generating ${moduleNodes.length} module nodes...`, 'verbose');
+          await Promise.all(
+            moduleNodes.map((node) =>
+              limit(async () => {
+                // Gather child summaries from Phase 1 results + existing DB
+                const childIds = node.edges
+                  .filter((e) => e.type === 'contains')
+                  .map((e) => e.target);
+                const childSummaries = new Map<string, string>();
+
+                for (const childId of childIds) {
+                  // Check in-memory results first (from Phase 1)
+                  const inMemory = proseResults.get(childId);
+                  if (inMemory?.summary) {
+                    childSummaries.set(childId, inMemory.summary);
+                  } else {
+                    // Fall back to database (for pre-existing prose)
+                    const dbNode = await nodesCollection.findOne({ id: childId });
+                    if (dbNode?.prose?.summary) {
+                      childSummaries.set(childId, dbNode.prose.summary);
+                    }
+                  }
+                }
+
+                await processNode(node, childSummaries);
+              })
+            )
+          );
         }
 
         const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
