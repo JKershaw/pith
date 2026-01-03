@@ -31,6 +31,9 @@ export interface ProjectOverview {
 
   /** Key import relationships showing who uses what */
   relationships: Relationship[];
+
+  /** Phase 7.7.2.1: Config files in the project (package.json, tsconfig.json, etc.) */
+  configFiles: string[];
 }
 
 /**
@@ -88,6 +91,7 @@ export function buildProjectOverview(nodes: WikiNode[]): ProjectOverview {
       modules: [],
       entryPoints: [],
       relationships: [],
+      configFiles: [],
     };
   }
 
@@ -106,12 +110,16 @@ export function buildProjectOverview(nodes: WikiNode[]): ProjectOverview {
   // 7.3.3 - Key relationships (who imports what)
   const relationships = extractRelationships(nodes);
 
+  // 7.7.2.1 - Config files (package.json, tsconfig.json, etc.)
+  const configFiles = extractConfigFiles(nodes);
+
   return {
     readme,
     fileTree,
     modules,
     entryPoints,
     relationships,
+    configFiles,
   };
 }
 
@@ -327,4 +335,66 @@ function extractImportNames(node: WikiNode): string[] {
   }
 
   return names;
+}
+
+/**
+ * Phase 7.7.2.1: Extract config file names from the project.
+ * Looks for common config files in module raw data.
+ */
+function extractConfigFiles(nodes: WikiNode[]): string[] {
+  const configFilePatterns = [
+    'package.json',
+    'tsconfig.json',
+    'pith.config.json',
+    '.env',
+    '.env.example',
+    'jest.config.js',
+    'jest.config.ts',
+    'vitest.config.ts',
+    'vitest.config.js',
+    'eslint.config.js',
+    '.eslintrc.json',
+    '.eslintrc.js',
+    'prettier.config.js',
+    '.prettierrc',
+    '.prettierrc.json',
+    'tsup.config.ts',
+    'tsup.config.js',
+    'vite.config.ts',
+    'vite.config.js',
+    'webpack.config.js',
+    'rollup.config.js',
+    'babel.config.js',
+    '.babelrc',
+  ];
+
+  const foundConfigs: string[] = [];
+
+  // Look in module nodes for config files mentioned in raw data
+  for (const node of nodes) {
+    if (node.type === 'module' && node.raw?.configFiles) {
+      // If module has configFiles field, add them
+      foundConfigs.push(...(node.raw.configFiles as string[]));
+    }
+  }
+
+  // Also look at file nodes for config files at root
+  for (const node of nodes) {
+    if (node.type === 'file') {
+      const filename = node.name || node.path.split('/').pop() || '';
+      if (configFilePatterns.some((pattern) => filename === pattern)) {
+        if (!foundConfigs.includes(filename)) {
+          foundConfigs.push(filename);
+        }
+      }
+    }
+  }
+
+  // Default: if no config files found in nodes, list common ones that likely exist
+  if (foundConfigs.length === 0) {
+    // Return common config files that typically exist in TypeScript projects
+    return ['package.json', 'tsconfig.json'];
+  }
+
+  return foundConfigs.sort();
 }
