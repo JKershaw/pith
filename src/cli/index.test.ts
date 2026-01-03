@@ -344,6 +344,100 @@ describe('pith generate', () => {
 
     assert.ok(stdout.includes('--model'));
   });
+
+  it('shows --concurrency option in help', () => {
+    const { stdout } = runCli(['generate', '--help']);
+
+    assert.ok(stdout.includes('--concurrency'), 'Should show --concurrency option');
+    assert.ok(stdout.includes('-c,'), 'Should show -c shorthand');
+  });
+
+  it('accepts --concurrency option with --estimate', async () => {
+    testDataDir = await mkdtemp(join(tmpdir(), 'pith-test-'));
+
+    // Create nodes for estimate
+    const db = await getDb(testDataDir);
+    const nodes = db.collection('nodes');
+    await nodes.insertOne({
+      id: 'test.ts',
+      type: 'file',
+      path: 'test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: { functions: [], imports: [], exports: [] },
+    });
+    await closeDb();
+
+    const { stdout, exitCode } = runCli(['generate', '--estimate', '--concurrency', '3'], {
+      PITH_DATA_DIR: testDataDir,
+    });
+
+    assert.strictEqual(exitCode, 0, 'Should exit successfully');
+    assert.ok(stdout.includes('estimate'), 'Should show estimate output');
+  });
+
+  it('shows concurrency value in generate output', async () => {
+    testDataDir = await mkdtemp(join(tmpdir(), 'pith-test-'));
+
+    // Create nodes
+    const db = await getDb(testDataDir);
+    const nodes = db.collection('nodes');
+    await nodes.insertOne({
+      id: 'test.ts',
+      type: 'file',
+      path: 'test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: { functions: [], imports: [], exports: [] },
+    });
+    await closeDb();
+
+    const { stdout } = runCli(['generate', '--estimate', '--concurrency', '7'], {
+      PITH_DATA_DIR: testDataDir,
+    });
+
+    assert.ok(
+      stdout.includes('concurrency: 7') || stdout.includes('Concurrency: 7'),
+      'Should show concurrency value in output'
+    );
+  });
+
+  it('clamps concurrency to valid range', async () => {
+    testDataDir = await mkdtemp(join(tmpdir(), 'pith-test-'));
+
+    const db = await getDb(testDataDir);
+    const nodes = db.collection('nodes');
+    await nodes.insertOne({
+      id: 'test.ts',
+      type: 'file',
+      path: 'test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: { functions: [], imports: [], exports: [] },
+    });
+    await closeDb();
+
+    // Test with value too high (should clamp to 20)
+    const { stdout: highStdout } = runCli(['generate', '--estimate', '--concurrency', '100'], {
+      PITH_DATA_DIR: testDataDir,
+    });
+    assert.ok(
+      highStdout.includes('concurrency: 20') || highStdout.includes('Concurrency: 20'),
+      'Should clamp high concurrency to 20'
+    );
+
+    // Test with value too low (should clamp to 1)
+    const { stdout: lowStdout } = runCli(['generate', '--estimate', '--concurrency', '0'], {
+      PITH_DATA_DIR: testDataDir,
+    });
+    assert.ok(
+      lowStdout.includes('concurrency: 1') || lowStdout.includes('Concurrency: 1'),
+      'Should clamp low concurrency to 1'
+    );
+  });
 });
 
 describe('CLI improvements (Phase 5.3)', () => {
