@@ -223,7 +223,7 @@ function getCodeSnippet(
           result.push(`  // ... (${lineNum - lastLine - 1} lines omitted)`);
         }
         if (lineNum <= totalLines) {
-          result.push(lines[lineNum - 1]);
+          result.push(lines[lineNum - 1]!);
         }
         lastLine = lineNum;
       }

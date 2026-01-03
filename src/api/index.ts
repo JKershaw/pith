@@ -1,5 +1,5 @@
 import type { MangoDb } from '@jkershaw/mangodb';
-import type { WikiNode } from '../builder/index.ts';
+import type { WikiNode, FunctionDetails } from '../builder/index.ts';
 import {
   buildImpactTree,
   findAffectedFunctions,
@@ -231,12 +231,9 @@ export async function bundleContext(
  * @returns true if function should show full code snippet, false for compact format
  */
 function shouldExpandFunction(
-  func: {
-    errorPaths?: unknown[];
-    [key: string]: unknown;
-  },
+  func: FunctionDetails,
   node: WikiNode,
-  allFunctions: unknown[]
+  allFunctions: FunctionDetails[]
 ): boolean {
   // 6.9.1.2: Auto-expand for small files (<5 functions)
   if (allFunctions.length < 5) {

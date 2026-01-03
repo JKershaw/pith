@@ -161,7 +161,7 @@ function extractKeywordsFromStatement(text: string): string[] {
 
   // Extract variable names (left side of assignment)
   const assignmentMatch = text.match(/^(\w+)\s*=/);
-  if (assignmentMatch) {
+  if (assignmentMatch?.[1]) {
     keywords.push(assignmentMatch[1]);
   }
 

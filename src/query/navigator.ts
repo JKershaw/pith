@@ -197,7 +197,7 @@ export function parseNavigatorResponse(rawResponse: string): NavigationResponse 
 
   // Check for JSON in code fence
   const codeFenceMatch = rawResponse.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeFenceMatch) {
+  if (codeFenceMatch?.[1]) {
     jsonStr = codeFenceMatch[1].trim();
   } else {
     // Try to find raw JSON object
