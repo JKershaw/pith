@@ -110,6 +110,11 @@ export function formatOverviewForPrompt(overview: ProjectOverview): string {
     sections.push(`## Key Relationships\n${relLines.join('\n')}`);
   }
 
+  // Phase 7.7.2.1: Config files
+  if (overview.configFiles.length > 0) {
+    sections.push(`## Config Files\n${overview.configFiles.join(', ')}`);
+  }
+
   return sections.join('\n\n');
 }
 
@@ -154,6 +159,14 @@ Target types:
 - Use **callers** to find function-level call sites with line numbers (for "who calls X?" questions)
 - Limit to 3-8 targets for efficiency
 - Focus on files that directly answer the question
+
+### For Modification Questions
+
+When the question involves changing or modifying code:
+- **Always check config files** (package.json, tsconfig.json) for hardcoded values
+- For file extension changes (e.g., .ts → .tsx), use grep: \`{ "type": "grep", "pattern": "\\.ts['\\"\\)]" }\`
+- For API/endpoint changes, check package.json scripts and related config files
+- For renaming, use grep to find all occurrences: \`{ "type": "grep", "pattern": "oldName" }\`
 
 ## Example Response
 
@@ -1122,6 +1135,14 @@ export function buildNavigatorSynthesisPrompt(
   lines.push('- Be concise: focus on directly answering the question');
   lines.push('- Include code references when relevant (e.g., "see `callLLM` at line 100")');
   lines.push('- Mention gotchas or edge cases if they relate to the question');
+  lines.push('');
+  lines.push('### For Modification Questions');
+  lines.push('');
+  lines.push('If the question asks about modifying or changing code, verify you checked:');
+  lines.push('1. **Config files**: package.json, tsconfig.json, and project-specific configs');
+  lines.push('2. **String literals**: Hardcoded values that match the pattern being changed');
+  lines.push('3. **Test fixtures**: Test files that may need corresponding updates');
+  lines.push('4. **Import paths**: Files that import/reference the changing component');
   lines.push('');
   lines.push('Provide your answer as plain text (no JSON or special formatting needed).');
 

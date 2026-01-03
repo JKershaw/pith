@@ -40,6 +40,7 @@ function createTestOverview(overrides: Partial<ProjectOverview> = {}): ProjectOv
     modules: [{ path: 'src/', summary: 'Main source code', keyExports: ['main', 'config'] }],
     entryPoints: [{ path: 'src/cli/index.ts', description: 'CLI entry point' }],
     relationships: [{ from: 'src/cli/index.ts', imports: ['extractFile', 'buildNodes'] }],
+    configFiles: ['package.json', 'tsconfig.json'], // Phase 7.7.2.1
     ...overrides,
   };
 }
