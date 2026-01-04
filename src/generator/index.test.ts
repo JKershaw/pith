@@ -1,7 +1,19 @@
 import { describe, it, mock, afterEach } from 'node:test';
 import assert from 'node:assert';
 import type { ProseData, GeneratorConfig } from './index.ts';
-import { buildPrompt, parseLLMResponse, callLLM, generateProse, updateNodeWithProse, isStale, markStaleNodes, generateProseForNode, extractIdentifiers, validateGotcha, validateGotchas } from './index.ts';
+import {
+  buildPrompt,
+  parseLLMResponse,
+  callLLM,
+  generateProse,
+  updateNodeWithProse,
+  isStale,
+  markStaleNodes,
+  generateProseForNode,
+  extractIdentifiers,
+  validateGotcha,
+  validateGotchas,
+} from './index.ts';
 import type { WikiNode } from '../builder/index.ts';
 import { getDb, closeDb } from '../db/index.ts';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -35,7 +47,10 @@ describe('generator types', () => {
     };
 
     assert.strictEqual(proseWithPatterns.quickStart, 'import { foo } from "./module"; foo();');
-    assert.deepStrictEqual(proseWithPatterns.patterns, ['Common pattern: use X for Y', 'Avoid Z pattern']);
+    assert.deepStrictEqual(proseWithPatterns.patterns, [
+      'Common pattern: use X for Y',
+      'Avoid Z pattern',
+    ]);
     assert.deepStrictEqual(proseWithPatterns.similarFiles, ['src/similar1.ts', 'src/similar2.ts']);
   });
 
@@ -107,7 +122,7 @@ describe('buildPrompt', () => {
     assert.ok(prompt.includes('23 commits'));
     assert.ok(prompt.includes('JSDOC:'));
     assert.ok(prompt.includes('Authenticates a user'));
-    assert.ok(prompt.includes('"summary"'));  // JSON format instructions
+    assert.ok(prompt.includes('"summary"')); // JSON format instructions
     assert.ok(prompt.includes('"purpose"'));
     assert.ok(prompt.includes('"gotchas"'));
   });
@@ -220,9 +235,7 @@ describe('buildPrompt for modules', () => {
         lastModified: new Date('2024-11-01'),
         authors: ['dev@example.com'],
       },
-      edges: [
-        { type: 'contains', target: 'src/utils/helpers.ts' },
-      ],
+      edges: [{ type: 'contains', target: 'src/utils/helpers.ts' }],
       raw: {},
     };
 
@@ -245,9 +258,7 @@ describe('buildPrompt for modules', () => {
         lastModified: new Date(),
         authors: ['dev@example.com'],
       },
-      edges: [
-        { type: 'contains', target: 'src/auth/login.ts' },
-      ],
+      edges: [{ type: 'contains', target: 'src/auth/login.ts' }],
       raw: {},
     };
 
@@ -262,7 +273,8 @@ describe('parseLLMResponse', () => {
   it('parses valid file node response', () => {
     const response = JSON.stringify({
       summary: 'Handles user authentication via OAuth',
-      purpose: 'Central entry point for all authentication flows. Validates credentials and issues session tokens.',
+      purpose:
+        'Central entry point for all authentication flows. Validates credentials and issues session tokens.',
       gotchas: ['Requires OAUTH_SECRET env var', 'Rate limited to 10 req/min'],
       keyExports: ['login: Main authentication function', 'Session: Session type'],
     });
@@ -270,9 +282,18 @@ describe('parseLLMResponse', () => {
     const prose = parseLLMResponse(response);
 
     assert.strictEqual(prose.summary, 'Handles user authentication via OAuth');
-    assert.strictEqual(prose.purpose, 'Central entry point for all authentication flows. Validates credentials and issues session tokens.');
-    assert.deepStrictEqual(prose.gotchas, ['Requires OAUTH_SECRET env var', 'Rate limited to 10 req/min']);
-    assert.deepStrictEqual(prose.keyExports, ['login: Main authentication function', 'Session: Session type']);
+    assert.strictEqual(
+      prose.purpose,
+      'Central entry point for all authentication flows. Validates credentials and issues session tokens.'
+    );
+    assert.deepStrictEqual(prose.gotchas, [
+      'Requires OAUTH_SECRET env var',
+      'Rate limited to 10 req/min',
+    ]);
+    assert.deepStrictEqual(prose.keyExports, [
+      'login: Main authentication function',
+      'Session: Session type',
+    ]);
     assert.ok(prose.generatedAt instanceof Date);
   });
 
@@ -287,13 +308,17 @@ describe('parseLLMResponse', () => {
     const prose = parseLLMResponse(response);
 
     assert.strictEqual(prose.summary, 'Authentication and session management module');
-    assert.deepStrictEqual(prose.keyFiles, ['login.ts: OAuth login flow', 'session.ts: Session management']);
+    assert.deepStrictEqual(prose.keyFiles, [
+      'login.ts: OAuth login flow',
+      'session.ts: Session management',
+    ]);
     assert.deepStrictEqual(prose.publicApi, ['login()', 'logout()', 'getSession()']);
     assert.ok(prose.generatedAt instanceof Date);
   });
 
   it('handles response with markdown code block', () => {
-    const response = '```json\n{"summary": "Test summary", "purpose": "Test purpose", "gotchas": []}\n```';
+    const response =
+      '```json\n{"summary": "Test summary", "purpose": "Test purpose", "gotchas": []}\n```';
 
     const prose = parseLLMResponse(response);
 
@@ -302,7 +327,8 @@ describe('parseLLMResponse', () => {
   });
 
   it('handles response with leading text', () => {
-    const response = 'Here is the documentation:\n\n{"summary": "Test summary", "purpose": "Test purpose", "gotchas": []}';
+    const response =
+      'Here is the documentation:\n\n{"summary": "Test summary", "purpose": "Test purpose", "gotchas": []}';
 
     const prose = parseLLMResponse(response);
 
@@ -310,19 +336,13 @@ describe('parseLLMResponse', () => {
   });
 
   it('throws error for invalid JSON', () => {
-    assert.throws(
-      () => parseLLMResponse('not valid json'),
-      /Failed to parse LLM response/
-    );
+    assert.throws(() => parseLLMResponse('not valid json'), /Failed to parse LLM response/);
   });
 
   it('throws error for missing required fields', () => {
     const response = JSON.stringify({ summary: 'Only summary' });
 
-    assert.throws(
-      () => parseLLMResponse(response),
-      /Missing required field: purpose/
-    );
+    assert.throws(() => parseLLMResponse(response), /Missing required field: purpose/);
   });
 
   it('provides default empty gotchas if missing', () => {
@@ -342,14 +362,20 @@ describe('parseLLMResponse', () => {
       purpose: 'Provides consistent date formatting across the application.',
       gotchas: ['Timezone aware - always uses UTC'],
       keyExports: ['formatDate: Main formatting function'],
-      patterns: ['Use formatDate(new Date()) for current time', 'Import as: import { formatDate } from "./utils"'],
+      patterns: [
+        'Use formatDate(new Date()) for current time',
+        'Import as: import { formatDate } from "./utils"',
+      ],
       similarFiles: ['src/utils/time.ts', 'src/utils/format.ts'],
     });
 
     const prose = parseLLMResponse(response);
 
     assert.strictEqual(prose.summary, 'Utility functions for date formatting');
-    assert.deepStrictEqual(prose.patterns, ['Use formatDate(new Date()) for current time', 'Import as: import { formatDate } from "./utils"']);
+    assert.deepStrictEqual(prose.patterns, [
+      'Use formatDate(new Date()) for current time',
+      'Import as: import { formatDate } from "./utils"',
+    ]);
     assert.deepStrictEqual(prose.similarFiles, ['src/utils/time.ts', 'src/utils/format.ts']);
   });
 
@@ -365,16 +391,21 @@ describe('parseLLMResponse', () => {
     const prose = parseLLMResponse(response);
 
     assert.strictEqual(prose.summary, 'Authentication module');
-    assert.strictEqual(prose.quickStart, 'import { login } from "./auth";\nawait login(email, password);');
+    assert.strictEqual(
+      prose.quickStart,
+      'import { login } from "./auth";\nawait login(email, password);'
+    );
   });
 });
 
 describe('callLLM', () => {
   it('calls OpenRouter API with correct parameters', async () => {
     const mockResponse = {
-      choices: [{
-        message: { content: '{"summary": "Test", "purpose": "Test purpose", "gotchas": []}' }
-      }]
+      choices: [
+        {
+          message: { content: '{"summary": "Test", "purpose": "Test purpose", "gotchas": []}' },
+        },
+      ],
     };
 
     const mockFetch = mock.fn(async () => ({
@@ -407,13 +438,18 @@ describe('callLLM', () => {
     assert.strictEqual(body.temperature, 0.3);
     assert.strictEqual(body.messages[0].role, 'user');
     assert.strictEqual(body.messages[0].content, 'Test prompt');
+    // Verify JSON mode and response healing plugin
+    assert.deepStrictEqual(body.response_format, { type: 'json_object' });
+    assert.deepStrictEqual(body.plugins, [{ id: 'response-healing' }]);
   });
 
   it('uses default maxTokens and temperature', async () => {
     const mockFetch = mock.fn(async () => ({
       ok: true,
       json: async () => ({
-        choices: [{ message: { content: '{"summary": "Test", "purpose": "Purpose", "gotchas": []}' } }]
+        choices: [
+          { message: { content: '{"summary": "Test", "purpose": "Purpose", "gotchas": []}' } },
+        ],
       }),
     }));
 
@@ -426,8 +462,8 @@ describe('callLLM', () => {
     await callLLM('Test', config, mockFetch as unknown as typeof fetch);
 
     const body = JSON.parse(mockFetch.mock.calls[0].arguments[1].body);
-    assert.strictEqual(body.max_tokens, 1024);  // default
-    assert.strictEqual(body.temperature, 0.3);  // default
+    assert.strictEqual(body.max_tokens, 4096); // default increased from 1024
+    assert.strictEqual(body.temperature, 0.3); // default
   });
 
   it('throws error on API failure', async () => {
@@ -501,7 +537,7 @@ describe('generateProse', () => {
     const mockFetch = mock.fn(async () => ({
       ok: true,
       json: async () => ({
-        choices: [{ message: { content: mockLLMResponse } }]
+        choices: [{ message: { content: mockLLMResponse } }],
       }),
     }));
 
@@ -529,7 +565,9 @@ describe('generateProse', () => {
       apiKey: 'test-key',
     };
 
-    const prose = await generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch });
+    const prose = await generateProse(fileNode, config, {
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
 
     assert.strictEqual(prose.summary, 'Handles user authentication');
     assert.strictEqual(prose.purpose, 'Central authentication entry point for OAuth flows.');
@@ -552,7 +590,7 @@ describe('generateProse', () => {
     const mockFetch = mock.fn(async () => ({
       ok: true,
       json: async () => ({
-        choices: [{ message: { content: mockLLMResponse } }]
+        choices: [{ message: { content: mockLLMResponse } }],
       }),
     }));
 
@@ -587,11 +625,14 @@ describe('generateProse', () => {
 
     const prose = await generateProse(moduleNode, config, {
       childSummaries,
-      fetchFn: mockFetch as unknown as typeof fetch
+      fetchFn: mockFetch as unknown as typeof fetch,
     });
 
     assert.strictEqual(prose.summary, 'Authentication module for OAuth and session management');
-    assert.deepStrictEqual(prose.keyFiles, ['login.ts: OAuth login', 'session.ts: Session handling']);
+    assert.deepStrictEqual(prose.keyFiles, [
+      'login.ts: OAuth login',
+      'session.ts: Session handling',
+    ]);
   });
 
   it('propagates LLM errors', async () => {
@@ -622,6 +663,93 @@ describe('generateProse', () => {
       generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch }),
       /OpenRouter API error/
     );
+  });
+
+  it('retries on JSON parse failure and succeeds on second attempt', async () => {
+    let callCount = 0;
+    const mockFetch = mock.fn(async () => {
+      callCount++;
+      if (callCount === 1) {
+        // First call returns malformed JSON
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: '{"summary": "Test", "purpose": "truncated...' } }],
+          }),
+        };
+      }
+      // Second call returns valid JSON
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: '{"summary": "Test", "purpose": "Valid purpose", "gotchas": []}',
+              },
+            },
+          ],
+        }),
+      };
+    });
+
+    const fileNode: WikiNode = {
+      id: 'test.ts',
+      type: 'file',
+      path: 'test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    };
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+    };
+
+    const prose = await generateProse(fileNode, config, {
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    assert.strictEqual(prose.summary, 'Test');
+    assert.strictEqual(prose.purpose, 'Valid purpose');
+    assert.strictEqual(callCount, 2, 'Should have retried once');
+  });
+
+  it('throws after max JSON parse retries', async () => {
+    const mockFetch = mock.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        // Always return malformed JSON
+        choices: [{ message: { content: '{"summary": "Test", broken json...' } }],
+      }),
+    }));
+
+    const fileNode: WikiNode = {
+      id: 'test.ts',
+      type: 'file',
+      path: 'test.ts',
+      name: 'test.ts',
+      metadata: { lines: 10, commits: 1, lastModified: new Date(), authors: [] },
+      edges: [],
+      raw: {},
+    };
+
+    const config: GeneratorConfig = {
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+    };
+
+    await assert.rejects(
+      generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch }),
+      /Failed to parse LLM response as JSON/
+    );
+
+    // Should have tried 3 times (maxParseRetries)
+    assert.strictEqual(mockFetch.mock.calls.length, 3);
   });
 });
 
@@ -1006,7 +1134,7 @@ describe('generateProseForNode', () => {
     const mockFetch = mock.fn(async () => ({
       ok: true,
       json: async () => ({
-        choices: [{ message: { content: mockLLMResponse } }]
+        choices: [{ message: { content: mockLLMResponse } }],
       }),
     }));
 
@@ -1017,7 +1145,12 @@ describe('generateProseForNode', () => {
     };
 
     // Call generateProseForNode
-    const updatedNode = await generateProseForNode('src/test.ts', db, config, mockFetch as unknown as typeof fetch);
+    const updatedNode = await generateProseForNode(
+      'src/test.ts',
+      db,
+      config,
+      mockFetch as unknown as typeof fetch
+    );
 
     // Verify the returned node has prose
     assert.ok(updatedNode);
@@ -1044,7 +1177,12 @@ describe('generateProseForNode', () => {
 
     const mockFetch = mock.fn();
 
-    const result = await generateProseForNode('nonexistent.ts', db, config, mockFetch as unknown as typeof fetch);
+    const result = await generateProseForNode(
+      'nonexistent.ts',
+      db,
+      config,
+      mockFetch as unknown as typeof fetch
+    );
 
     assert.strictEqual(result, null);
     // LLM should not be called
@@ -1068,9 +1206,7 @@ describe('generateProseForNode', () => {
         lastModified: new Date(),
         authors: ['alice@example.com'],
       },
-      edges: [
-        { type: 'contains', target: 'src/auth/login.ts' },
-      ],
+      edges: [{ type: 'contains', target: 'src/auth/login.ts' }],
       raw: {},
     };
 
@@ -1110,7 +1246,7 @@ describe('generateProseForNode', () => {
     const mockFetch = mock.fn(async () => ({
       ok: true,
       json: async () => ({
-        choices: [{ message: { content: mockLLMResponse } }]
+        choices: [{ message: { content: mockLLMResponse } }],
       }),
     }));
 
@@ -1120,7 +1256,12 @@ describe('generateProseForNode', () => {
       apiKey: 'test-key',
     };
 
-    const updatedNode = await generateProseForNode('src/auth', db, config, mockFetch as unknown as typeof fetch);
+    const updatedNode = await generateProseForNode(
+      'src/auth',
+      db,
+      config,
+      mockFetch as unknown as typeof fetch
+    );
 
     // Verify module prose was generated
     assert.ok(updatedNode?.prose);
@@ -1145,7 +1286,11 @@ describe('LLM retry logic', () => {
       return {
         ok: true,
         json: async () => ({
-          choices: [{ message: { content: '{"summary": "Test", "purpose": "Test purpose", "gotchas": []}' } }]
+          choices: [
+            {
+              message: { content: '{"summary": "Test", "purpose": "Test purpose", "gotchas": []}' },
+            },
+          ],
         }),
       };
     });
@@ -1166,7 +1311,9 @@ describe('LLM retry logic', () => {
       raw: {},
     };
 
-    const prose = await generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch });
+    const prose = await generateProse(fileNode, config, {
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
 
     // Should succeed after retries
     assert.strictEqual(prose.summary, 'Test');
@@ -1188,7 +1335,11 @@ describe('LLM retry logic', () => {
       return {
         ok: true,
         json: async () => ({
-          choices: [{ message: { content: '{"summary": "Test", "purpose": "Test purpose", "gotchas": []}' } }]
+          choices: [
+            {
+              message: { content: '{"summary": "Test", "purpose": "Test purpose", "gotchas": []}' },
+            },
+          ],
         }),
       };
     });
@@ -1209,7 +1360,9 @@ describe('LLM retry logic', () => {
       raw: {},
     };
 
-    const prose = await generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch });
+    const prose = await generateProse(fileNode, config, {
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
 
     assert.strictEqual(prose.summary, 'Test');
     assert.strictEqual(attemptCount, 2);
@@ -1291,7 +1444,11 @@ describe('LLM retry logic', () => {
       return {
         ok: true,
         json: async () => ({
-          choices: [{ message: { content: '{"summary": "Test", "purpose": "Test purpose", "gotchas": []}' } }]
+          choices: [
+            {
+              message: { content: '{"summary": "Test", "purpose": "Test purpose", "gotchas": []}' },
+            },
+          ],
         }),
       };
     });
@@ -1312,7 +1469,9 @@ describe('LLM retry logic', () => {
       raw: {},
     };
 
-    const prose = await generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch });
+    const prose = await generateProse(fileNode, config, {
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
 
     assert.strictEqual(prose.summary, 'Test');
     assert.strictEqual(attemptCount, 2);
@@ -1478,9 +1637,7 @@ describe('validateGotcha', () => {
       metadata: { lines: 100, commits: 5, lastModified: new Date(), authors: [] },
       edges: [],
       raw: {
-        imports: [
-          { from: './db', names: ['findUser', 'createUser'] },
-        ],
+        imports: [{ from: './db', names: ['findUser', 'createUser'] }],
       },
     };
 
@@ -1563,17 +1720,14 @@ describe('generateProse with gotcha validation', () => {
     const mockLLMResponse = JSON.stringify({
       summary: 'Handles user authentication',
       purpose: 'Central authentication entry point.',
-      gotchas: [
-        'login requires OAUTH_SECRET env var',
-        'fakeFunction does not exist'
-      ],
+      gotchas: ['login requires OAUTH_SECRET env var', 'fakeFunction does not exist'],
       keyExports: ['login: Main auth function'],
     });
 
     const mockFetch = mock.fn(async () => ({
       ok: true,
       json: async () => ({
-        choices: [{ message: { content: mockLLMResponse } }]
+        choices: [{ message: { content: mockLLMResponse } }],
       }),
     }));
 
@@ -1601,18 +1755,20 @@ describe('generateProse with gotcha validation', () => {
       apiKey: 'test-key',
     };
 
-    const prose = await generateProse(fileNode, config, { fetchFn: mockFetch as unknown as typeof fetch });
+    const prose = await generateProse(fileNode, config, {
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
 
     assert.strictEqual(prose.summary, 'Handles user authentication');
     assert.deepStrictEqual(prose.gotchas, [
       'login requires OAUTH_SECRET env var',
-      'fakeFunction does not exist'
+      'fakeFunction does not exist',
     ]);
 
     // Verify confidence was added
     assert.ok(prose.gotchaConfidence);
     assert.strictEqual(prose.gotchaConfidence.length, 2);
     assert.strictEqual(prose.gotchaConfidence[0], 'high'); // login exists
-    assert.strictEqual(prose.gotchaConfidence[1], 'low');  // fakeFunction doesn't exist
+    assert.strictEqual(prose.gotchaConfidence[1], 'low'); // fakeFunction doesn't exist
   });
 });

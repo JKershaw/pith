@@ -69,7 +69,7 @@ export interface GeneratorConfig {
   provider: 'openrouter';
   model: string; // e.g., 'anthropic/claude-sonnet-4'
   apiKey: string; // OpenRouter API key
-  maxTokens?: number; // Default: 1024
+  maxTokens?: number; // Default: 4096
   temperature?: number; // Default: 0.3
   timeout?: number; // Request timeout in milliseconds (default: 30000)
 }
@@ -741,8 +741,10 @@ export async function callLLM(
   const body = {
     model: config.model,
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: config.maxTokens ?? 1024,
+    max_tokens: config.maxTokens ?? 4096,
     temperature: config.temperature ?? 0.3,
+    response_format: { type: 'json_object' },
+    plugins: [{ id: 'response-healing' }],
   };
 
   let lastError: Error | null = null;
@@ -838,6 +840,19 @@ export interface GenerateProseOptions {
 }
 
 /**
+ * Checks if an error is a JSON parsing error that should trigger a retry
+ */
+function isJsonParseError(error: Error): boolean {
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('json') ||
+    message.includes('parse') ||
+    message.includes('unexpected token') ||
+    message.includes('unterminated string')
+  );
+}
+
+/**
  * Generates prose for a WikiNode by calling the LLM
  * @param node - The node to generate prose for
  * @param config - LLM provider configuration
@@ -853,19 +868,42 @@ export async function generateProse(
   // Build the prompt for this node type
   const prompt = buildPrompt(node, childSummaries);
 
-  // Call the LLM
-  const response = await callLLM(prompt, config, fetchFn);
+  const maxParseRetries = 3;
+  let lastError: Error | null = null;
 
-  // Parse the response into structured prose
-  const prose = parseLLMResponse(response);
+  // Retry loop for JSON parse failures
+  for (let attempt = 1; attempt <= maxParseRetries; attempt++) {
+    // Call the LLM
+    const response = await callLLM(prompt, config, fetchFn);
 
-  // Validate gotchas and add confidence levels (Phase 6.5)
-  if (prose.gotchas.length > 0) {
-    const validatedGotchas = validateGotchas(prose.gotchas, node);
-    prose.gotchaConfidence = validatedGotchas.map((v) => v.confidence);
+    try {
+      // Parse the response into structured prose
+      const prose = parseLLMResponse(response);
+
+      // Validate gotchas and add confidence levels (Phase 6.5)
+      if (prose.gotchas.length > 0) {
+        const validatedGotchas = validateGotchas(prose.gotchas, node);
+        prose.gotchaConfidence = validatedGotchas.map((v) => v.confidence);
+      }
+
+      return prose;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Only retry on JSON parse errors
+      if (isJsonParseError(lastError) && attempt < maxParseRetries) {
+        // Exponential backoff: 1s, 2s, 4s
+        const backoffMs = Math.pow(2, attempt - 1) * 1000;
+        await sleep(backoffMs);
+        continue;
+      }
+
+      throw lastError;
+    }
   }
 
-  return prose;
+  // Should never reach here, but TypeScript needs this
+  throw lastError ?? new Error('Failed after maximum parse retry attempts');
 }
 
 /**
